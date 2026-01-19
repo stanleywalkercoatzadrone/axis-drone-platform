@@ -1,0 +1,8 @@
+{
+  "name": "Axis by CoatzadroneUSA - Enterprise Drone Inspection",
+  "description": "Enterprise drone inspection platform by CoatzadroneUSA featuring AI-powered automated defect analysis for Solar, Utilities, Insurance, Telecom, and Construction sectors.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}

@@ -1,0 +1,205 @@
+/* Axis by CoatzadroneUSA - Design System */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Brand Colors */
+  --axis-navy: #0A1F44;
+  --axis-cyan: #00E5FF;
+  --axis-white: #FFFFFF;
+  
+  /* UI Colors */
+  --axis-slate: #1E293B;
+  --axis-gray: #64748B;
+  --axis-light: #F1F5F9;
+  --axis-success: #10B981;
+  --axis-warning: #F59E0B;
+  --axis-danger: #EF4444;
+  --axis-info: #3B82F6;
+  
+  /* Backgrounds */
+  --axis-bg-primary: #0A1F44;
+  --axis-bg-secondary: #1E293B;
+  --axis-surface: #FFFFFF;
+  --axis-surface-dark: #0F172A;
+  
+  /* Text */
+  --axis-text-primary: #0A1F44;
+  --axis-text-secondary: #64748B;
+  --axis-text-inverse: #FFFFFF;
+  --axis-text-muted: #94A3B8;
+  
+  /* Accents */
+  --axis-accent: #00E5FF;
+  --axis-accent-hover: #00BCD4;
+  --axis-accent-light: rgba(0, 229, 255, 0.1);
+  
+  /* Gradients */
+  --axis-gradient-primary: linear-gradient(135deg, #0A1F44 0%, #00E5FF 100%);
+  --axis-gradient-dark: linear-gradient(180deg, #0A1F44 0%, #1E293B 100%);
+  --axis-gradient-accent: linear-gradient(135deg, #00E5FF 0%, #00BCD4 100%);
+  
+  /* Shadows */
+  --axis-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --axis-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --axis-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --axis-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --axis-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --axis-shadow-glow: 0 0 20px rgba(0, 229, 255, 0.3);
+  --axis-shadow-glow-strong: 0 0 30px rgba(0, 229, 255, 0.5);
+  
+  /* Border Radius */
+  --axis-radius-sm: 4px;
+  --axis-radius-md: 8px;
+  --axis-radius-lg: 12px;
+  --axis-radius-xl: 16px;
+  --axis-radius-2xl: 24px;
+  --axis-radius-full: 9999px;
+  
+  /* Typography */
+  --axis-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --axis-font-mono: 'JetBrains Mono', 'Courier New', monospace;
+  
+  /* Font Sizes */
+  --axis-text-xs: 0.75rem;     /* 12px */
+  --axis-text-sm: 0.875rem;    /* 14px */
+  --axis-text-base: 1rem;      /* 16px */
+  --axis-text-lg: 1.125rem;    /* 18px */
+  --axis-text-xl: 1.25rem;     /* 20px */
+  --axis-text-2xl: 1.5rem;     /* 24px */
+  --axis-text-3xl: 1.875rem;   /* 30px */
+  --axis-text-4xl: 2.25rem;    /* 36px */
+  --axis-text-5xl: 3rem;       /* 48px */
+  
+  /* Font Weights */
+  --axis-font-normal: 400;
+  --axis-font-medium: 500;
+  --axis-font-semibold: 600;
+  --axis-font-bold: 700;
+  
+  /* Spacing */
+  --axis-space-1: 0.25rem;    /* 4px */
+  --axis-space-2: 0.5rem;     /* 8px */
+  --axis-space-3: 0.75rem;    /* 12px */
+  --axis-space-4: 1rem;       /* 16px */
+  --axis-space-5: 1.25rem;    /* 20px */
+  --axis-space-6: 1.5rem;     /* 24px */
+  --axis-space-8: 2rem;       /* 32px */
+  --axis-space-10: 2.5rem;    /* 40px */
+  --axis-space-12: 3rem;      /* 48px */
+  --axis-space-16: 4rem;      /* 64px */
+  
+  /* Transitions */
+  --axis-transition: all 0.2s ease;
+  --axis-transition-slow: all 0.3s ease;
+}
+
+/* Global Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--axis-font-family);
+  color: var(--axis-text-primary);
+  background-color: var(--axis-light);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Classes */
+.axis-h1 { font-size: var(--axis-text-5xl); font-weight: var(--axis-font-bold); }
+.axis-h2 { font-size: var(--axis-text-4xl); font-weight: var(--axis-font-bold); }
+.axis-h3 { font-size: var(--axis-text-3xl); font-weight: var(--axis-font-semibold); }
+.axis-h4 { font-size: var(--axis-text-2xl); font-weight: var(--axis-font-semibold); }
+.axis-h5 { font-size: var(--axis-text-xl); font-weight: var(--axis-font-medium); }
+
+.axis-text-lg { font-size: var(--axis-text-lg); }
+.axis-text-base { font-size: var(--axis-text-base); }
+.axis-text-sm { font-size: var(--axis-text-sm); }
+.axis-text-xs { font-size: var(--axis-text-xs); }
+
+/* Button Styles */
+.axis-btn {
+  padding: var(--axis-space-3) var(--axis-space-6);
+  border-radius: var(--axis-radius-md);
+  font-weight: var(--axis-font-medium);
+  font-size: var(--axis-text-base);
+  cursor: pointer;
+  transition: var(--axis-transition);
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--axis-space-2);
+}
+
+.axis-btn-primary {
+  background: var(--axis-cyan);
+  color: var(--axis-navy);
+}
+
+.axis-btn-primary:hover {
+  box-shadow: var(--axis-shadow-glow);
+  transform: translateY(-1px);
+}
+
+.axis-btn-secondary {
+  background: transparent;
+  border: 2px solid var(--axis-navy);
+  color: var(--axis-navy);
+}
+
+.axis-btn-secondary:hover {
+  background: var(--axis-navy);
+  color: var(--axis-white);
+}
+
+/* Card Styles */
+.axis-card {
+  background: var(--axis-surface);
+  border-radius: var(--axis-radius-lg);
+  padding: var(--axis-space-6);
+  box-shadow: var(--axis-shadow-md);
+  transition: var(--axis-transition);
+}
+
+.axis-card:hover {
+  box-shadow: var(--axis-shadow-lg);
+  transform: translateY(-2px);
+}
+
+/* Navbar */
+.axis-navbar {
+  background: var(--axis-gradient-dark);
+  color: var(--axis-white);
+  padding: var(--axis-space-4) var(--axis-space-6);
+  box-shadow: var(--axis-shadow-lg);
+}
+
+.axis-logo {
+  height: 40px;
+  width: auto;
+}
+
+/* Utilities */
+.axis-shadow-sm { box-shadow: var(--axis-shadow-sm); }
+.axis-shadow-md { box-shadow: var(--axis-shadow-md); }
+.axis-shadow-lg { box-shadow: var(--axis-shadow-lg); }
+.axis-shadow-glow { box-shadow: var(--axis-shadow-glow); }
+
+.axis-rounded-sm { border-radius: var(--axis-radius-sm); }
+.axis-rounded-md { border-radius: var(--axis-radius-md); }
+.axis-rounded-lg { border-radius: var(--axis-radius-lg); }
+.axis-rounded-xl { border-radius: var(--axis-radius-xl); }
+
+.axis-text-navy { color: var(--axis-navy); }
+.axis-text-cyan { color: var(--axis-cyan); }
+.axis-text-white { color: var(--axis-white); }
+.axis-text-gray { color: var(--axis-gray); }
+
+.axis-bg-navy { background-color: var(--axis-navy); }
+.axis-bg-cyan { background-color: var(--axis-cyan); }
+.axis-bg-white { background-color: var(--axis-white); }
+.axis-bg-light { background-color: var(--axis-light); }
