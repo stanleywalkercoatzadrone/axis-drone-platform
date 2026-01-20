@@ -29,7 +29,12 @@ import {
   UploadCloud,
   History as HistoryIcon,
   Download as DownloadIcon,
-  CheckCircle
+  Receipt,
+  Plus,
+  X,
+  CheckCircle,
+  Upload,
+  FileText
 } from 'lucide-react';
 import { UserAccount, UserRole, ADMIN_PASSKEY, ROLE_DEFINITIONS, AuditLogEntry } from '../types';
 import { testAIConnection } from '../geminiService';
@@ -53,6 +58,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   const [isValidatingPath, setIsValidatingPath] = useState(false);
   const [pathValid, setPathValid] = useState<boolean | null>(null);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<{ node: string, model: string, database: string, uptime: number, version: string } | null>(null);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [bulkImportMode, setBulkImportMode] = useState<'file' | 'manual'>('file');
+  const [bulkImportText, setBulkImportText] = useState('');
+  const [bulkImportPreview, setBulkImportPreview] = useState<any[]>([]);
+  const [bulkImportResults, setBulkImportResults] = useState<{ success: number, failed: number, errors: string[] } | null>(null);
+  const [isBulkImporting, setIsBulkImporting] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: currentUser.fullName,
@@ -64,12 +76,46 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
     aiSensitivity: 50
   });
 
+  // Sync formData with currentUser prop updates
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      fullName: currentUser.fullName,
+      email: currentUser.email,
+      companyName: currentUser.companyName,
+      title: currentUser.title || '',
+      role: currentUser.role,
+      driveFolder: currentUser.driveFolder || prev.driveFolder
+    }));
+  }, [currentUser]);
+
   const [teamUsers, setTeamUsers] = useState<UserAccount[]>([]);
   const [resetPasswordValues, setResetPasswordValues] = useState<{ userId: string | null, new: string }>({ userId: null, new: '' });
+  const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[] }>({ adminEmail: '', ccEmails: [] });
 
   useEffect(() => {
     if (activeSection === 'team' && formData.role === UserRole.ADMIN) {
       fetchUsers();
+    }
+    if (activeSection === 'invoicing' && formData.role === UserRole.ADMIN) {
+      apiClient.get('/system/settings').then(res => {
+        if (res.data.success) {
+          const s = res.data.data;
+          const ccs = s.invoice_cc_emails ? JSON.parse(s.invoice_cc_emails) : [];
+          setInvoiceSettings({
+            adminEmail: s.invoice_admin_email || '',
+            ccEmails: ccs
+          });
+          if (s.ai_sensitivity_default) {
+            setFormData(prev => ({ ...prev, aiSensitivity: parseInt(s.ai_sensitivity_default) }));
+          }
+        }
+      }).catch(err => console.error(err));
+    }
+    if (activeSection === 'system' && formData.role === UserRole.ADMIN) {
+      apiClient.get('/system/health-status').then(res => {
+        if (res.data.success) setSystemHealth(res.data.data);
+      }).catch(err => console.error(err));
     }
   }, [activeSection, formData.role]);
 
@@ -81,11 +127,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
       }
     } catch (err) {
       console.error('Failed to fetch users', err);
-      // Fallback for UI demonstration if DB is down
-      setTeamUsers([
-        { id: '1', fullName: 'Marcus Wright', email: 'm.wright@skylens.ai', title: 'Field Lead', role: UserRole.FIELD_OPERATOR, createdAt: new Date().toISOString(), companyName: currentUser.companyName, driveLinked: false, isDriveBlocked: false },
-        { id: '2', fullName: 'Sarah Chen', email: 's.chen@skylens.ai', title: 'Safety Auditor', role: UserRole.ADMIN, createdAt: new Date().toISOString(), companyName: currentUser.companyName, driveLinked: true, isDriveBlocked: true }
-      ]);
     }
   };
 
@@ -101,19 +142,43 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   const [passwordStatus, setPasswordStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaveStatus(true);
-    const updatedUser: UserAccount = {
-      ...currentUser,
-      fullName: formData.fullName,
-      email: formData.email,
-      companyName: formData.companyName,
-      title: formData.title,
-      role: formData.role,
-      driveFolder: formData.driveFolder
-    };
-    onUpdateUser(updatedUser);
-    localStorage.setItem(`skylens_settings_${currentUser.id}`, JSON.stringify({ aiSensitivity: formData.aiSensitivity }));
+    try {
+      const promises: Promise<any>[] = [];
+
+      // 1. Profile Update
+      promises.push(apiClient.put('/auth/me', {
+        fullName: formData.fullName,
+        companyName: formData.companyName,
+        title: formData.title,
+        driveFolder: formData.driveFolder
+      }));
+
+      // 2. Admin System Settings
+      if (formData.role === UserRole.ADMIN) {
+        if (invoiceSettings.adminEmail) {
+          promises.push(apiClient.post('/system/settings', { key: 'invoice_admin_email', value: invoiceSettings.adminEmail }));
+        }
+        promises.push(apiClient.post('/system/settings', { key: 'invoice_cc_emails', value: JSON.stringify(invoiceSettings.ccEmails.filter(e => e)) }));
+        promises.push(apiClient.post('/system/settings', { key: 'ai_sensitivity_default', value: formData.aiSensitivity.toString() }));
+      }
+
+      const results = await Promise.all(promises);
+      const profileResult = results[0];
+
+      if (profileResult.data.success) {
+        onUpdateUser(profileResult.data.data);
+      }
+
+      // Local check for AI sensitivity persistence for mission creator defaults
+      localStorage.setItem(`skylens_ai_sensitivity_default`, formData.aiSensitivity.toString());
+
+    } catch (err) {
+      console.error('Failed to update settings', err);
+      alert('One or more updates failed. Check logs.');
+    }
+
     setTimeout(() => setSaveStatus(false), 2000);
   };
 
@@ -202,6 +267,142 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
     }
   };
 
+  const parseCSV = (text: string) => {
+    const lines = text.trim().split('\n').filter(line => line.trim());
+    if (lines.length === 0) return { users: [], errors: [] };
+
+    const users = [];
+    const errors: string[] = [];
+
+    // Skip header if it exists
+    const startIndex = lines[0].toLowerCase().includes('fullname') || lines[0].toLowerCase().includes('email') ? 1 : 0;
+
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const parts = line.split(',').map(p => p.trim());
+
+      if (parts.length < 3) {
+        errors.push(`Line ${i + 1}: Not enough fields (need at least fullName, email, password)`);
+        continue;
+      }
+
+      const [fullName, email, password, role, title] = parts;
+
+      // Validate email
+      if (!email || !email.includes('@')) {
+        errors.push(`Line ${i + 1}: Invalid email format`);
+        continue;
+      }
+
+      users.push({
+        fullName: fullName || '',
+        email,
+        password,
+        role: role || UserRole.FIELD_OPERATOR,
+        title: title || '',
+        lineNumber: i + 1,
+        valid: fullName && email && password
+      });
+    }
+
+    return { users, errors };
+  };
+
+  const handleBulkImportTextChange = (text: string) => {
+    setBulkImportText(text);
+    const { users, errors } = parseCSV(text);
+    setBulkImportPreview(users);
+    if (errors.length > 0) {
+      console.warn('CSV parsing errors:', errors);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      handleBulkImportTextChange(text);
+      setBulkImportMode('file');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBulkImport = async () => {
+    if (bulkImportPreview.length === 0) {
+      alert('No users to import');
+      return;
+    }
+
+    const validUsers = bulkImportPreview.filter(u => u.valid);
+    if (validUsers.length === 0) {
+      alert('No valid users to import. Please fix errors.');
+      return;
+    }
+
+    setIsBulkImporting(true);
+    setBulkImportResults(null);
+
+    try {
+      const response = await apiClient.post('/users/batch', {
+        users: validUsers.map(u => ({
+          fullName: u.fullName,
+          email: u.email,
+          password: u.password,
+          role: u.role,
+          title: u.title
+        }))
+      });
+
+      if (response.data.success) {
+        const successCount = response.data.count || 0;
+        const failedCount = validUsers.length - successCount;
+
+        setBulkImportResults({
+          success: successCount,
+          failed: failedCount,
+          errors: failedCount > 0 ? ['Some users may already exist or have invalid data'] : []
+        });
+
+        // Refresh user list
+        fetchUsers();
+
+        // Clear preview after successful import
+        if (failedCount === 0) {
+          setTimeout(() => {
+            setBulkImportText('');
+            setBulkImportPreview([]);
+            setShowBulkImportModal(false);
+            setBulkImportResults(null);
+          }, 3000);
+        }
+      }
+    } catch (error: any) {
+      setBulkImportResults({
+        success: 0,
+        failed: validUsers.length,
+        errors: [error.response?.data?.message || 'Failed to import users']
+      });
+    } finally {
+      setIsBulkImporting(false);
+    }
+  };
+
+  const downloadCSVTemplate = () => {
+    const template = 'fullName,email,password,role,title\nJohn Doe,john@example.com,password123,FIELD_OPERATOR,Drone Pilot\nJane Smith,jane@example.com,password456,ANALYST,Data Analyst';
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'user_import_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20 animate-in fade-in duration-500">
 
@@ -227,6 +428,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'profile', label: 'My Profile', icon: User },
             { id: 'security', label: 'Security', icon: Lock },
             { id: 'integrations', label: 'Integrations', icon: Layers },
+            { id: 'invoicing', label: 'Invoicing Setup', icon: Receipt, admin: true },
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'Team Members', icon: Users, admin: true }
           ].map(item => (
@@ -431,11 +633,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                 <div className="grid grid-cols-2 gap-6 mb-8">
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">API Node</div>
-                    <div className="font-mono text-lg font-bold text-slate-700">US-EAST-1</div>
+                    <div className="font-mono text-lg font-bold text-slate-700">{systemHealth?.node || 'CONNECTING...'}</div>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">AI Model</div>
-                    <div className="font-mono text-lg font-bold text-slate-700">GEMINI-PRO</div>
+                    <div className="font-mono text-lg font-bold text-slate-700">{systemHealth?.model || 'GEMINI-PRO'}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Database</div>
+                    <div className={`text-sm font-bold ${systemHealth?.database === 'CONNECTED' ? 'text-green-600' : 'text-amber-600'}`}>
+                      {systemHealth?.database || 'CHECKING...'}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Uptime</div>
+                    <div className="text-sm font-bold text-slate-700">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '--'}</div>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Version</div>
+                    <div className="text-sm font-bold text-slate-700">{systemHealth?.version || '1.2.0-AXIS'}</div>
                   </div>
                 </div>
 
@@ -448,6 +667,28 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                   Test System Response
                 </button>
 
+                <div className="mt-8 pt-8 border-t border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-500" /> AI Detection Calibration
+                  </h4>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase">
+                      <span>Standard Detection</span>
+                      <span>{formData.aiSensitivity}% Precision</span>
+                      <span>Maximum Depth</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={formData.aiSensitivity}
+                      onChange={e => setFormData({ ...formData, aiSensitivity: parseInt(e.target.value) })}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <p className="text-xs text-slate-500">Higher sensitivity increases anomaly detection but may increase false positives in legacy systems.</p>
+                  </div>
+                </div>
+
                 {diagResult.status && (
                   <div className={`mt-6 p-4 rounded-lg flex items-center gap-3 text-sm font-medium ${diagResult.status === 'ok' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
                     {diagResult.status === 'ok' ? <CheckCircle className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
@@ -455,6 +696,77 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                     {diagResult.latency && <span className="ml-auto font-mono opacity-75">{diagResult.latency}ms</span>}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'invoicing' && formData.role === UserRole.ADMIN && (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Receipt className="w-5 h-5 text-blue-600" /> Invoice Configuration
+                </h3>
+                <p className="text-slate-500 text-sm mt-1">Manage email recipients for automated invoice summaries.</p>
+              </div>
+
+              <div className="space-y-6 max-w-lg">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Default Admin Email (To)</label>
+                  <input
+                    type="email"
+                    placeholder="admin@coatzadroneusa.com"
+                    value={invoiceSettings.adminEmail}
+                    onChange={e => setInvoiceSettings({ ...invoiceSettings, adminEmail: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">The primary recipient for all mission invoice summaries.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">CC Recipients</label>
+                  <div className="space-y-2">
+                    {invoiceSettings.ccEmails.map((email, idx) => (
+                      <div key={idx} className="flex gap-2">
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={e => {
+                            const newCCs = [...invoiceSettings.ccEmails];
+                            newCCs[idx] = e.target.value;
+                            setInvoiceSettings({ ...invoiceSettings, ccEmails: newCCs });
+                          }}
+                          className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        />
+                        <button
+                          onClick={() => {
+                            const newCCs = invoiceSettings.ccEmails.filter((_, i) => i !== idx);
+                            setInvoiceSettings({ ...invoiceSettings, ccEmails: newCCs });
+                          }}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setInvoiceSettings({ ...invoiceSettings, ccEmails: [...invoiceSettings.ccEmails, ''] })}
+                      className="text-sm text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" /> Add CC Recipient
+                    </button>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <button
+                    onClick={handleSave}
+                    disabled={saveStatus}
+                    className="px-6 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-2"
+                  >
+                    {saveStatus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    {saveStatus ? 'Saving...' : 'Save Settings'}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -468,12 +780,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                   </h3>
                   <p className="text-slate-500 text-sm mt-1">Manage user accounts and access permissions.</p>
                 </div>
-                <button
-                  onClick={() => setShowAddUserModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm"
-                >
-                  <UserPlus className="w-4 h-4" /> Add User
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm"
+                  >
+                    <UserPlus className="w-4 h-4" /> Add User
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowBulkImportModal(true);
+                      setBulkImportResults(null);
+                      setBulkImportText('');
+                      setBulkImportPreview([]);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 shadow-sm"
+                  >
+                    <Upload className="w-4 h-4" /> Bulk Import
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -655,6 +980,206 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                       >
                         Add User
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bulk Import Modal */}
+              {showBulkImportModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in p-4">
+                  <div className="bg-white rounded-xl p-8 max-w-4xl w-full mx-4 shadow-2xl animate-in zoom-in max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <Upload className="w-5 h-5 text-blue-600" /> Bulk Import Users
+                      </h3>
+                      <button
+                        onClick={() => setShowBulkImportModal(false)}
+                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+
+                    {/* Mode Tabs */}
+                    <div className="flex gap-2 mb-6 border-b border-slate-200">
+                      <button
+                        onClick={() => setBulkImportMode('file')}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${bulkImportMode === 'file' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                      >
+                        <FileText className="w-4 h-4 inline mr-2" />
+                        Upload CSV
+                      </button>
+                      <button
+                        onClick={() => setBulkImportMode('manual')}
+                        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${bulkImportMode === 'manual' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                      >
+                        <FileText className="w-4 h-4 inline mr-2" />
+                        Manual Entry
+                      </button>
+                    </div>
+
+                    {/* File Upload Mode */}
+                    {bulkImportMode === 'file' && (
+                      <div className="space-y-4 mb-6">
+                        <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+                          <input
+                            type="file"
+                            accept=".csv"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                            id="csv-upload"
+                          />
+                          <label htmlFor="csv-upload" className="cursor-pointer">
+                            <UploadCloud className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                            <p className="text-sm font-medium text-slate-700 mb-1">Click to upload CSV file</p>
+                            <p className="text-xs text-slate-500">or drag and drop</p>
+                          </label>
+                        </div>
+                        <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg">
+                          <p className="text-xs text-slate-600">
+                            <strong>CSV Format:</strong> fullName, email, password, role, title
+                          </p>
+                          <button
+                            onClick={downloadCSVTemplate}
+                            className="text-xs text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1"
+                          >
+                            <DownloadIcon className="w-3 h-3" /> Download Template
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Manual Entry Mode */}
+                    {bulkImportMode === 'manual' && (
+                      <div className="space-y-4 mb-6">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Paste CSV Data
+                          </label>
+                          <textarea
+                            value={bulkImportText}
+                            onChange={(e) => handleBulkImportTextChange(e.target.value)}
+                            placeholder="fullName,email,password,role,title&#10;John Doe,john@example.com,password123,FIELD_OPERATOR,Drone Pilot&#10;Jane Smith,jane@example.com,password456,ANALYST,Data Analyst"
+                            className="w-full px-4 py-3 border border-slate-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                            rows={8}
+                          />
+                          <p className="text-xs text-slate-500 mt-2">
+                            Format: fullName, email, password, role (optional), title (optional)
+                          </p>
+                        </div>
+                        <button
+                          onClick={downloadCSVTemplate}
+                          className="text-xs text-blue-600 font-medium hover:text-blue-700 flex items-center gap-1"
+                        >
+                          <DownloadIcon className="w-3 h-3" /> Download Template
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Preview Table */}
+                    {bulkImportPreview.length > 0 && (
+                      <div className="mb-6">
+                        <h4 className="text-sm font-bold text-slate-900 mb-3">
+                          Preview ({bulkImportPreview.length} users)
+                        </h4>
+                        <div className="border border-slate-200 rounded-lg overflow-hidden">
+                          <div className="overflow-x-auto max-h-64">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                                <tr>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">#</th>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">Name</th>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">Email</th>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">Role</th>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">Title</th>
+                                  <th className="px-3 py-2 text-left text-xs font-bold text-slate-500 uppercase">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {bulkImportPreview.map((user, idx) => (
+                                  <tr key={idx} className={`border-b border-slate-100 ${!user.valid ? 'bg-red-50' : ''}`}>
+                                    <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
+                                    <td className="px-3 py-2 text-slate-900">{user.fullName || '-'}</td>
+                                    <td className="px-3 py-2 text-slate-700 font-mono text-xs">{user.email}</td>
+                                    <td className="px-3 py-2">
+                                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-bold rounded uppercase">
+                                        {user.role}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-600">{user.title || '-'}</td>
+                                    <td className="px-3 py-2">
+                                      {user.valid ? (
+                                        <span className="text-green-600 text-xs font-medium flex items-center gap-1">
+                                          <CheckCircle className="w-3 h-3" /> Valid
+                                        </span>
+                                      ) : (
+                                        <span className="text-red-600 text-xs font-medium flex items-center gap-1">
+                                          <AlertTriangle className="w-3 h-3" /> Invalid
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Results Display */}
+                    {bulkImportResults && (
+                      <div className={`mb-6 p-4 rounded-lg ${bulkImportResults.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          {bulkImportResults.success > 0 ? (
+                            <CheckCircle className="w-5 h-5 text-green-600" />
+                          ) : (
+                            <AlertTriangle className="w-5 h-5 text-red-600" />
+                          )}
+                          <h4 className={`font-bold text-sm ${bulkImportResults.success > 0 ? 'text-green-900' : 'text-red-900'}`}>
+                            Import Results
+                          </h4>
+                        </div>
+                        <p className={`text-sm ${bulkImportResults.success > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          Successfully imported: <strong>{bulkImportResults.success}</strong> users
+                          {bulkImportResults.failed > 0 && (
+                            <> | Failed: <strong>{bulkImportResults.failed}</strong> users</>
+                          )}
+                        </p>
+                        {bulkImportResults.errors.length > 0 && (
+                          <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                            {bulkImportResults.errors.map((err, idx) => (
+                              <li key={idx}>{err}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setShowBulkImportModal(false)}
+                        className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleBulkImport}
+                        disabled={isBulkImporting || bulkImportPreview.length === 0}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {isBulkImporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" /> Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4" /> Import {bulkImportPreview.length} Users
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
