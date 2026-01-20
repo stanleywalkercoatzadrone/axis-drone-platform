@@ -94,10 +94,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[] }>({ adminEmail: '', ccEmails: [] });
 
   useEffect(() => {
-    if (activeSection === 'team' && formData.role === UserRole.ADMIN) {
+    if (activeSection === 'team' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN')) {
       fetchUsers();
     }
-    if (activeSection === 'invoicing' && formData.role === UserRole.ADMIN) {
+    if (activeSection === 'invoicing' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN')) {
       apiClient.get('/system/settings').then(res => {
         if (res.data.success) {
           const s = res.data.data;
@@ -112,7 +112,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         }
       }).catch(err => console.error(err));
     }
-    if (activeSection === 'system' && formData.role === UserRole.ADMIN) {
+    if (activeSection === 'system' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN')) {
       apiClient.get('/system/health-status').then(res => {
         if (res.data.success) setSystemHealth(res.data.data);
       }).catch(err => console.error(err));
@@ -156,7 +156,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
       }));
 
       // 2. Admin System Settings
-      if (formData.role === UserRole.ADMIN) {
+      if (formData.role === UserRole.ADMIN || formData.role === 'ADMIN') {
         if (invoiceSettings.adminEmail) {
           promises.push(apiClient.post('/system/settings', { key: 'invoice_admin_email', value: invoiceSettings.adminEmail }));
         }
@@ -432,7 +432,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'Team Members', icon: Users, admin: true }
           ].map(item => (
-            (!item.admin || formData.role === UserRole.ADMIN) && (
+            (!item.admin || formData.role === UserRole.ADMIN || formData.role === 'ADMIN') && (
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
@@ -623,7 +623,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'system' && formData.role === UserRole.ADMIN && (
+          {activeSection === 'system' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN') && (
             <div className="space-y-6">
               <div className="bg-white border border-slate-200 rounded-xl p-8">
                 <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -700,7 +700,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'invoicing' && formData.role === UserRole.ADMIN && (
+          {activeSection === 'invoicing' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN') && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -771,7 +771,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'team' && formData.role === UserRole.ADMIN && (
+          {activeSection === 'team' && (formData.role === UserRole.ADMIN || formData.role === 'ADMIN') && (
             <div className="bg-white border border-slate-200 rounded-xl p-8">
               <div className="flex items-center justify-between mb-6">
                 <div>
