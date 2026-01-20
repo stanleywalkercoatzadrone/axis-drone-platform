@@ -55,11 +55,16 @@ export const createUser = async (req, res, next) => {
             [email, passwordHash, fullName, companyName || null, title || null, role || 'USER', JSON.stringify(permissions || ['CREATE_REPORT'])]
         );
 
-        await query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
-       VALUES ($1, $2, $3, $4, $5)`,
-            [req.user.id, 'USER_CREATED', 'user', result.rows[0].id, JSON.stringify({ email, createdBy: req.user.email })]
-        );
+        // Optional audit log (don't fail if this errors)
+        try {
+            await query(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+                [req.user?.id || 'system', 'USER_CREATED', 'user', result.rows[0].id, JSON.stringify({ email, createdBy: req.user?.email || 'system' })]
+            );
+        } catch (auditError) {
+            console.error('Audit log failed:', auditError);
+        }
 
         // Transform to camelCase
         const user = {
@@ -121,11 +126,17 @@ export const batchCreateUsers = async (req, res, next) => {
             }
         }
 
-        await query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, metadata)
-       VALUES ($1, $2, $3, $4)`,
-            [req.user.id, 'BATCH_USER_IMPORT', 'user', JSON.stringify({ count: createdUsers.length })]
-        );
+
+        // Optional audit log
+        try {
+            await query(
+                `INSERT INTO audit_logs (user_id, action, resource_type, metadata)
+           VALUES ($1, $2, $3, $4)`,
+                [req.user?.id || 'system', 'BATCH_USER_IMPORT', 'user', JSON.stringify({ count: createdUsers.length })]
+            );
+        } catch (auditError) {
+            console.error('Audit log failed:', auditError);
+        }
 
         res.status(201).json({
             success: true,
