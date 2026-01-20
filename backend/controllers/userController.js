@@ -61,9 +61,21 @@ export const createUser = async (req, res, next) => {
             [req.user.id, 'USER_CREATED', 'user', result.rows[0].id, JSON.stringify({ email, createdBy: req.user.email })]
         );
 
+        // Transform to camelCase
+        const user = {
+            id: result.rows[0].id,
+            email: result.rows[0].email,
+            fullName: result.rows[0].full_name,
+            companyName: result.rows[0].company_name,
+            title: result.rows[0].title,
+            role: result.rows[0].role,
+            permissions: result.rows[0].permissions,
+            createdAt: result.rows[0].created_at
+        };
+
         res.status(201).json({
             success: true,
-            data: result.rows[0]
+            data: user
         });
     } catch (error) {
         next(error);
@@ -96,7 +108,16 @@ export const batchCreateUsers = async (req, res, next) => {
             );
 
             if (result.rows.length > 0) {
-                createdUsers.push(result.rows[0]);
+                // Transform to camelCase
+                const user = {
+                    id: result.rows[0].id,
+                    email: result.rows[0].email,
+                    fullName: result.rows[0].full_name,
+                    companyName: result.rows[0].company_name,
+                    title: result.rows[0].title,
+                    role: result.rows[0].role
+                };
+                createdUsers.push(user);
             }
         }
 
