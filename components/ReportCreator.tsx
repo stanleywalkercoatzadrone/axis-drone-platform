@@ -313,6 +313,20 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
             <ChevronLeft className="w-4 h-4" /> Back to Dashboard
           </button>
           <div className="flex gap-3">
+            <button
+              onClick={() => {
+                if (onBack) onBack();
+                // Navigate to reports view
+                setTimeout(() => {
+                  const reportsButton = document.querySelector('[data-tab="archives"]') as HTMLElement;
+                  if (reportsButton) reportsButton.click();
+                }, 100);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              View All Reports
+            </button>
             <button onClick={() => window.print()} className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50">Print PDF</button>
             <button
               onClick={() => {
@@ -328,6 +342,17 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
             >
               Export JSON
             </button>
+          </div>
+        </div>
+
+        {/* Success Banner */}
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+          <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-green-900 text-sm">Report Successfully Saved!</h3>
+            <p className="text-green-700 text-xs mt-1">
+              Your report has been saved to the database. Access it anytime from the <strong>Reports</strong> section in the sidebar.
+            </p>
           </div>
         </div>
 
