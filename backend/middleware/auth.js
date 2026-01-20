@@ -45,7 +45,15 @@ export const protect = async (req, res, next) => {
             await setCache(`user:${decoded.id}`, user, 3600);
         }
 
-        req.user = user;
+        // Transform to camelCase for consistency
+        req.user = {
+            id: user.id,
+            email: user.email,
+            fullName: user.full_name,
+            companyName: user.company_name,
+            role: user.role,
+            permissions: user.permissions
+        };
         next();
     } catch (error) {
         if (error.name === 'JsonWebTokenError') {
