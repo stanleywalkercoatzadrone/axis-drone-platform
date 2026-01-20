@@ -144,7 +144,7 @@ const AppContent: React.FC = () => {
 
           <div className="mt-8 space-y-1">
             <div className="px-2 mb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">System</div>
-            {user.role === UserRole.ADMIN && (
+            {(user.role === UserRole.ADMIN || user.role === 'ADMIN') && (
               <NavItem id="users" icon={Users} label="User Management" onClick={() => setActiveTab('users')} />
             )}
             <NavItem id="settings" icon={Settings} label="Configuration" onClick={() => setActiveTab('settings')} />
@@ -233,7 +233,7 @@ const AppContent: React.FC = () => {
             {activeTab === 'settings' && user && (
               <SettingsView currentUser={user} onUpdateUser={updateUser} onLogout={handleLogout} />
             )}
-            {activeTab === 'users' && user && user.role === UserRole.ADMIN && (
+            {activeTab === 'users' && user && (user.role === UserRole.ADMIN || user.role === 'ADMIN') && (
               <UserManagement currentUser={user} />
             )}
             {activeTab === 'deployments' && <DeploymentTracker />}
