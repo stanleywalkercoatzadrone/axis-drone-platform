@@ -13,6 +13,7 @@ const mapPersonnelRow = (row) => {
         phone: row.phone,
         certificationLevel: row.certification_level,
         dailyPayRate: row.daily_pay_rate ? parseFloat(row.daily_pay_rate) : 0,
+        maxTravelDistance: row.max_travel_distance || 0,
         status: row.status,
         createdAt: row.created_at,
         updatedAt: row.updated_at
@@ -102,6 +103,7 @@ export const createPersonnel = async (req, res) => {
             phone,
             certificationLevel,
             dailyPayRate,
+            maxTravelDistance,
             status
         } = req.body;
 
@@ -113,17 +115,17 @@ export const createPersonnel = async (req, res) => {
             });
         }
 
-        if (!['Pilot', 'Technician'].includes(role)) {
+        if (!['Pilot', 'Technician', 'Both'].includes(role)) {
             return res.status(400).json({
                 success: false,
-                message: 'Role must be either Pilot or Technician'
+                message: 'Role must be either Pilot, Technician, or Both'
             });
         }
 
         const result = await db.query(
             `INSERT INTO personnel 
-            (full_name, role, email, phone, certification_level, daily_pay_rate, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            (full_name, role, email, phone, certification_level, daily_pay_rate, max_travel_distance, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *`,
             [
                 fullName,
@@ -132,6 +134,7 @@ export const createPersonnel = async (req, res) => {
                 phone || null,
                 certificationLevel || null,
                 dailyPayRate || 0,
+                maxTravelDistance || 0,
                 status || 'Active'
             ]
         );
@@ -173,6 +176,7 @@ export const updatePersonnel = async (req, res) => {
             phone,
             certificationLevel,
             dailyPayRate,
+            maxTravelDistance,
             status
         } = req.body;
 
@@ -197,10 +201,11 @@ export const updatePersonnel = async (req, res) => {
                 phone = COALESCE($4, phone),
                 certification_level = COALESCE($5, certification_level),
                 daily_pay_rate = COALESCE($6, daily_pay_rate),
-                status = COALESCE($7, status)
-            WHERE id = $8
+                max_travel_distance = COALESCE($7, max_travel_distance),
+                status = COALESCE($8, status)
+            WHERE id = $9
             RETURNING *`,
-            [fullName, role, email, phone, certificationLevel, dailyPayRate, status, id]
+            [fullName, role, email, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, id]
         );
 
         res.json({

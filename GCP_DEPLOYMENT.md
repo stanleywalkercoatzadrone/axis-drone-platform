@@ -44,8 +44,39 @@ Once the deployment is complete, Cloud Run will provide a Service URL (e.g., `ht
 4.  Add the environment variables listed in step 2.
 5.  Update `FRONTEND_URL` to match the Cloud Run service URL.
 
+## Automatic Continuous Deployment (CI/CD)
+
+To make updates automatic every time you push code to GitHub:
+
+1.  **Connect Repository**:
+    - Go to the [Cloud Build Triggers page](https://console.cloud.google.com/cloud-build/triggers).
+    - Click **Manage Repositories** -> **Connect Repository**.
+    - Select **GitHub (Cloud Build GitHub App)** and authorize access to this repository.
+
+2.  **Create Trigger**:
+    - Click **Create Trigger**.
+    - **Name**: `axis-platform-auto-deploy`
+    - **Event**: Push to a branch (e.g., `main`).
+    - **Source**: Select your connected repository and branch.
+    - **Configuration**: Cloud Build configuration file (yaml or json).
+    - **Location**: Repository.
+    - **Cloud Build configuration file location**: `cloudbuild.yaml`
+    - Click **Create**.
+
+### 3. Service Account Permissions (CRITICAL)
+
+For Cloud Build to actually deploy to Cloud Run, its service account needs permission. 
+
+1.  Go to **IAM & Admin** -> **IAM**.
+2.  Find the service account that looks like: `[PROJECT_NUMBER]@cloudbuild.gserviceaccount.com`.
+3.  Click the Pencil icon to edit roles and add:
+    - **Cloud Run Admin**
+    - **Service Account User**
+
+Now, any code you push to your branch will automatically build and deploy to Cloud Run without running a command manually.
+
 ## Architecture Notes
 - **Compute**: Google Cloud Run (Serverless Containers).
 - **Database**: Supabase (PostgreSQL).
 - **Storage**: Local filesystem (Ephemeral for now). For persistent storage, we recommend integrating Google Cloud Storage.
-- **CI/CD**: Google Cloud Build.
+- **CI/CD**: Google Cloud Build (Triggers).

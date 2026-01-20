@@ -289,7 +289,8 @@ export interface Asset {
 
 export enum PersonnelRole {
   PILOT = 'Pilot',
-  TECHNICIAN = 'Technician'
+  TECHNICIAN = 'Technician',
+  BOTH = 'Both'
 }
 
 export interface Personnel {
@@ -300,6 +301,7 @@ export interface Personnel {
   phone?: string;
   certificationLevel?: string;
   dailyPayRate?: number;
+  maxTravelDistance?: number;
   status: 'Active' | 'On Leave' | 'Inactive';
   assignedAssets?: string[]; // Asset IDs
 }

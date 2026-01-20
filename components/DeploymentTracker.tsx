@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, ArrowRight, Briefcase, Calendar, Check, CheckCircle, ChevronDown, ChevronRight, Clock, DollarSign, Download, Edit2, ExternalLink, FileText, Filter, LayoutGrid, Link as LinkIcon, Loader2, MapPin, MoreVertical, Plus, Receipt, Search, ShieldCheck, Trash2, Upload, Users, X, XCircle, Zap, Plane, List, Grid3X3, BarChart3, Activity } from 'lucide-react';
+import { AlertCircle, ArrowRight, Briefcase, Calendar, Check, CheckCircle, ChevronDown, ChevronRight, Clock, DollarSign, Download, Edit2, ExternalLink, FileText, Filter, LayoutGrid, Link as LinkIcon, Loader2, MapPin, MoreVertical, Plus, Receipt, Search, ShieldCheck, Trash2, Upload, Users, X, XCircle, Zap, Plane, List, Grid3X3, BarChart3, Activity, Printer, Send } from 'lucide-react';
 import { Deployment, DeploymentStatus, DeploymentType, DailyLog, Personnel, DeploymentFile, UserAccount } from '../types';
 import CalendarView from './CalendarView';
 import AssetTracker from './AssetTracker';
@@ -85,13 +85,14 @@ const DeploymentTracker: React.FC = () => {
         setEditingLogId(log.id);
         setEditForm({
             dailyPay: log.dailyPay || 0,
-            bonusPay: log.bonusPay || 0
+            bonusPay: log.bonusPay || 0,
+            notes: log.notes || ''
         });
     };
 
     const cancelEditLog = () => {
         setEditingLogId(null);
-        setEditForm({ dailyPay: 0, bonusPay: 0 });
+        setEditForm({ dailyPay: 0, bonusPay: 0, notes: '' });
     };
 
     const saveEditLog = async (logId: string) => {
@@ -377,7 +378,12 @@ const DeploymentTracker: React.FC = () => {
             for (let i = 0; i < (deployment.daysOnSite || 1); i++) {
                 const date = new Date(startDate);
                 date.setDate(startDate.getDate() + i);
-                days.push(date.toISOString().split('T')[0]);
+
+                // Use local date components to avoid UTC timezone shifts
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const dayStr = String(date.getDate()).padStart(2, '0');
+                days.push(`${year}-${month}-${dayStr}`);
             }
             return days;
         } catch (e) {
@@ -1222,7 +1228,7 @@ const DeploymentTracker: React.FC = () => {
                                                                         <tbody className="divide-y divide-slate-100">
                                                                             {personLogs.map(log => (
                                                                                 <tr key={log.id}>
-                                                                                    <td className="px-3 py-2 text-slate-600 font-mono">{log.date.split('T')[0]}</td>
+                                                                                    <td className="px-3 py-2 text-slate-600 font-mono">{log.date ? String(log.date).split('T')[0] : 'N/A'}</td>
                                                                                     <td className="px-3 py-2 text-slate-600">${log.dailyPay?.toLocaleString()}</td>
                                                                                     <td className="px-3 py-2 text-emerald-600">{log.bonusPay ? `+$${log.bonusPay}` : '-'}</td>
                                                                                     <td className="px-3 py-2 text-slate-500 italic max-w-xs truncate">{log.notes || '-'}</td>

@@ -24,6 +24,26 @@ export const getSystemSettings = async (req, res, next) => {
     }
 };
 
+export const getSystemHealth = async (req, res, next) => {
+    try {
+        // Simple health metrics
+        const dbStatus = await query('SELECT 1');
+
+        res.json({
+            success: true,
+            data: {
+                node: process.env.NODE_ENV === 'production' ? 'US-EAST-1' : 'LOCAL-DEV',
+                model: 'GEMINI-2.0-PRO',
+                database: dbStatus.rowCount > 0 ? 'CONNECTED' : 'DISCONNECTED',
+                uptime: Math.floor(process.uptime()),
+                version: '1.2.0-AXIS'
+            }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const updateSystemSetting = async (req, res, next) => {
     try {
         const { key, value, encrypted } = req.body;

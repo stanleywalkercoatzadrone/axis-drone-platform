@@ -67,11 +67,6 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Serve static files from the 'dist' directory (Production only or when needed)
-// Navigate up one level from 'backend' to find 'dist'
-const distPath = path.join(__dirname, '../dist');
-app.use(express.static(distPath));
-
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -93,6 +88,11 @@ initializeSocketHandlers(io);
 // so unknown API routes get a 404 JSON response.
 app.use('/api/*', notFound);
 app.use(errorHandler);
+
+// Serve static files from the 'dist' directory (Production only or when needed)
+// Navigate up one level from 'backend' to find 'dist'
+const distPath = path.join(__dirname, '../dist');
+app.use(express.static(distPath));
 
 // SPA Fallback: Serve index.html for any other non-API requests
 app.get('*', (req, res) => {

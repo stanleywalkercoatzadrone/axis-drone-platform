@@ -158,7 +158,7 @@ const AppContent: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-slate-900 truncate">{user.fullName}</p>
-              <p className="text-[10px] text-slate-500 truncate">{user.companyName}</p>
+              <p className="text-[10px] text-slate-500 truncate">{user.title ? `${user.title} @ ` : ''}{user.companyName}</p>
             </div>
           </div>
           <button

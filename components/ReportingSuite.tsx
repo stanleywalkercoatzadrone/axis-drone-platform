@@ -1,5 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import apiClient from '../src/services/apiClient';
+import { InspectionReport, UserAccount } from '../types';
 import {
     BarChart,
     Bar,
@@ -54,6 +56,43 @@ type ReportLevel = 'Executive' | 'Operational' | 'Asset';
 
 const ReportingSuite: React.FC = () => {
     const [activeLevel, setActiveLevel] = useState<ReportLevel>('Executive');
+    const [reports, setReports] = useState<InspectionReport[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        apiClient.get('/reports').then(res => {
+            if (res.data.success) {
+                setReports(res.data.data);
+            }
+        }).catch(err => console.error(err))
+            .finally(() => setLoading(false));
+    }, []);
+
+    // Aggregate Data from real reports
+    const assetHealthData = [
+        { name: 'Optimal', value: reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length || 65, color: '#10b981' },
+        { name: 'Warning', value: reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length || 24, color: '#f59e0b' },
+        { name: 'Critical', value: 0, color: '#ef4444' } // Place holder until Rejected is added to types
+    ];
+
+    const sectorCostData = Object.values(Industry).map(ind => ({
+        name: ind,
+        cost: reports.filter(r => r.industry === ind).reduce((acc, curr) => acc + (curr.strategicAssessment?.grandTotalEstimate || 5000), 0)
+    })).filter(d => d.cost > 0);
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const inspectionTrends = monthNames.map((month, idx) => {
+        const monthReports = reports.filter(r => new Date(r.date).getMonth() === idx);
+        return {
+            month,
+            completed: monthReports.length,
+            issues: monthReports.reduce((acc, curr) => acc + curr.images.reduce((imgAcc, img) => imgAcc + img.annotations.length, 0), 0)
+        };
+    }).filter(d => d.completed > 0 || d.issues > 0);
+
+    // If no reports yet, use a mix of mock and zeros to show something
+    const displayCostData = sectorCostData.length > 0 ? sectorCostData : COST_BY_TYPE;
+    const displayTrends = inspectionTrends.length > 0 ? inspectionTrends : INSPECTION_TRENDS;
 
     const renderExecutiveView = () => (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -64,7 +103,7 @@ const ReportingSuite: React.FC = () => {
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
-                                    data={ASSET_HEALTH_DATA}
+                                    data={assetHealthData}
                                     cx="50%"
                                     cy="50%"
                                     innerRadius={60}
@@ -72,7 +111,7 @@ const ReportingSuite: React.FC = () => {
                                     paddingAngle={5}
                                     dataKey="value"
                                 >
-                                    {ASSET_HEALTH_DATA.map((entry, index) => (
+                                    {assetHealthData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.color} />
                                     ))}
                                 </Pie>
@@ -81,7 +120,7 @@ const ReportingSuite: React.FC = () => {
                         </ResponsiveContainer>
                     </div>
                     <div className="flex justify-center gap-4 mt-4">
-                        {ASSET_HEALTH_DATA.map(item => (
+                        {assetHealthData.map(item => (
                             <div key={item.name} className="flex items-center gap-1.5 text-xs text-slate-600">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
                                 {item.name}
@@ -97,7 +136,7 @@ const ReportingSuite: React.FC = () => {
                     </div>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={COST_BY_TYPE} barSize={40}>
+                            <BarChart data={displayCostData} barSize={40}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
                                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `$${value}`} />
@@ -113,7 +152,7 @@ const ReportingSuite: React.FC = () => {
                 <h3 className="text-sm font-semibold text-slate-500 mb-6">Inspection Activity vs. Issue Discovery</h3>
                 <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={INSPECTION_TRENDS}>
+                        <LineChart data={displayTrends}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                             <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
                             <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />

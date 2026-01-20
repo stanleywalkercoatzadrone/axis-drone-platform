@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign } from 'lucide-react';
+import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map } from 'lucide-react';
 import { Personnel, PersonnelRole } from '../types';
 import apiClient from '../src/services/apiClient';
 
@@ -20,7 +20,8 @@ const PersonnelTracker: React.FC = () => {
         role: PersonnelRole.PILOT,
         status: 'Active',
         certificationLevel: 'Part 107',
-        dailyPayRate: 0
+        dailyPayRate: 0,
+        maxTravelDistance: 0
     });
 
     // Fetch personnel on mount
@@ -53,6 +54,7 @@ const PersonnelTracker: React.FC = () => {
                 phone: newPersonnel.phone,
                 certificationLevel: newPersonnel.certificationLevel,
                 dailyPayRate: newPersonnel.dailyPayRate || 0,
+                maxTravelDistance: newPersonnel.maxTravelDistance || 0,
                 status: newPersonnel.status || 'Active'
             });
 
@@ -63,7 +65,8 @@ const PersonnelTracker: React.FC = () => {
                 role: PersonnelRole.PILOT,
                 status: 'Active',
                 certificationLevel: 'Part 107',
-                dailyPayRate: 0
+                dailyPayRate: 0,
+                maxTravelDistance: 0
             });
         } catch (err: any) {
             console.error('Error creating personnel:', err);
@@ -105,6 +108,7 @@ const PersonnelTracker: React.FC = () => {
                 phone: editedPerson.phone,
                 certificationLevel: editedPerson.certificationLevel,
                 dailyPayRate: editedPerson.dailyPayRate,
+                maxTravelDistance: editedPerson.maxTravelDistance,
                 status: editedPerson.status
             });
 
@@ -214,6 +218,11 @@ const PersonnelTracker: React.FC = () => {
                                         <div className="flex items-center gap-2">
                                             {person.role === PersonnelRole.PILOT ? (
                                                 <BadgeCheck className="w-4 h-4 text-blue-500" />
+                                            ) : person.role === PersonnelRole.BOTH ? (
+                                                <div className="flex -space-x-1">
+                                                    <BadgeCheck className="w-4 h-4 text-blue-500 z-10" />
+                                                    <HardHat className="w-4 h-4 text-amber-500" />
+                                                </div>
                                             ) : (
                                                 <HardHat className="w-4 h-4 text-amber-500" />
                                             )}
@@ -317,6 +326,7 @@ const PersonnelTracker: React.FC = () => {
                                     >
                                         <option value={PersonnelRole.PILOT}>Pilot</option>
                                         <option value={PersonnelRole.TECHNICIAN}>Technician</option>
+                                        <option value={PersonnelRole.BOTH}>Both</option>
                                     </select>
                                 </div>
                                 <div>
@@ -344,6 +354,21 @@ const PersonnelTracker: React.FC = () => {
                                         placeholder="e.g. 450.00"
                                         value={newPersonnel.dailyPayRate || ''}
                                         onChange={e => setNewPersonnel({ ...newPersonnel, dailyPayRate: parseFloat(e.target.value) || 0 })}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Max Travel Distance (Miles)</label>
+                                <div className="relative">
+                                    <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                        placeholder="e.g. 50"
+                                        value={newPersonnel.maxTravelDistance || ''}
+                                        onChange={e => setNewPersonnel({ ...newPersonnel, maxTravelDistance: parseInt(e.target.value) || 0 })}
                                     />
                                 </div>
                             </div>
@@ -407,6 +432,7 @@ const PersonnelTracker: React.FC = () => {
                                             >
                                                 <option value={PersonnelRole.PILOT}>Pilot</option>
                                                 <option value={PersonnelRole.TECHNICIAN}>Technician</option>
+                                                <option value={PersonnelRole.BOTH}>Both</option>
                                             </select>
                                         </div>
                                         <div>
@@ -460,6 +486,20 @@ const PersonnelTracker: React.FC = () => {
                                                 className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                                                 value={editedPerson?.dailyPayRate || ''}
                                                 onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, dailyPayRate: parseFloat(e.target.value) || 0 } : null)}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Max Travel Distance (Miles)</label>
+                                        <div className="relative">
+                                            <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                value={editedPerson?.maxTravelDistance || ''}
+                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, maxTravelDistance: parseInt(e.target.value) || 0 } : null)}
                                             />
                                         </div>
                                     </div>
@@ -521,6 +561,16 @@ const PersonnelTracker: React.FC = () => {
                                             <div>
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Daily Pay Rate</p>
                                                 <p className="text-sm font-medium text-slate-700">${selectedPerson.dailyPayRate?.toLocaleString() || '0.00'}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-4 group">
+                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-purple-600 group-hover:bg-purple-50 transition-colors">
+                                                <Map className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Max Travel</p>
+                                                <p className="text-sm font-medium text-slate-700">{selectedPerson.maxTravelDistance ? `${selectedPerson.maxTravelDistance} Miles` : 'Not specified'}</p>
                                             </div>
                                         </div>
                                     </div>

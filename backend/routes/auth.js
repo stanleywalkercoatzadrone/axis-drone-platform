@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, logout, getMe, refreshAccessToken, updatePassword } from '../controllers/authController.js';
+import { register, login, logout, getMe, updateMe, refreshAccessToken, updatePassword } from '../controllers/authController.js';
 import { getGoogleAuthUrl, googleCallback, linkGoogleDrive, unlinkGoogleDrive } from '../controllers/googleAuthController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -9,6 +9,7 @@ router.post('/register', register);
 router.post('/login', login);
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
+router.put('/me', protect, updateMe);
 router.post('/refresh', refreshAccessToken);
 router.put('/password', protect, updatePassword);
 

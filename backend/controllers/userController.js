@@ -116,7 +116,7 @@ export const updateUser = async (req, res, next) => {
            is_drive_blocked = COALESCE($8, is_drive_blocked)
        WHERE id = $9
        RETURNING id, email, full_name, company_name, title, role, permissions, drive_linked, drive_folder, is_drive_blocked`,
-            [fullName, companyName, title, role, permissions ? JSON.stringify(permissions) : null, driveLinked, driveFolder, req.body.isDriveBlocked, id]
+            [fullName || null, companyName || null, title || null, role || null, permissions ? JSON.stringify(permissions) : null, driveLinked ?? null, driveFolder || null, req.body.isDriveBlocked ?? null, id]
         );
 
         if (result.rows.length === 0) {

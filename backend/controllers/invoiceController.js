@@ -233,7 +233,32 @@ export const sendDeploymentInvoices = async (req, res) => {
         }
 
         // 4. Send Admin Summary
-        await sendAdminSummaryEmail(deployment, sentInvoices);
+        // Fetch Admin Email Settings
+        const settingsRes = await query(
+            `SELECT setting_key, setting_value FROM system_settings 
+             WHERE setting_key IN ('invoice_admin_email', 'invoice_cc_emails')`
+        );
+
+        const settings = {};
+        settingsRes.rows.forEach(r => settings[r.setting_key] = r.setting_value);
+
+        const adminEmail = settings['invoice_admin_email'] || 'admin@coatzadroneusa.com';
+        let ccEmails = [];
+        try {
+            if (settings['invoice_cc_emails']) {
+                // Handle comma-separated or JSON array
+                const val = settings['invoice_cc_emails'];
+                if (val.startsWith('[')) {
+                    ccEmails = JSON.parse(val);
+                } else {
+                    ccEmails = val.split(',').map(e => e.trim()).filter(e => e);
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing CC emails:', e);
+        }
+
+        await sendAdminSummaryEmail(deployment, sentInvoices, { to: adminEmail, cc: ccEmails });
 
         res.json({
             success: true,

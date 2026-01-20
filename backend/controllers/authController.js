@@ -171,6 +171,48 @@ export const getMe = async (req, res, next) => {
     }
 };
 
+export const updateMe = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { fullName, companyName, title, driveFolder } = req.body;
+
+        const result = await query(
+            `UPDATE users
+       SET full_name = COALESCE($1, full_name),
+           company_name = COALESCE($2, company_name),
+           title = COALESCE($3, title),
+           drive_folder = COALESCE($4, drive_folder),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING id, email, full_name, company_name, title, role, permissions, profile_picture_url, drive_linked, drive_folder, created_at, last_login`,
+            [fullName || null, companyName || null, title || null, driveFolder || null, userId]
+        );
+
+        if (result.rows.length === 0) {
+            throw new AppError('User not found', 404);
+        }
+
+        const user = result.rows[0];
+
+        // Cache user data
+        await setCache(`user:${userId}`, user, 3600);
+
+        // Log audit event
+        await query(
+            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+            [userId, 'USER_PROFILE_UPDATE', 'user', userId, JSON.stringify({ email: user.email })]
+        );
+
+        res.json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export const refreshAccessToken = async (req, res, next) => {
     try {
         const { refreshToken } = req.body;

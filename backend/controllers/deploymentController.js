@@ -18,6 +18,7 @@ export const getAllDeployments = async (req, res) => {
                                'date', dl.date,
                                'technicianId', dl.technician_id,
                                'dailyPay', dl.daily_pay,
+                               'bonusPay', dl.bonus_pay,
                                'notes', dl.notes
                            )
                        ) FILTER (WHERE dl.id IS NOT NULL),
@@ -103,6 +104,7 @@ export const getDeploymentById = async (req, res) => {
                                'date', dl.date,
                                'technicianId', dl.technician_id,
                                'dailyPay', dl.daily_pay,
+                               'bonusPay', dl.bonus_pay,
                                'notes', dl.notes
                            )
                        ) FILTER (WHERE dl.id IS NOT NULL),

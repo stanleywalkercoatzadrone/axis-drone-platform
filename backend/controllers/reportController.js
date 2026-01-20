@@ -1,6 +1,8 @@
 import { query, transaction } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { io } from '../server.js';
+import { uploadFile } from '../services/storageService.js';
+import { v4 as uuidv4 } from 'uuid';
 
 export const getReports = async (req, res, next) => {
     try {
@@ -79,33 +81,66 @@ export const getReport = async (req, res, next) => {
 
 export const createReport = async (req, res, next) => {
     try {
-        const { title, client, industry, theme, config, branding } = req.body;
+        const { title, client, industry, theme, config, branding, images } = req.body;
 
         if (!title || !client || !industry) {
             throw new AppError('Please provide title, client, and industry', 400);
         }
 
-        const result = await query(
-            `INSERT INTO reports (user_id, title, client, industry, theme, config, branding, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-            [req.user.id, title, client, industry, theme || 'TECHNICAL', JSON.stringify(config || {}), JSON.stringify(branding || {}), 'DRAFT']
-        );
+        const report = await transaction(async (clientQuery) => {
+            // 1. Create Report
+            const reportResult = await clientQuery(
+                `INSERT INTO reports (user_id, title, client, industry, theme, config, branding, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 RETURNING *`,
+                [req.user.id, title, client, industry, theme || 'TECHNICAL', JSON.stringify(config || {}), JSON.stringify(branding || {}), 'DRAFT']
+            );
 
-        const report = result.rows[0];
+            const newReport = reportResult.rows[0];
 
-        // Create initial history entry
-        await query(
-            `INSERT INTO report_history (report_id, version, author, summary)
-       VALUES ($1, $2, $3, $4)`,
-            [report.id, 1, req.user.full_name, 'Report created']
-        );
+            // 2. Handle Images if present
+            if (images && Array.isArray(images)) {
+                for (const img of images) {
+                    let storageUrl = img.url;
+                    let storageKey = null;
 
-        await query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
-       VALUES ($1, $2, $3, $4, $5)`,
-            [req.user.id, 'REPORT_CREATED', 'report', report.id, JSON.stringify({ title, industry })]
-        );
+                    // If it's a base64 string, upload it
+                    if (img.base64 && img.base64.startsWith('data:image')) {
+                        const buffer = Buffer.from(img.base64.split(',')[1], 'base64');
+                        const file = {
+                            buffer,
+                            originalname: `report_img_${Date.now()}.jpg`,
+                            mimetype: img.base64.split(';')[0].split(':')[1]
+                        };
+                        const uploadResult = await uploadFile(file, `reports/${newReport.id}`);
+                        storageUrl = uploadResult.url;
+                        storageKey = uploadResult.key;
+                    }
+
+                    await clientQuery(
+                        `INSERT INTO images (report_id, url, annotations, summary)
+                         VALUES ($1, $2, $3, $4)`,
+                        [newReport.id, storageUrl, JSON.stringify(img.annotations || []), img.summary || null]
+                    );
+                }
+            }
+
+            // 3. Create initial history entry
+            await clientQuery(
+                `INSERT INTO report_history (report_id, version, author, summary)
+                 VALUES ($1, $2, $3, $4)`,
+                [newReport.id, 1, req.user.full_name, 'Report created']
+            );
+
+            // 4. Log Audit
+            await clientQuery(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [req.user.id, 'REPORT_CREATED', 'report', newReport.id, JSON.stringify({ title, industry })]
+            );
+
+            return newReport;
+        });
 
         // Emit real-time event
         io.emit('report:created', { reportId: report.id, userId: req.user.id });
@@ -122,44 +157,83 @@ export const createReport = async (req, res, next) => {
 export const updateReport = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { title, client, summary, siteContext, strategicAssessment, config, branding } = req.body;
+        const { title, client, summary, siteContext, strategicAssessment, config, branding, images, status } = req.body;
 
-        const result = await query(
-            `UPDATE reports
-       SET title = COALESCE($1, title),
-           client = COALESCE($2, client),
-           summary = COALESCE($3, summary),
-           site_context = COALESCE($4, site_context),
-           strategic_assessment = COALESCE($5, strategic_assessment),
-           config = COALESCE($6, config),
-           branding = COALESCE($7, branding)
-       WHERE id = $8 AND user_id = $9
-       RETURNING *`,
-            [
-                title, client, summary,
-                siteContext ? JSON.stringify(siteContext) : null,
-                strategicAssessment ? JSON.stringify(strategicAssessment) : null,
-                config ? JSON.stringify(config) : null,
-                branding ? JSON.stringify(branding) : null,
-                id, req.user.id
-            ]
-        );
+        const updatedReport = await transaction(async (clientQuery) => {
+            // 1. Update Report info
+            const result = await clientQuery(
+                `UPDATE reports
+                 SET title = COALESCE($1, title),
+                     client = COALESCE($2, client),
+                     summary = COALESCE($3, summary),
+                     site_context = COALESCE($4, site_context),
+                     strategic_assessment = COALESCE($5, strategic_assessment),
+                     config = COALESCE($6, config),
+                     branding = COALESCE($7, branding),
+                     status = COALESCE($8, status),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $9 AND user_id = $10
+                 RETURNING *`,
+                [
+                    title, client, summary,
+                    siteContext ? JSON.stringify(siteContext) : null,
+                    strategicAssessment ? JSON.stringify(strategicAssessment) : null,
+                    config ? JSON.stringify(config) : null,
+                    branding ? JSON.stringify(branding) : null,
+                    status,
+                    id, req.user.id
+                ]
+            );
 
-        if (result.rows.length === 0) {
-            throw new AppError('Report not found or not authorized', 404);
-        }
+            if (result.rows.length === 0) {
+                throw new AppError('Report not found or not authorized', 404);
+            }
 
-        await query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
-       VALUES ($1, $2, $3, $4)`,
-            [req.user.id, 'REPORT_UPDATED', 'report', id]
-        );
+            const report = result.rows[0];
+
+            // 2. Synchronize Images if provided
+            if (images && Array.isArray(images)) {
+                // For simplicity in draft saving, we'll clear and re-insert or update
+                // Finer-grained diffing can be added later
+                await clientQuery('DELETE FROM images WHERE report_id = $1', [id]);
+
+                for (const img of images) {
+                    let storageUrl = img.url;
+
+                    if (img.base64 && img.base64.startsWith('data:image')) {
+                        const buffer = Buffer.from(img.base64.split(',')[1], 'base64');
+                        const file = {
+                            buffer,
+                            originalname: `report_img_${Date.now()}.jpg`,
+                            mimetype: img.base64.split(';')[0].split(':')[1]
+                        };
+                        const uploadResult = await uploadFile(file, `reports/${id}`);
+                        storageUrl = uploadResult.url;
+                    }
+
+                    await clientQuery(
+                        `INSERT INTO images (report_id, url, annotations, summary)
+                         VALUES ($1, $2, $3, $4)`,
+                        [id, storageUrl, JSON.stringify(img.annotations || []), img.summary || null]
+                    );
+                }
+            }
+
+            // 3. Log Audit
+            await clientQuery(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
+                 VALUES ($1, $2, $3, $4)`,
+                [req.user.id, 'REPORT_UPDATED', 'report', id]
+            );
+
+            return report;
+        });
 
         io.emit('report:updated', { reportId: id, userId: req.user.id });
 
         res.json({
             success: true,
-            data: result.rows[0]
+            data: updatedReport
         });
     } catch (error) {
         next(error);

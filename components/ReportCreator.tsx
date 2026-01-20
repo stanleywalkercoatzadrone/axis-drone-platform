@@ -40,6 +40,7 @@ import {
   LayoutTemplate
 } from 'lucide-react';
 import AIAnalysisView from './AIAnalysisView';
+import apiClient from '../src/services/apiClient';
 
 interface ReportCreatorProps {
   initialIndustry: Industry | null;
@@ -75,6 +76,7 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [currentPreview, setCurrentPreview] = useState<number | null>(viewingReport ? 0 : null);
   const [finalReport, setFinalReport] = useState<InspectionReport | null>(viewingReport || null);
+  const [reportId, setReportId] = useState<string | null>(viewingReport?.id || null);
   const [branding, setBranding] = useState<Branding>(viewingReport?.branding || { companyName: '', primaryColor: '#0f172a' });
   const [isVerifiedBrand, setIsVerifiedBrand] = useState(false);
 
@@ -203,17 +205,12 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
     }
   };
 
-  const handleFinalizeReport = async () => {
+  const handleFinalizeReport = async (status: 'DRAFT' | 'FINALIZED' = 'FINALIZED') => {
     setIsFinalizing(true);
-    // Removed artificial delay for instant feedback
 
-    const report: InspectionReport = {
-      id: finalReport?.id || `ax-${Date.now()}`,
-      rootId: `root-${Date.now()}`,
-      version: 1,
+    const reportData = {
       title: title || 'Untitled Inspection',
       client: client || 'Internal Audit',
-      date: new Date().toISOString(),
       industry,
       theme: reportTheme,
       branding,
@@ -226,20 +223,31 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
         showAuditTrail: true
       },
       images,
-      summary: 'Automated inspection detected 3 critical anomalies.',
-      recommendations: ['Schedule maintenance for array B', 'Verify grid connection stability'],
-      history: [],
-      approvalStatus: 'Draft'
+      status: status
     };
 
-    setFinalReport(report);
+    try {
+      let response;
+      if (reportId) {
+        response = await apiClient.put(`/reports/${reportId}`, reportData);
+      } else {
+        response = await apiClient.post('/reports', reportData);
+      }
 
-    // Save to local storage
-    const existing = JSON.parse(localStorage.getItem('skylens_reports') || '[]');
-    localStorage.setItem('skylens_reports', JSON.stringify([...existing, report]));
-
-    setStep(4);
-    setIsFinalizing(false);
+      if (response.data.success) {
+        const savedReport = response.data.data;
+        setReportId(savedReport.id);
+        setFinalReport(savedReport);
+        if (status === 'FINALIZED') {
+          setStep(4);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to save report', err);
+      alert('Error saving report to system. Please try again.');
+    } finally {
+      setIsFinalizing(false);
+    }
   };
 
   // Annotated Image Interaction
@@ -648,10 +656,24 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
                 <button onClick={() => setDrawMode('box')} className={`p-1.5 rounded ${drawMode === 'box' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BoxSelect className="w-4 h-4" /></button>
               </div>
 
-              <button onClick={handleFinalizeReport} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800">
-                {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
-                Finalize Report
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleFinalizeReport('DRAFT')}
+                  disabled={isFinalizing}
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-600"
+                >
+                  {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Save Draft
+                </button>
+                <button
+                  onClick={() => handleFinalizeReport('FINALIZED')}
+                  disabled={isFinalizing}
+                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
+                >
+                  {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+                  Finalize Report
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 relative flex flex-col overflow-hidden select-none">

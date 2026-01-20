@@ -92,8 +92,17 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount) =
  * @param {object} deployment 
  * @param {Array} sentInvoices Array of { pilotName, amount }
  */
-export const sendAdminSummaryEmail = async (deployment, sentInvoices) => {
+/**
+ * Send Summary Email to Admin
+ * @param {object} deployment 
+ * @param {Array} sentInvoices Array of { pilotName, amount }
+ * @param {object} recipients { to: string, cc: string[] }
+ */
+export const sendAdminSummaryEmail = async (deployment, sentInvoices, recipients = {}) => {
     const subject = `Invoices Sent: ${deployment.title}`;
+    const to = recipients.to || 'admin@coatzadroneusa.com';
+    const cc = recipients.cc || [];
+
     const rows = sentInvoices.map(inv =>
         `<tr>
             <td style="padding: 8px; border: 1px solid #ddd;">${inv.pilotName}</td>
@@ -120,5 +129,19 @@ export const sendAdminSummaryEmail = async (deployment, sentInvoices) => {
         </div>
     `;
 
-    return sendEmail('admin@coatzadroneusa.com', subject, html);
+    try {
+        const info = await transporter.sendMail({
+            from: process.env.SMTP_FROM || '"Coatzadrone Admin" <admin@coatzadroneusa.com>',
+            to,
+            cc,
+            subject,
+            html,
+        });
+        console.log('Admin summary sent: %s', info.messageId);
+        return info;
+    } catch (error) {
+        console.error('Error sending admin summary:', error);
+        // Don't throw here to avoid failing the whole invoice process if admin email fails
+        return null;
+    }
 };
