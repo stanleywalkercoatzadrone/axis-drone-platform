@@ -11,10 +11,27 @@ export const getUsers = async (req, res, next) => {
        ORDER BY created_at DESC`
         );
 
+        // Transform snake_case to camelCase for frontend
+        const users = result.rows.map(user => ({
+            id: user.id,
+            email: user.email,
+            fullName: user.full_name,
+            companyName: user.company_name,
+            title: user.title,
+            role: user.role,
+            permissions: user.permissions,
+            avatarUrl: user.profile_picture_url,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            isDriveBlocked: user.is_drive_blocked,
+            createdAt: user.created_at,
+            lastLogin: user.last_login
+        }));
+
         res.json({
             success: true,
-            count: result.rows.length,
-            data: result.rows
+            count: users.length,
+            data: users
         });
     } catch (error) {
         next(error);
