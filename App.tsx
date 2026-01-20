@@ -26,7 +26,8 @@ import AssetTracker from './components/AssetTracker';
 import DeploymentTracker from './components/DeploymentTracker';
 import ReportingSuite from './components/ReportingSuite';
 import InvoiceView from './components/InvoiceView';
-import { Industry, InspectionReport, UserAccount } from './types';
+import UserManagement from './components/UserManagement';
+import { Industry, InspectionReport, UserAccount, UserRole } from './types';
 
 import apiClient from './src/services/apiClient';
 
@@ -38,7 +39,7 @@ const AppContent: React.FC = () => {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'create' | 'view' | 'archives' | 'settings' | 'personnel' | 'analytics' | 'deployments'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'create' | 'view' | 'archives' | 'settings' | 'personnel' | 'analytics' | 'deployments' | 'users'>('dashboard');
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [activeReport, setActiveReport] = useState<InspectionReport | null>(null);
 
@@ -143,6 +144,9 @@ const AppContent: React.FC = () => {
 
           <div className="mt-8 space-y-1">
             <div className="px-2 mb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">System</div>
+            {user.role === UserRole.ADMIN && (
+              <NavItem id="users" icon={Users} label="User Management" onClick={() => setActiveTab('users')} />
+            )}
             <NavItem id="settings" icon={Settings} label="Configuration" onClick={() => setActiveTab('settings')} />
           </div>
         </div>
@@ -185,7 +189,8 @@ const AppContent: React.FC = () => {
                       activeTab === 'archives' ? 'Reports' :
                         activeTab === 'deployments' ? 'Mission Terminal' :
                           activeTab === 'personnel' ? 'Personnel Registry' :
-                            activeTab === 'settings' ? 'Configuration' : 'Viewer'}
+                            activeTab === 'users' ? 'User Management' :
+                              activeTab === 'settings' ? 'Configuration' : 'Viewer'}
               </span>
             </div>
           </div>
@@ -227,6 +232,9 @@ const AppContent: React.FC = () => {
             )}
             {activeTab === 'settings' && user && (
               <SettingsView currentUser={user} onUpdateUser={updateUser} onLogout={handleLogout} />
+            )}
+            {activeTab === 'users' && user && user.role === UserRole.ADMIN && (
+              <UserManagement currentUser={user} />
             )}
             {activeTab === 'deployments' && <DeploymentTracker />}
             {activeTab === 'personnel' && <PersonnelTracker />}
