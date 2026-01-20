@@ -1,7 +1,7 @@
 steps:
-  # Build the container image
+  # Build the container image (no cache to force fresh build)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/axis-platform', '.']
+    args: ['build', '--no-cache', '-t', 'gcr.io/$PROJECT_ID/axis-platform', '.']
 
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
