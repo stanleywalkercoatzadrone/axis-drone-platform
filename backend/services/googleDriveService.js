@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { Readable } from 'stream';
 import { AppError } from '../middleware/errorHandler.js';
 
 const oauth2Client = new google.auth.OAuth2(
@@ -59,7 +60,7 @@ export const uploadToDrive = async (accessToken, refreshToken, file, fileName, f
 
         const media = {
             mimeType: file.mimetype || 'application/octet-stream',
-            body: file.buffer ? require('stream').Readable.from(file.buffer) : file
+            body: file.buffer ? Readable.from(file.buffer) : file
         };
 
         const response = await drive.files.create({
