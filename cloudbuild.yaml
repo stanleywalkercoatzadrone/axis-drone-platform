@@ -1,11 +1,18 @@
 steps:
-  # Build the container image (no cache to force fresh build)
+  # Build the container image with build args
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '--no-cache', '-t', 'gcr.io/$PROJECT_ID/axis-platform', '.']
+    args: 
+      - 'build'
+      - '--no-cache'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/axis-platform:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/axis-platform:latest'
+      - '.'
 
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/axis-platform']
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/axis-platform']
 
   # Deploy container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -15,15 +22,47 @@ steps:
       - 'deploy'
       - 'axis-platform'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/axis-platform'
+      - 'gcr.io/$PROJECT_ID/axis-platform:$COMMIT_SHA'
       - '--region'
-      - 'us-central1'
+      - '${_REGION}'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--memory'
+      - '${_MEMORY}'
+      - '--cpu'
+      - '${_CPU}'
+      - '--max-instances'
+      - '${_MAX_INSTANCES}'
+      - '--min-instances'
+      - '${_MIN_INSTANCES}'
+      - '--timeout'
+      - '300'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,PORT=8080'
+      # Note: Sensitive env vars (DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, FRONTEND_URL)
+      # should be set via Cloud Run Console or using --set-secrets flag
 
 images:
   - 'gcr.io/$PROJECT_ID/axis-platform'
 
+# Default substitution values (can be overridden in trigger or CLI)
+substitutions:
+  _REGION: 'us-central1'
+  _MEMORY: '2Gi'
+  _CPU: '2'
+  _MAX_INSTANCES: '10'
+  _MIN_INSTANCES: '0'
+
 options:
+  # Use higher-performance machine for faster builds
+  machineType: 'E2_HIGHCPU_8'
+  
+  # Set build timeout to 20 minutes
+  timeout: '1200s'
+  
+  # Use Cloud Logging for better log retention
   logging: CLOUD_LOGGING_ONLY
+  
+  # Enable dynamic substitutions
+  substitutionOption: 'ALLOW_LOOSE'
