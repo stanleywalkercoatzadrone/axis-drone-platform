@@ -105,6 +105,18 @@ app.get('*', (req, res) => {
 });
 
 // Start server unconditionally
+// Global error handlers for startup crashes
+process.on('uncaughtException', (err) => {
+    console.error('🔥 UNCAUGHT EXCEPTION:', err);
+    console.error(err.stack);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🔥 UNHANDLED REJECTION:', reason);
+    process.exit(1);
+});
+
 // Start server unconditionally
 const PORT = process.env.PORT || 8080;
 
