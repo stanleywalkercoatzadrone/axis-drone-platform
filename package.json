@@ -12,6 +12,7 @@
     "db:migrate": "node backend/migrations/run.js"
   },
   "dependencies": {
+    "@google-cloud/logging": "^11.2.0",
     "@google-cloud/storage": "^7.18.0",
     "@google/genai": "^1.36.0",
     "@react-oauth/google": "^0.13.4",
