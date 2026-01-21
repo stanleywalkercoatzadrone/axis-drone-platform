@@ -19,10 +19,15 @@ import personnelRoutes from './routes/personnel.js';
 import deploymentRoutes from './routes/deployments.js';
 import invoiceRoutes from './routes/invoices.js';
 import assetRoutes from './routes/assets.js';
+import v1Routes from './routes/v1/index.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
+import { standardLimiter, authLimiter } from './middleware/rateLimiter.js';
+
+// Import services
+import { logger } from './services/logger.js';
 
 // Import socket handlers
 import { initializeSocketHandlers } from './sockets/index.js';
@@ -44,16 +49,37 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || process.env.BACKEND_PORT || 8080;
 
-// Middleware
+// Security middleware with CSP enabled
 app.use(helmet({
-    contentSecurityPolicy: false // Disable CSP for now to avoid issues with inline scripts/styles
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Vite in dev
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:", "blob:"],
+            connectSrc: ["'self'", "https://api.openai.com", "https://generativelanguage.googleapis.com"],
+            fontSrc: ["'self'", "data:"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"]
+        }
+    },
+    crossOriginEmbedderPolicy: false
 }));
+
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true
 }));
 app.use(compression());
-app.use(morgan('dev'));
+
+// Custom morgan format with logger integration
+app.use(morgan('combined', {
+    stream: {
+        write: (message) => logger.info(message.trim(), { category: 'http' })
+    }
+}));
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -67,8 +93,14 @@ app.get('/health', (req, res) => {
     });
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
+// Apply standard rate limiting to all API routes
+app.use('/api/', standardLimiter);
+
+// API v1 Routes (AI Intelligence Layer)
+app.use('/api/v1', v1Routes);
+
+// API Routes with specific rate limiters
+app.use('/api/auth', authLimiter, authRoutes); // Strict limiter for auth
 app.use('/api/users', userRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/images', imageRoutes);
@@ -101,9 +133,13 @@ app.get('*', (req, res) => {
 
 // Start server
 httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Axis Backend running on port ${PORT}`);
-    console.log(`📊 Health check: http://localhost:${PORT}/health`);
-    console.log(`🔌 WebSocket server ready`);
+    logger.info('Axis Backend started', {
+        port: PORT,
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0'
+    });
+    logger.info(`Health check available at http://localhost:${PORT}/health`);
+    logger.info('WebSocket server initialized');
 });
 
 export { io };
