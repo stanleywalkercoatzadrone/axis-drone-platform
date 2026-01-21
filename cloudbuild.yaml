@@ -39,7 +39,7 @@ steps:
       - '--timeout'
       - '300'
       - '--set-env-vars'
-      - 'NODE_ENV=production,PORT=8080'
+      - 'NODE_ENV=production'
       # Note: Sensitive env vars (DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, FRONTEND_URL)
       # should be set via Cloud Run Console or using --set-secrets flag
 
