@@ -37,7 +37,7 @@ steps:
       - '--min-instances'
       - '${_MIN_INSTANCES}'
       - '--timeout'
-      - '300'
+      - '600'
       - '--set-env-vars'
       - 'NODE_ENV=production'
       # Note: Sensitive env vars (DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, FRONTEND_URL)
