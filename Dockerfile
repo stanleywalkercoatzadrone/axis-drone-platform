@@ -16,10 +16,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copy backend code
+# Copy backend code (JavaScript only)
 COPY backend ./backend
-COPY geminiService.ts ./
-COPY types.ts ./
 
 # Copy built frontend
 COPY --from=frontend-builder /app/dist ./dist
