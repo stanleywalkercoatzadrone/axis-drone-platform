@@ -7,6 +7,7 @@ import express from 'express';
 import analyzeRoutes from './analyze.js';
 import reportsRoutes from './reports.js';
 import { logger } from '../../services/logger.js';
+import { aiService } from '../../services/aiService.js';
 
 const router = express.Router();
 
@@ -23,14 +24,12 @@ router.use((req, res, next) => {
 
 // Health check for AI layer
 router.get('/health', (req, res) => {
-    const { aiService } = require('../../services/aiService.js');
-
     res.json({
         success: true,
         version: '1.0',
         data: {
             status: 'ok',
-            aiAvailable: aiService.isAvailable(),
+            aiAvailable: aiService?.isAvailable ? aiService.isAvailable() : false,
             timestamp: new Date().toISOString()
         }
     });

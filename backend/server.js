@@ -105,7 +105,18 @@ app.get('*', (req, res) => {
 });
 
 // Start server unconditionally
+// Start server unconditionally
 const PORT = process.env.PORT || 8080;
+
+// Add startup error handling
+httpServer.on('error', (error) => {
+    console.error('❌ Server failed to start:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use`);
+    }
+    process.exit(1);
+});
+
 httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Axis Backend listening on port ${PORT}`);
     console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
