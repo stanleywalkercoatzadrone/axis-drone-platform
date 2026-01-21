@@ -37,7 +37,8 @@ import {
   RefreshCw,
   History,
   Check,
-  LayoutTemplate
+  LayoutTemplate,
+  Lock
 } from 'lucide-react';
 import AIAnalysisView from './AIAnalysisView';
 import apiClient from '../src/services/apiClient';
@@ -79,6 +80,10 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
   const [reportId, setReportId] = useState<string | null>(viewingReport?.id || null);
   const [branding, setBranding] = useState<Branding>(viewingReport?.branding || { companyName: '', primaryColor: '#0f172a' });
   const [isVerifiedBrand, setIsVerifiedBrand] = useState(false);
+
+  // Locking State
+  const isLocked = viewingReport?.status === 'FINALIZED' || finalReport?.status === 'FINALIZED';
+  const currentVersion = viewingReport?.version || finalReport?.version || 1;
 
   // Drawing State
   const [drawMode, setDrawMode] = useState<'box' | 'select'>('select');
@@ -682,22 +687,31 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={() => handleFinalizeReport('DRAFT')}
-                  disabled={isFinalizing}
-                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-600"
-                >
-                  {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Draft
-                </button>
-                <button
-                  onClick={() => handleFinalizeReport('FINALIZED')}
-                  disabled={isFinalizing}
-                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
-                >
-                  {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
-                  Finalize Report
-                </button>
+                {isLocked ? (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 cursor-not-allowed">
+                    <Lock className="w-4 h-4" />
+                    <span className="font-mono">v{currentVersion}.0 (Locked)</span>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleFinalizeReport('DRAFT')}
+                      disabled={isFinalizing}
+                      className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-600"
+                    >
+                      {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save v{currentVersion}.x
+                    </button>
+                    <button
+                      onClick={() => handleFinalizeReport('FINALIZED')}
+                      disabled={isFinalizing}
+                      className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
+                    >
+                      {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+                      Finalize v{currentVersion + 1}.0
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

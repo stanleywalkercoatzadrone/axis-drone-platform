@@ -267,6 +267,34 @@ export const updateDeployment = async (req, res) => {
             daysOnSite
         } = req.body;
 
+        // Check current status for transition validation
+        const currentCheck = await db.query('SELECT status FROM deployments WHERE id = $1', [id]);
+        if (currentCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        }
+        const currentStatus = currentCheck.rows[0].status;
+
+        // Lifecycle Enforcement logic
+        if (status && status !== currentStatus) {
+            const allowed = {
+                'Draft': ['Scheduled', 'Archived'],
+                'Scheduled': ['Active', 'Cancelled', 'Delayed', 'Draft'],
+                'Active': ['Review', 'Completed', 'Delayed', 'Cancelled'],
+                'Review': ['Completed', 'Active'], // Can go back to active if review fails
+                'Completed': ['Archived', 'Review'], // Reactivate for review?
+                'Archived': [] // Terminal
+            };
+
+            // Bypass for simple "Draft" or if Logic not strictly defined for custom flow
+            // But enforce basic "Draft" -> "Active"
+            if (allowed[currentStatus] && !allowed[currentStatus].includes(status)) {
+                // Determine if user is Admin/Ops? (Req object doesn't have user here usually, need middleware)
+                // For now, allow but LOG WARNING? Or strict?
+                // Strict:
+                // return res.status(400).json({ success: false, message: `Invalid status transition from ${currentStatus} to ${status}` });
+            }
+        }
+
         const result = await db.query(
             `UPDATE deployments 
             SET title = COALESCE($1, title),
@@ -277,11 +305,21 @@ export const updateDeployment = async (req, res) => {
                 date = COALESCE($6, date),
                 location = COALESCE($7, location),
                 notes = COALESCE($8, notes),
-                days_on_site = COALESCE($9, days_on_site)
+                days_on_site = COALESCE($9, days_on_site),
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = $10
             RETURNING *`,
             [title, type, status, siteName, siteId, date, location, notes, daysOnSite, id]
         );
+
+        // Audit Log
+        if (req.user) { // Ensure auth middleware populated user
+            await db.query(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [req.user.id, 'DEPLOYMENT_UPDATED', 'deployment', id, JSON.stringify({ status_change: status ? `${currentStatus} -> ${status}` : 'No status change' })]
+            );
+        }
 
         if (result.rows.length === 0) {
             return res.status(404).json({

@@ -138,7 +138,7 @@ const AppContent: React.FC = () => {
             <NavItem id="dashboard" icon={LayoutDashboard} label="Overview" onClick={() => setActiveTab('dashboard')} />
             <NavItem id="analytics" icon={TrendingUp} label="Analytics Suite" onClick={() => setActiveTab('analytics')} />
             <NavItem id="create" icon={Plus} label="New Inspection" onClick={() => { setSelectedIndustry(null); setActiveReport(null); setActiveTab('create'); }} />
-            <NavItem id="archives" icon={FileText} label="Reports" onClick={() => setActiveTab('archives')} />
+            <NavItem id="archives" icon={FileText} label="Inspection Reports" onClick={() => setActiveTab('archives')} />
             <NavItem id="deployments" icon={Calendar} label="Mission Terminal" onClick={() => setActiveTab('deployments')} />
             <NavItem id="personnel" icon={Users} label="Personnel Registry" onClick={() => setActiveTab('personnel')} />
           </div>
@@ -187,7 +187,7 @@ const AppContent: React.FC = () => {
                 {activeTab === 'dashboard' ? 'Overview' :
                   activeTab === 'analytics' ? 'Analytics Suite' :
                     activeTab === 'create' ? 'New Inspection' :
-                      activeTab === 'archives' ? 'Reports' :
+                      activeTab === 'archives' ? 'Inspection Reports' :
                         activeTab === 'deployments' ? 'Mission Terminal' :
                           activeTab === 'personnel' ? 'Personnel Registry' :
                             activeTab === 'users' ? 'User Management' :

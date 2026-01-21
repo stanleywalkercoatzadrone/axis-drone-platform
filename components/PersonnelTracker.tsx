@@ -6,8 +6,12 @@ import apiClient from '../src/services/apiClient';
 
 const PersonnelTracker: React.FC = () => {
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [roleFilter, setRoleFilter] = useState<'All' | PersonnelRole>('All');
+    const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('pt_searchQuery') || '');
+    const [roleFilter, setRoleFilter] = useState<'All' | PersonnelRole>(() => (sessionStorage.getItem('pt_roleFilter') as any) || 'All');
+
+    // Persistence Effects
+    useEffect(() => { sessionStorage.setItem('pt_searchQuery', searchQuery); }, [searchQuery]);
+    useEffect(() => { sessionStorage.setItem('pt_roleFilter', roleFilter); }, [roleFilter]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -280,6 +284,12 @@ const PersonnelTracker: React.FC = () => {
                             </div>
                             <h3 className="text-sm font-medium text-slate-900">No personnel found</h3>
                             <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search query.</p>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                            >
+                                Add Personnel
+                            </button>
                         </div>
                     )}
                 </div>

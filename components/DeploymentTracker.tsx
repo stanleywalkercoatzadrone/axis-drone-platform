@@ -8,12 +8,12 @@ import apiClient from '../src/services/apiClient';
 const DeploymentTracker: React.FC = () => {
     const [deployments, setDeployments] = useState<Deployment[]>([]);
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus>('All');
+    const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('dt_searchQuery') || '');
+    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus>(() => (sessionStorage.getItem('dt_statusFilter') as any) || 'All');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
-    const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+    const [viewMode, setViewMode] = useState<'list' | 'calendar'>(() => (sessionStorage.getItem('dt_viewMode') as any) || 'list');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets'>('logs');
@@ -22,7 +22,13 @@ const DeploymentTracker: React.FC = () => {
     const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
     const [siteAssets, setSiteAssets] = useState<any[]>([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
-    const [activeSection, setActiveSection] = useState<'missions' | 'assets'>('missions');
+    const [activeSection, setActiveSection] = useState<'missions' | 'assets'>(() => (sessionStorage.getItem('dt_activeSection') as any) || 'missions');
+
+    // Persistence Effects
+    useEffect(() => { sessionStorage.setItem('dt_searchQuery', searchQuery); }, [searchQuery]);
+    useEffect(() => { sessionStorage.setItem('dt_statusFilter', statusFilter); }, [statusFilter]);
+    useEffect(() => { sessionStorage.setItem('dt_viewMode', viewMode); }, [viewMode]);
+    useEffect(() => { sessionStorage.setItem('dt_activeSection', activeSection); }, [activeSection]);
 
     const [newLog, setNewLog] = useState<Partial<DailyLog>>({
         dailyPay: 0,
@@ -516,7 +522,7 @@ const DeploymentTracker: React.FC = () => {
                     <div className="flex items-end justify-between">
                         <div>
                             <h2 className="text-lg font-semibold text-slate-900">Mission Terminal</h2>
-                            <p className="text-sm text-slate-500">Enterprise deployment tracker and mission logistics.</p>
+                            <p className="text-sm text-slate-500">Manage fleet deployments, crew assignments, and logistics.</p>
                         </div>
                         <div className="flex items-center gap-3">
                             <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -735,6 +741,12 @@ const DeploymentTracker: React.FC = () => {
                                         </div>
                                         <h3 className="text-sm font-medium text-slate-900">No missions found</h3>
                                         <p className="text-xs text-slate-500 mt-1">Check your search terms or schedule a new mission.</p>
+                                        <button
+                                            onClick={() => setIsAddModalOpen(true)}
+                                            className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+                                        >
+                                            Schedule Mission
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -1281,318 +1293,316 @@ const DeploymentTracker: React.FC = () => {
                                                     <button onClick={() => setGeneratedLink(null)} className="text-emerald-400 hover:text-emerald-600">
                                                         &times;
                                                     </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : activeModalTab === 'site-assets' ? (
-                                    <div className="p-6 space-y-6">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                <Zap className="w-4 h-4 text-amber-500" />
-                                                Site-Linked Assets
-                                            </h4>
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">
-                                                Site ID: {selectedDeployment.siteId || 'None'}
-                                            </div>
-                                        </div>
+                                                    ) : activeModalTab === 'site-assets' ? (
 
-                                        {loadingAssets ? (
-                                            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                                                <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                                                <p className="text-sm">Fetching enterprise assets...</p>
-                                            </div>
-                                        ) : siteAssets.length === 0 ? (
-                                            <div className="bg-white rounded-xl border border-dashed border-slate-200 p-12 text-center">
-                                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                                                    <Activity className="w-5 h-5 text-slate-300" />
-                                                </div>
-                                                <h5 className="text-sm font-medium text-slate-900">No assets linked to this site</h5>
-                                                <p className="text-xs text-slate-500 mt-1">Visit the Assets tab to register equipment for {selectedDeployment.siteName}.</p>
-                                            </div>
-                                        ) : (
-                                            <div className="grid grid-cols-1 gap-3">
-                                                {siteAssets.map((asset) => (
-                                                    <div key={asset.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-blue-200 transition-all group">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${asset.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
-                                                                <Zap className="w-5 h-5" />
-                                                            </div>
-                                                            <div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <p className="text-sm font-bold text-slate-900">{asset.name}</p>
-                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                                        {asset.status}
-                                                                    </span>
-                                                                </div>
-                                                                <p className="text-xs text-slate-500">{asset.category} • {asset.location}</p>
+                                                    <div className="p-6 space-y-6">
+                                                        <div className="flex justify-between items-center">
+                                                            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                                <Zap className="w-4 h-4 text-amber-500" />
+                                                                Site-Linked Assets
+                                                            </h4>
+                                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">
+                                                                Site ID: {selectedDeployment.siteId || 'None'}
                                                             </div>
                                                         </div>
-                                                        <div className="flex flex-col items-end gap-1">
-                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Next Audit</p>
-                                                            <p className="text-xs font-medium text-slate-700">{asset.nextInspectionDate || 'Not Scheduled'}</p>
+
+                                                        {loadingAssets ? (
+                                                            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                                                                <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                                                                <p className="text-sm">Fetching enterprise assets...</p>
+                                                            </div>
+                                                        ) : siteAssets.length === 0 ? (
+                                                            <div className="bg-white rounded-xl border border-dashed border-slate-200 p-12 text-center">
+                                                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                                    <Activity className="w-5 h-5 text-slate-300" />
+                                                                </div>
+                                                                <h5 className="text-sm font-medium text-slate-900">No assets linked to this site</h5>
+                                                                <p className="text-xs text-slate-500 mt-1">Visit the Assets tab to register equipment for {selectedDeployment.siteName}.</p>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="grid grid-cols-1 gap-3">
+                                                                {siteAssets.map((asset) => (
+                                                                    <div key={asset.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-blue-200 transition-all group">
+                                                                        <div className="flex items-center gap-4">
+                                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${asset.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+                                                                                <Zap className="w-5 h-5" />
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <p className="text-sm font-bold text-slate-900">{asset.name}</p>
+                                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                                                        {asset.status}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <p className="text-xs text-slate-500">{asset.category} • {asset.location}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Next Audit</p>
+                                                                            <p className="text-xs font-medium text-slate-700">{asset.nextInspectionDate || 'Not Scheduled'}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    ) : activeModalTab === 'team' ? (
+                                                    <div className="p-6 space-y-8">
+                                                        {/* Team Setup Content */}
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                            {/* Flight Crew / Personnel */}
+                                                            <div className="space-y-4">
+                                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                                    <Plane className="w-4 h-4 text-blue-500" />
+                                                                    Flight Crew (Pilots/Techs)
+                                                                </h4>
+                                                                <div className="space-y-2">
+                                                                    {(selectedDeployment.technicianIds || []).map(techId => {
+                                                                        const p = personnel.find(per => per.id === techId);
+                                                                        if (!p) return null;
+                                                                        return (
+                                                                            <div key={techId} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                                                                        {p.fullName.charAt(0)}
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
+                                                                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <button
+                                                                                    onClick={() => handleUnassignPersonnel(techId)}
+                                                                                    className="text-slate-400 hover:text-red-600 p-1"
+                                                                                >
+                                                                                    <XCircle className="w-4 h-4" />
+                                                                                </button>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                    {(selectedDeployment.technicianIds || []).length === 0 && (
+                                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No flight crew assigned.</p>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="pt-2">
+                                                                    <select
+                                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                                        onChange={(e) => {
+                                                                            if (e.target.value) handleAssignPersonnel(e.target.value);
+                                                                            e.target.value = "";
+                                                                        }}
+                                                                    >
+                                                                        <option value="">+ Assign Pilot/Technician</option>
+                                                                        {personnel
+                                                                            .filter(p => p.status === 'Active' && !(selectedDeployment.technicianIds || []).includes(p.id))
+                                                                            .map(p => (
+                                                                                <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
+                                                                            ))}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Mission Monitoring / Users */}
+                                                            <div className="space-y-4">
+                                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                                                    Mission Monitoring (Control)
+                                                                </h4>
+                                                                <div className="space-y-2">
+                                                                    {(selectedDeployment.monitoringTeam || []).map(u => (
+                                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-emerald-100 rounded-lg shadow-sm shadow-emerald-50/50">
+                                                                            <div className="flex items-center gap-3">
+                                                                                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
+                                                                                    {u.fullName.charAt(0)}
+                                                                                </div>
+                                                                                <div>
+                                                                                    <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
+                                                                                    <p className="text-[10px] text-emerald-600 font-bold uppercase">{u.role}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => handleUnassignMonitor(u.id)}
+                                                                                className="text-slate-400 hover:text-red-600 p-1"
+                                                                            >
+                                                                                <XCircle className="w-4 h-4" />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                    {(selectedDeployment.monitoringTeam || []).length === 0 && (
+                                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No monitoring team assigned.</p>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="pt-2">
+                                                                    <select
+                                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                                                                        onChange={(e) => {
+                                                                            if (e.target.value) handleAssignMonitor(e.target.value);
+                                                                            e.target.value = "";
+                                                                        }}
+                                                                    >
+                                                                        <option value="">+ Assign Monitoring Team</option>
+                                                                        {allUsers
+                                                                            .filter(u => !(selectedDeployment.monitoringTeam || []).some(m => m.id === u.id))
+                                                                            .map(u => (
+                                                                                <option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>
+                                                                            ))}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : activeModalTab === 'team' ? (
-                                    <div className="p-6 space-y-8">
-                                        {/* Team Setup Content */}
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                            {/* Flight Crew / Personnel */}
-                                            <div className="space-y-4">
-                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                    <Plane className="w-4 h-4 text-blue-500" />
-                                                    Flight Crew (Pilots/Techs)
-                                                </h4>
-                                                <div className="space-y-2">
-                                                    {(selectedDeployment.technicianIds || []).map(techId => {
-                                                        const p = personnel.find(per => per.id === techId);
-                                                        if (!p) return null;
-                                                        return (
-                                                            <div key={techId} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                                                                        {p.fullName.charAt(0)}
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
-                                                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
-                                                                    </div>
-                                                                </div>
-                                                                <button
-                                                                    onClick={() => handleUnassignPersonnel(techId)}
-                                                                    className="text-slate-400 hover:text-red-600 p-1"
-                                                                >
-                                                                    <XCircle className="w-4 h-4" />
-                                                                </button>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                    {(selectedDeployment.technicianIds || []).length === 0 && (
-                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No flight crew assigned.</p>
-                                                    )}
+                                                    ) : (
+                                                    <div className="p-6 flex items-center justify-center text-slate-500">
+                                                        Select a tab to view details
+                                                    </div>
+                                )}
                                                 </div>
 
-                                                <div className="pt-2">
-                                                    <select
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                        onChange={(e) => {
-                                                            if (e.target.value) handleAssignPersonnel(e.target.value);
-                                                            e.target.value = "";
-                                                        }}
+                                                <div className="bg-white border-t border-slate-200 p-4 flex justify-between items-center shrink-0">
+                                                    <div className="text-sm">
+                                                        <span className="text-slate-500">Total Mission Cost: </span>
+                                                        <span className="font-bold text-slate-900 text-lg">${getTotalCost(selectedDeployment).toLocaleString()}</span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setIsLogModalOpen(false)}
+                                                        className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
                                                     >
-                                                        <option value="">+ Assign Pilot/Technician</option>
-                                                        {personnel
-                                                            .filter(p => p.status === 'Active' && !(selectedDeployment.technicianIds || []).includes(p.id))
-                                                            .map(p => (
-                                                                <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
-                                                            ))}
-                                                    </select>
+                                                        Close
+                                                    </button>
                                                 </div>
                                             </div>
+                                                    </div>
+                                                </div>
+                            )
+            }
 
-                                            {/* Mission Monitoring / Users */}
-                                            <div className="space-y-4">
-                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                                                    Mission Monitoring (Control)
-                                                </h4>
-                                                <div className="space-y-2">
-                                                    {(selectedDeployment.monitoringTeam || []).map(u => (
-                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-emerald-100 rounded-lg shadow-sm shadow-emerald-50/50">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
-                                                                    {u.fullName.charAt(0)}
-                                                                </div>
-                                                                <div>
-                                                                    <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
-                                                                    <p className="text-[10px] text-emerald-600 font-bold uppercase">{u.role}</p>
-                                                                </div>
-                                                            </div>
-                                                            <button
-                                                                onClick={() => handleUnassignMonitor(u.id)}
-                                                                className="text-slate-400 hover:text-red-600 p-1"
-                                                            >
-                                                                <XCircle className="w-4 h-4" />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                    {(selectedDeployment.monitoringTeam || []).length === 0 && (
-                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No monitoring team assigned.</p>
-                                                    )}
+                            {/* Add Mission Modal */}
+                            {
+                                isAddModalOpen && (
+                                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                                                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                                                    <Plane className="w-4 h-4" /> Schedule New Mission
+                                                </h3>
+                                                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                                    &times;
+                                                </button>
+                                            </div>
+                                            <div className="p-6 space-y-4">
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                        placeholder="e.g. Q3 Roof Inspection"
+                                                        value={newDeployment.title || ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
+                                                    />
                                                 </div>
 
-                                                <div className="pt-2">
-                                                    <select
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                                                        onChange={(e) => {
-                                                            if (e.target.value) handleAssignMonitor(e.target.value);
-                                                            e.target.value = "";
-                                                        }}
-                                                    >
-                                                        <option value="">+ Assign Monitoring Team</option>
-                                                        {allUsers
-                                                            .filter(u => !(selectedDeployment.monitoringTeam || []).some(m => m.id === u.id))
-                                                            .map(u => (
-                                                                <option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>
-                                                            ))}
-                                                    </select>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
+                                                        <select
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                            value={newDeployment.type}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
+                                                        >
+                                                            {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
+                                                        <select
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                            value={newDeployment.status}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
+                                                        >
+                                                            {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                                        </select>
+                                                    </div>
                                                 </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
+                                                        <input
+                                                            type="text"
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                            placeholder="e.g. Site Alpha"
+                                                            value={newDeployment.siteName || ''}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+                                                        <input
+                                                            type="date"
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                            value={newDeployment.date}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
+                                                    <input
+                                                        type="text"
+                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                        placeholder="City, State or Coordinates"
+                                                        value={newDeployment.location || ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                        placeholder="e.g. 5"
+                                                        value={newDeployment.daysOnSite || ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
+                                                    <textarea
+                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
+                                                        placeholder="Flight plan details, hazards, etc."
+                                                        value={newDeployment.notes || ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
+                                                    />
+                                                </div>
+
+                                            </div>
+                                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                                <button
+                                                    onClick={() => setIsAddModalOpen(false)}
+                                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    onClick={handleAddDeployment}
+                                                    disabled={!newDeployment.title || !newDeployment.siteName}
+                                                    className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
+                                                >
+                                                    Confirm Schedule
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
-                                ) : (
-                                    <div className="p-6 flex items-center justify-center text-slate-500">
-                                        Select a tab to view details
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="bg-white border-t border-slate-200 p-4 flex justify-between items-center shrink-0">
-                                <div className="text-sm">
-                                    <span className="text-slate-500">Total Mission Cost: </span>
-                                    <span className="font-bold text-slate-900 text-lg">${getTotalCost(selectedDeployment).toLocaleString()}</span>
-                                </div>
-                                <button
-                                    onClick={() => setIsLogModalOpen(false)}
-                                    className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
-                                >
-                                    Close
-                                </button>
-                            </div>
+                                )
+                            }
                         </div>
-                    </div >
-                )
-            }
-
-            {/* Add Mission Modal */}
-            {
-                isAddModalOpen && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                                    <Plane className="w-4 h-4" /> Schedule New Mission
-                                </h3>
-                                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                    &times;
-                                </button>
-                            </div>
-                            <div className="p-6 space-y-4">
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                        placeholder="e.g. Q3 Roof Inspection"
-                                        value={newDeployment.title || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
-                                    />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
-                                        <select
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            value={newDeployment.type}
-                                            onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
-                                        >
-                                            {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
-                                        <select
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            value={newDeployment.status}
-                                            onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
-                                        >
-                                            {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            placeholder="e.g. Site Alpha"
-                                            value={newDeployment.siteName || ''}
-                                            onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
-                                        <input
-                                            type="date"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            value={newDeployment.date}
-                                            onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                        placeholder="City, State or Coordinates"
-                                        value={newDeployment.location || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                        placeholder="e.g. 5"
-                                        value={newDeployment.daysOnSite || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
-                                    <textarea
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
-                                        placeholder="Flight plan details, hazards, etc."
-                                        value={newDeployment.notes || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
-                                    />
-                                </div>
-
-                            </div>
-                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                                <button
-                                    onClick={() => setIsAddModalOpen(false)}
-                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleAddDeployment}
-                                    disabled={!newDeployment.title || !newDeployment.siteName}
-                                    className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
-                                >
-                                    Confirm Schedule
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-        </div >
-    );
+                        );
 };
 
-export default DeploymentTracker;
+                        export default DeploymentTracker;

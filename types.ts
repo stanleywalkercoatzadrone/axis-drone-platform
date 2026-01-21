@@ -24,7 +24,9 @@ export enum UserRole {
   FIELD_OPERATOR = 'Field Operator',
   SENIOR_INSPECTOR = 'Senior Inspector',
   ADMIN = 'Admin',
-  AUDITOR = 'Auditor'
+  AUDITOR = 'Auditor',
+  OPERATIONS = 'Operations',
+  ANALYST = 'Analyst'
 }
 
 export enum Permission {
@@ -46,7 +48,9 @@ export const ROLE_DEFINITIONS: Record<UserRole, Permission[]> = {
   [UserRole.ADMIN]: Object.values(Permission),
   [UserRole.SENIOR_INSPECTOR]: [Permission.CREATE_REPORT, Permission.EDIT_REPORT, Permission.RELEASE_REPORT],
   [UserRole.FIELD_OPERATOR]: [Permission.CREATE_REPORT, Permission.EDIT_REPORT],
-  [UserRole.AUDITOR]: [Permission.VIEW_MASTER_VAULT]
+  [UserRole.AUDITOR]: [Permission.VIEW_MASTER_VAULT],
+  [UserRole.OPERATIONS]: [Permission.CREATE_REPORT, Permission.EDIT_REPORT, Permission.VIEW_MASTER_VAULT, Permission.MANAGE_USERS],
+  [UserRole.ANALYST]: [Permission.VIEW_MASTER_VAULT]
 };
 
 export const ADMIN_PASSKEY = 'SKYLENS-ADMIN-2025';
@@ -57,7 +61,10 @@ export interface AuditLogEntry {
   userId: string;
   userName: string;
   action: string;
-  details: string;
+  resource_type: string;
+  resource_id: string;
+  metadata?: any;
+  details?: string; // keeping for backward compat if needed, or remove
   ipAddress?: string;
 }
 
@@ -242,6 +249,7 @@ export interface InspectionReport {
   strategicAssessment?: StrategicAssessment;
   metadata?: Record<string, string>;
   syncStatus?: SyncStatus;
+  status: 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'REVIEW' | 'FINALIZED' | 'ARCHIVED';
   approvalStatus: 'Draft' | 'Pending Review' | 'Approved' | 'Released';
 }
 
@@ -307,11 +315,14 @@ export interface Personnel {
 }
 
 export enum DeploymentStatus {
+  DRAFT = 'Draft',
   SCHEDULED = 'Scheduled',
-  IN_PROGRESS = 'In Progress',
+  ACTIVE = 'Active',
+  REVIEW = 'Review',
   COMPLETED = 'Completed',
   CANCELLED = 'Cancelled',
-  DELAYED = 'Delayed'
+  DELAYED = 'Delayed',
+  ARCHIVED = 'Archived'
 }
 
 export enum DeploymentType {

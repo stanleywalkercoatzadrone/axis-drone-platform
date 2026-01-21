@@ -160,7 +160,13 @@ export const updateReport = async (req, res, next) => {
         const { title, client, summary, siteContext, strategicAssessment, config, branding, images, status } = req.body;
 
         const updatedReport = await transaction(async (clientQuery) => {
-            // 1. Update Report info
+            // 1. Check if finalized (Locking)
+            const currentReport = await clientQuery('SELECT status, version FROM reports WHERE id = $1', [id]);
+            if (currentReport.rows.length > 0 && currentReport.rows[0].status === 'FINALIZED') {
+                throw new AppError('Cannot edit a finalized report. Please create a new version.', 403);
+            }
+
+            // 2. Update Report info & Increment Version
             const result = await clientQuery(
                 `UPDATE reports
                  SET title = COALESCE($1, title),
@@ -171,6 +177,7 @@ export const updateReport = async (req, res, next) => {
                      config = COALESCE($6, config),
                      branding = COALESCE($7, branding),
                      status = COALESCE($8, status),
+                     version = version + 1,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = $9 AND user_id = $10
                  RETURNING *`,
@@ -191,7 +198,14 @@ export const updateReport = async (req, res, next) => {
 
             const report = result.rows[0];
 
-            // 2. Synchronize Images if provided
+            // 3. Log History Entry
+            await clientQuery(
+                `INSERT INTO report_history (report_id, version, author, summary)
+                 VALUES ($1, $2, $3, $4)`,
+                [id, report.version, req.user.full_name, 'Report updated']
+            );
+
+            // 4. Synchronize Images if provided
             if (images && Array.isArray(images)) {
                 // For simplicity in draft saving, we'll clear and re-insert or update
                 // Finer-grained diffing can be added later
