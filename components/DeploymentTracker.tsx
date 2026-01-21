@@ -9,11 +9,40 @@ const DeploymentTracker: React.FC = () => {
     const [deployments, setDeployments] = useState<Deployment[]>([]);
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
     const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('dt_searchQuery') || '');
-    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus>(() => (sessionStorage.getItem('dt_statusFilter') as any) || 'All');
+    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus | string>(() => (sessionStorage.getItem('dt_statusFilter') as any) || 'All');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>(() => (sessionStorage.getItem('dt_viewMode') as any) || 'list');
+
+    // Lifecycle Transition Logic
+    const getNextAllowedStatuses = (current: DeploymentStatus): DeploymentStatus[] => {
+        const allowed: Record<string, DeploymentStatus[]> = {
+            [DeploymentStatus.DRAFT]: [DeploymentStatus.SCHEDULED, DeploymentStatus.ARCHIVED],
+            [DeploymentStatus.SCHEDULED]: [DeploymentStatus.ACTIVE, DeploymentStatus.CANCELLED, DeploymentStatus.DELAYED, DeploymentStatus.DRAFT],
+            [DeploymentStatus.ACTIVE]: [DeploymentStatus.REVIEW, DeploymentStatus.COMPLETED, DeploymentStatus.DELAYED, DeploymentStatus.CANCELLED],
+            [DeploymentStatus.REVIEW]: [DeploymentStatus.COMPLETED, DeploymentStatus.ACTIVE],
+            [DeploymentStatus.COMPLETED]: [DeploymentStatus.ARCHIVED, DeploymentStatus.REVIEW],
+            [DeploymentStatus.ARCHIVED]: [] // Terminal
+        };
+        return allowed[current] || [];
+    };
+
+    const handleStatusChange = async (id: string, newStatus: DeploymentStatus) => {
+        try {
+            const res = await apiClient.put(`/deployments/${id}`, { status: newStatus });
+            if (res.data.success) {
+                // Update local list
+                setDeployments(prev => prev.map(d => d.id === id ? { ...d, status: newStatus } : d));
+                if (selectedDeployment && selectedDeployment.id === id) {
+                    setSelectedDeployment(prev => prev ? { ...prev, status: newStatus } : null);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to update status', error);
+            alert("Failed to update status: " + (error as any).message); // Will refine this UI later
+        }
+    };
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets'>('logs');
@@ -1457,7 +1486,7 @@ const DeploymentTracker: React.FC = () => {
                                                     <div className="p-6 flex items-center justify-center text-slate-500">
                                                         Select a tab to view details
                                                     </div>
-                                )}
+                                                    )}
                                                 </div>
 
                                                 <div className="bg-white border-t border-slate-200 p-4 flex justify-between items-center shrink-0">
@@ -1473,136 +1502,136 @@ const DeploymentTracker: React.FC = () => {
                                                     </button>
                                                 </div>
                                             </div>
-                                                    </div>
-                                                </div>
-                            )
+                                        </div>
+                                )}
+                                )
             }
 
-                            {/* Add Mission Modal */}
-                            {
-                                isAddModalOpen && (
-                                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-                                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                                                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                                                    <Plane className="w-4 h-4" /> Schedule New Mission
-                                                </h3>
-                                                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                                    &times;
-                                                </button>
-                                            </div>
-                                            <div className="p-6 space-y-4">
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
-                                                    <input
-                                                        type="text"
-                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                        placeholder="e.g. Q3 Roof Inspection"
-                                                        value={newDeployment.title || ''}
-                                                        onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
-                                                    />
+                                {/* Add Mission Modal */}
+                                {
+                                    isAddModalOpen && (
+                                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                                                    <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                                                        <Plane className="w-4 h-4" /> Schedule New Mission
+                                                    </h3>
+                                                    <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                                        &times;
+                                                    </button>
                                                 </div>
-
-                                                <div className="grid grid-cols-2 gap-4">
+                                                <div className="p-6 space-y-4">
                                                     <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
-                                                        <select
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            value={newDeployment.type}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
-                                                        >
-                                                            {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
-                                                        <select
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            value={newDeployment.status}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
-                                                        >
-                                                            {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                                        </select>
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
                                                         <input
                                                             type="text"
                                                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            placeholder="e.g. Site Alpha"
-                                                            value={newDeployment.siteName || ''}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                                            placeholder="e.g. Q3 Roof Inspection"
+                                                            value={newDeployment.title || ''}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
                                                         />
                                                     </div>
+
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
+                                                            <select
+                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                                value={newDeployment.type}
+                                                                onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
+                                                            >
+                                                                {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
+                                                            <select
+                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                                value={newDeployment.status}
+                                                                onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
+                                                            >
+                                                                {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
+                                                            <input
+                                                                type="text"
+                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                                placeholder="e.g. Site Alpha"
+                                                                value={newDeployment.siteName || ''}
+                                                                onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+                                                            <input
+                                                                type="date"
+                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                                value={newDeployment.date}
+                                                                onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </div>
+
                                                     <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
                                                         <input
-                                                            type="date"
+                                                            type="text"
                                                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            value={newDeployment.date}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                                            placeholder="City, State or Coordinates"
+                                                            value={newDeployment.location || ''}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
                                                         />
                                                     </div>
-                                                </div>
 
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
-                                                    <input
-                                                        type="text"
-                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                        placeholder="City, State or Coordinates"
-                                                        value={newDeployment.location || ''}
-                                                        onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
-                                                    />
-                                                </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                            placeholder="e.g. 5"
+                                                            value={newDeployment.daysOnSite || ''}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
+                                                        />
+                                                    </div>
 
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                        placeholder="e.g. 5"
-                                                        value={newDeployment.daysOnSite || ''}
-                                                        onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
-                                                    />
-                                                </div>
+                                                    <div>
+                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
+                                                        <textarea
+                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
+                                                            placeholder="Flight plan details, hazards, etc."
+                                                            value={newDeployment.notes || ''}
+                                                            onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
+                                                        />
+                                                    </div>
 
-                                                <div>
-                                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
-                                                    <textarea
-                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
-                                                        placeholder="Flight plan details, hazards, etc."
-                                                        value={newDeployment.notes || ''}
-                                                        onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
-                                                    />
                                                 </div>
-
-                                            </div>
-                                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                                                <button
-                                                    onClick={() => setIsAddModalOpen(false)}
-                                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
-                                                >
-                                                    Cancel
-                                                </button>
-                                                <button
-                                                    onClick={handleAddDeployment}
-                                                    disabled={!newDeployment.title || !newDeployment.siteName}
-                                                    className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
-                                                >
-                                                    Confirm Schedule
-                                                </button>
+                                                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                                    <button
+                                                        onClick={() => setIsAddModalOpen(false)}
+                                                        className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        onClick={handleAddDeployment}
+                                                        disabled={!newDeployment.title || !newDeployment.siteName}
+                                                        className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
+                                                    >
+                                                        Confirm Schedule
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )
-                            }
-                        </div>
-                        );
+                                    )
+                                }
+                            </div>
+                            );
 };
 
-                        export default DeploymentTracker;
+                            export default DeploymentTracker;

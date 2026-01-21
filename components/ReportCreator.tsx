@@ -84,6 +84,7 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
   // Locking State
   const isLocked = viewingReport?.status === 'FINALIZED' || finalReport?.status === 'FINALIZED';
   const currentVersion = viewingReport?.version || finalReport?.version || 1;
+  const [error, setError] = useState<string | null>(null);
 
   // Drawing State
   const [drawMode, setDrawMode] = useState<'box' | 'select'>('select');
@@ -680,39 +681,49 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
           </div>
 
           <div className="flex-1 flex flex-col bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-            <div className="h-14 border-b border-slate-200 bg-white flex justify-between items-center px-6">
-              <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
-                <button onClick={() => setDrawMode('select')} className={`p-1.5 rounded ${drawMode === 'select' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><MousePointer2 className="w-4 h-4" /></button>
-                <button onClick={() => setDrawMode('box')} className={`p-1.5 rounded ${drawMode === 'box' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BoxSelect className="w-4 h-4" /></button>
-              </div>
-
-              <div className="flex gap-2">
-                {isLocked ? (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 cursor-not-allowed">
-                    <Lock className="w-4 h-4" />
-                    <span className="font-mono">v{currentVersion}.0 (Locked)</span>
+            <div className={`h-14 border-b border-slate-200 bg-white flex justify-between items-center px-6 ${error ? 'border-red-200 bg-red-50' : ''}`}>
+              {error ? (
+                <div className="flex items-center gap-2 text-red-700 w-full">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium flex-1">{error}</span>
+                  <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded text-red-500"><X className="w-4 h-4" /></button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+                    <button onClick={() => setDrawMode('select')} className={`p-1.5 rounded ${drawMode === 'select' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><MousePointer2 className="w-4 h-4" /></button>
+                    <button onClick={() => setDrawMode('box')} className={`p-1.5 rounded ${drawMode === 'box' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}><BoxSelect className="w-4 h-4" /></button>
                   </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => handleFinalizeReport('DRAFT')}
-                      disabled={isFinalizing}
-                      className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-600"
-                    >
-                      {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Save v{currentVersion}.x
-                    </button>
-                    <button
-                      onClick={() => handleFinalizeReport('FINALIZED')}
-                      disabled={isFinalizing}
-                      className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
-                    >
-                      {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
-                      Finalize v{currentVersion + 1}.0
-                    </button>
-                  </>
-                )}
-              </div>
+
+                  <div className="flex gap-2">
+                    {isLocked ? (
+                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 border border-slate-200 rounded-lg text-sm font-medium text-slate-500 cursor-not-allowed">
+                        <Lock className="w-4 h-4" />
+                        <span className="font-mono">v{currentVersion}.0 (Locked)</span>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleFinalizeReport('DRAFT')}
+                          disabled={isFinalizing}
+                          className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-600"
+                        >
+                          {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                          Save v{currentVersion}.x
+                        </button>
+                        <button
+                          onClick={() => handleFinalizeReport('FINALIZED')}
+                          disabled={isFinalizing}
+                          className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
+                        >
+                          {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+                          Finalize v{currentVersion + 1}.0
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex-1 relative flex flex-col overflow-hidden select-none">
