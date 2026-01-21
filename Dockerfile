@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for SkyLens AI Platform
 
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:25-alpine AS frontend-builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production
-FROM node:20-alpine
+FROM node:25-alpine
 WORKDIR /app
 
 # Install production dependencies
