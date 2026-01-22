@@ -6,6 +6,11 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 import './config/env.js';
 
+console.log('🚀 Server starting...');
+console.log(`ℹ️  NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`ℹ️  PORT: ${process.env.PORT}`);
+console.log('ℹ️  Current Directory:', process.cwd());
+
 // Import routes
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';

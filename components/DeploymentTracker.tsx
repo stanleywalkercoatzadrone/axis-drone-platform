@@ -507,7 +507,7 @@ const DeploymentTracker: React.FC = () => {
     const getStatusColor = (status: DeploymentStatus) => {
         switch (status) {
             case DeploymentStatus.COMPLETED: return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-            case DeploymentStatus.IN_PROGRESS: return 'bg-blue-50 text-blue-700 border-blue-100';
+            case DeploymentStatus.ACTIVE: return 'bg-blue-50 text-blue-700 border-blue-100';
             case DeploymentStatus.SCHEDULED: return 'bg-amber-50 text-amber-700 border-amber-100';
             case DeploymentStatus.CANCELLED: return 'bg-slate-100 text-slate-500 border-slate-200';
             default: return 'bg-slate-50 text-slate-600';
@@ -515,7 +515,7 @@ const DeploymentTracker: React.FC = () => {
     };
 
     // Calculate Terminal Metrics
-    const activeMissions = deployments.filter(d => d.status === DeploymentStatus.IN_PROGRESS).length;
+    const activeMissions = deployments.filter(d => d.status === DeploymentStatus.ACTIVE).length;
     const totalFleetSpend = deployments.reduce((sum, d) => sum + getTotalCost(d), 0);
     const totalDataAssets = deployments.reduce((sum, d) => sum + (d.fileCount || 0), 0);
     const groundTeamCount = personnel.filter(p => p.status === 'Active').length;
@@ -646,7 +646,7 @@ const DeploymentTracker: React.FC = () => {
                             {/* Filters */}
                             <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
                                 <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                                    {['All', DeploymentStatus.SCHEDULED, DeploymentStatus.IN_PROGRESS, DeploymentStatus.COMPLETED].map((status) => (
+                                    {['All', DeploymentStatus.SCHEDULED, DeploymentStatus.ACTIVE, DeploymentStatus.COMPLETED].map((status) => (
                                         <button
                                             key={status}
                                             onClick={() => setStatusFilter(status as any)}
@@ -732,7 +732,7 @@ const DeploymentTracker: React.FC = () => {
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${getStatusColor(deploy.status)}`}>
-                                                        {deploy.status === DeploymentStatus.IN_PROGRESS && <span className="relative flex h-1.5 w-1.5 mr-1">
+                                                        {deploy.status === DeploymentStatus.ACTIVE && <span className="relative flex h-1.5 w-1.5 mr-1">
                                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                                                             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
                                                         </span>}
@@ -1132,164 +1132,166 @@ const DeploymentTracker: React.FC = () => {
                                         </div>
                                     </div>
                                 ) : activeModalTab === 'financials' ? (
-                                    <div className="p-6 space-y-6 mission-cost-report">
-                                        {/* DEBUGGING LOGS */}
-                                        {(() => {
-                                            console.log('Rendering Financials Tab:', {
-                                                selectedDeployment,
-                                                dailyLogs: selectedDeployment?.dailyLogs,
-                                                personnel
-                                            });
-                                            return null;
-                                        })()}
-                                        {/* Financial Overview - CoatzadroneUSA */}
-                                        <div className={`bg-white rounded-xl border transition-all ${expandedFinancialId === 'PROJECT_TOTAL' ? 'border-blue-200 shadow-md' : 'border-slate-200 shadow-sm'}`}>
-                                            <div
-                                                className="p-6 cursor-pointer flex justify-between items-center"
-                                                onClick={() => setExpandedFinancialId(expandedFinancialId === 'PROJECT_TOTAL' ? null : 'PROJECT_TOTAL')}
-                                            >
-                                                <div>
-                                                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                                                        <ShieldCheck className="w-5 h-5 text-blue-600" />
-                                                        CoatzadroneUSA
-                                                    </h3>
-                                                    <p className="text-sm text-slate-500">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
-                                                    <p className="text-xs text-slate-400 mt-1">Generated: {new Date().toLocaleDateString()}</p>
-                                                </div>
-                                                <div className="flex items-end gap-6">
-                                                    <div className="text-right">
-                                                        <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Total Project Gross</p>
-                                                        <p className="text-2xl font-bold text-slate-900">${getTotalCost(selectedDeployment).toLocaleString()}</p>
+                                    <>
+                                        <div className="p-6 space-y-6 mission-cost-report">
+                                            {/* DEBUGGING LOGS */}
+                                            {(() => {
+                                                console.log('Rendering Financials Tab:', {
+                                                    selectedDeployment,
+                                                    dailyLogs: selectedDeployment?.dailyLogs,
+                                                    personnel
+                                                });
+                                                return null;
+                                            })()}
+                                            {/* Financial Overview - CoatzadroneUSA */}
+                                            <div className={`bg-white rounded-xl border transition-all ${expandedFinancialId === 'PROJECT_TOTAL' ? 'border-blue-200 shadow-md' : 'border-slate-200 shadow-sm'}`}>
+                                                <div
+                                                    className="p-6 cursor-pointer flex justify-between items-center"
+                                                    onClick={() => setExpandedFinancialId(expandedFinancialId === 'PROJECT_TOTAL' ? null : 'PROJECT_TOTAL')}
+                                                >
+                                                    <div>
+                                                        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                                            <ShieldCheck className="w-5 h-5 text-blue-600" />
+                                                            CoatzadroneUSA
+                                                        </h3>
+                                                        <p className="text-sm text-slate-500">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
+                                                        <p className="text-xs text-slate-400 mt-1">Generated: {new Date().toLocaleDateString()}</p>
                                                     </div>
-                                                    <div className="flex gap-2 no-print" onClick={e => e.stopPropagation()}>
-                                                        <button
-                                                            onClick={handlePrintReport}
-                                                            className="px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-50 transition-colors flex items-center gap-2"
-                                                        >
-                                                            <Printer className="w-4 h-4" /> Print
-                                                        </button>
-                                                        <button
-                                                            onClick={handleEmailInvoices}
-                                                            className="px-3 py-2 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800 transition-colors flex items-center gap-2"
-                                                        >
-                                                            <Send className="w-4 h-4" /> Email All
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Project Accordion Details */}
-                                            {expandedFinancialId === 'PROJECT_TOTAL' && (
-                                                <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-2 border-t border-slate-100 pt-4">
-                                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Daily Burn Rate Breakdown</h4>
-                                                    <table className="w-full text-left text-sm">
-                                                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                                                            <tr>
-                                                                <th className="px-3 py-2 font-medium">Date</th>
-                                                                <th className="px-3 py-2 font-medium">Personnel Count</th>
-                                                                <th className="px-3 py-2 font-medium">Daily Total</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="divide-y divide-slate-50">
-                                                            {getDeploymentDays(selectedDeployment).map(day => {
-                                                                const dayLogs = selectedDeployment.dailyLogs?.filter(l => l.date === day) || [];
-                                                                const dayTotal = dayLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
-                                                                return (
-                                                                    <tr key={day}>
-                                                                        <td className="px-3 py-2 font-mono text-xs">{day}</td>
-                                                                        <td className="px-3 py-2">{dayLogs.length}</td>
-                                                                        <td className="px-3 py-2 font-semibold text-slate-900">${dayTotal.toLocaleString()}</td>
-                                                                    </tr>
-                                                                );
-                                                            })}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Personnel Breakdown */}
-                                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                                            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                                                <h4 className="font-bold text-slate-800">Personnel Financials</h4>
-                                            </div>
-                                            <div className="divide-y divide-slate-100">
-                                                {Array.from(new Set((selectedDeployment.dailyLogs || []).filter(l => l && l.technicianId).map(l => l.technicianId))).map(techId => {
-                                                    const personLogs = (selectedDeployment.dailyLogs || []).filter(l => l.technicianId === techId);
-                                                    const totalDays = personLogs.length;
-                                                    const totalPay = personLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
-                                                    const personName = personnel?.find(p => p.id === techId)?.fullName || 'Unknown Technician';
-                                                    const isExpanded = expandedFinancialId === techId;
-
-                                                    return (
-                                                        <div key={techId} className={`transition-all ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`}>
-                                                            {/* Row Header */}
-                                                            <div
-                                                                className="flex items-center justify-between px-6 py-4 cursor-pointer"
-                                                                onClick={() => setExpandedFinancialId(isExpanded ? null : techId)}
-                                                            >
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className={`p-1 rounded transition-transform ${isExpanded ? 'rotate-90 text-blue-600' : 'text-slate-400'}`}>
-                                                                        <ChevronRight className="w-4 h-4" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <p className="font-medium text-slate-900">{personName}</p>
-                                                                        <p className="text-xs text-slate-500">{totalDays} days logged</p>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex items-center gap-6">
-                                                                    <div className="text-right">
-                                                                        <p className="text-xl font-bold text-emerald-600">${totalPay.toLocaleString()}</p>
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            handleGenerateInvoice(techId);
-                                                                        }}
-                                                                        className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm z-10"
-                                                                    >
-                                                                        <LinkIcon className="w-3 h-3" /> Invoice Link
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Expanded Details */}
-                                                            {isExpanded && (
-                                                                <div className="px-14 pb-4 animate-in fade-in slide-in-from-top-1">
-                                                                    <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden bg-white">
-                                                                        <thead className="bg-slate-50 border-b border-slate-200">
-                                                                            <tr>
-                                                                                <th className="px-3 py-2 font-medium text-slate-500">Date</th>
-                                                                                <th className="px-3 py-2 font-medium text-slate-500">Rate</th>
-                                                                                <th className="px-3 py-2 font-medium text-slate-500">Bonus</th>
-                                                                                <th className="px-3 py-2 font-medium text-slate-500">Notes</th>
-                                                                                <th className="px-3 py-2 font-medium text-slate-500 text-right">Total</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody className="divide-y divide-slate-100">
-                                                                            {personLogs.map(log => (
-                                                                                <tr key={log.id}>
-                                                                                    <td className="px-3 py-2 text-slate-600 font-mono">{log.date ? String(log.date).split('T')[0] : 'N/A'}</td>
-                                                                                    <td className="px-3 py-2 text-slate-600">${log.dailyPay?.toLocaleString()}</td>
-                                                                                    <td className="px-3 py-2 text-emerald-600">{log.bonusPay ? `+$${log.bonusPay}` : '-'}</td>
-                                                                                    <td className="px-3 py-2 text-slate-500 italic max-w-xs truncate">{log.notes || '-'}</td>
-                                                                                    <td className="px-3 py-2 font-medium text-slate-900 text-right">
-                                                                                        ${((log.dailyPay || 0) + (log.bonusPay || 0)).toLocaleString()}
-                                                                                    </td>
-                                                                                </tr>
-                                                                            ))}
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                            )}
+                                                    <div className="flex items-end gap-6">
+                                                        <div className="text-right">
+                                                            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Total Project Gross</p>
+                                                            <p className="text-2xl font-bold text-slate-900">${getTotalCost(selectedDeployment).toLocaleString()}</p>
                                                         </div>
-                                                    );
-                                                })}
-                                                {(selectedDeployment.dailyLogs || []).length === 0 && (
-                                                    <div className="px-6 py-8 text-center text-slate-500 italic">
-                                                        No daily logs recorded yet. Add logs to see financial breakdown.
+                                                        <div className="flex gap-2 no-print" onClick={e => e.stopPropagation()}>
+                                                            <button
+                                                                onClick={handlePrintReport}
+                                                                className="px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-50 transition-colors flex items-center gap-2"
+                                                            >
+                                                                <Printer className="w-4 h-4" /> Print
+                                                            </button>
+                                                            <button
+                                                                onClick={handleEmailInvoices}
+                                                                className="px-3 py-2 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800 transition-colors flex items-center gap-2"
+                                                            >
+                                                                <Send className="w-4 h-4" /> Email All
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Project Accordion Details */}
+                                                {expandedFinancialId === 'PROJECT_TOTAL' && (
+                                                    <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-2 border-t border-slate-100 pt-4">
+                                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Daily Burn Rate Breakdown</h4>
+                                                        <table className="w-full text-left text-sm">
+                                                            <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
+                                                                <tr>
+                                                                    <th className="px-3 py-2 font-medium">Date</th>
+                                                                    <th className="px-3 py-2 font-medium">Personnel Count</th>
+                                                                    <th className="px-3 py-2 font-medium">Daily Total</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-50">
+                                                                {getDeploymentDays(selectedDeployment).map(day => {
+                                                                    const dayLogs = selectedDeployment.dailyLogs?.filter(l => l.date === day) || [];
+                                                                    const dayTotal = dayLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
+                                                                    return (
+                                                                        <tr key={day}>
+                                                                            <td className="px-3 py-2 font-mono text-xs">{day}</td>
+                                                                            <td className="px-3 py-2">{dayLogs.length}</td>
+                                                                            <td className="px-3 py-2 font-semibold text-slate-900">${dayTotal.toLocaleString()}</td>
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </tbody>
+                                                        </table>
                                                     </div>
                                                 )}
+                                            </div>
+
+                                            {/* Personnel Breakdown */}
+                                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                                                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                                                    <h4 className="font-bold text-slate-800">Personnel Financials</h4>
+                                                </div>
+                                                <div className="divide-y divide-slate-100">
+                                                    {Array.from(new Set((selectedDeployment.dailyLogs || []).filter(l => l && l.technicianId).map(l => l.technicianId))).map(techId => {
+                                                        const personLogs = (selectedDeployment.dailyLogs || []).filter(l => l.technicianId === techId);
+                                                        const totalDays = personLogs.length;
+                                                        const totalPay = personLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
+                                                        const personName = personnel?.find(p => p.id === techId)?.fullName || 'Unknown Technician';
+                                                        const isExpanded = expandedFinancialId === techId;
+
+                                                        return (
+                                                            <div key={techId} className={`transition-all ${isExpanded ? 'bg-blue-50/30' : 'hover:bg-slate-50'}`}>
+                                                                {/* Row Header */}
+                                                                <div
+                                                                    className="flex items-center justify-between px-6 py-4 cursor-pointer"
+                                                                    onClick={() => setExpandedFinancialId(isExpanded ? null : techId)}
+                                                                >
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className={`p-1 rounded transition-transform ${isExpanded ? 'rotate-90 text-blue-600' : 'text-slate-400'}`}>
+                                                                            <ChevronRight className="w-4 h-4" />
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="font-medium text-slate-900">{personName}</p>
+                                                                            <p className="text-xs text-slate-500">{totalDays} days logged</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-6">
+                                                                        <div className="text-right">
+                                                                            <p className="text-xl font-bold text-emerald-600">${totalPay.toLocaleString()}</p>
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleGenerateInvoice(techId);
+                                                                            }}
+                                                                            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm z-10"
+                                                                        >
+                                                                            <LinkIcon className="w-3 h-3" /> Invoice Link
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Expanded Details */}
+                                                                {isExpanded && (
+                                                                    <div className="px-14 pb-4 animate-in fade-in slide-in-from-top-1">
+                                                                        <table className="w-full text-left text-xs border border-slate-200 rounded-lg overflow-hidden bg-white">
+                                                                            <thead className="bg-slate-50 border-b border-slate-200">
+                                                                                <tr>
+                                                                                    <th className="px-3 py-2 font-medium text-slate-500">Date</th>
+                                                                                    <th className="px-3 py-2 font-medium text-slate-500">Rate</th>
+                                                                                    <th className="px-3 py-2 font-medium text-slate-500">Bonus</th>
+                                                                                    <th className="px-3 py-2 font-medium text-slate-500">Notes</th>
+                                                                                    <th className="px-3 py-2 font-medium text-slate-500 text-right">Total</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-slate-100">
+                                                                                {personLogs.map(log => (
+                                                                                    <tr key={log.id}>
+                                                                                        <td className="px-3 py-2 text-slate-600 font-mono">{log.date ? String(log.date).split('T')[0] : 'N/A'}</td>
+                                                                                        <td className="px-3 py-2 text-slate-600">${log.dailyPay?.toLocaleString()}</td>
+                                                                                        <td className="px-3 py-2 text-emerald-600">{log.bonusPay ? `+$${log.bonusPay}` : '-'}</td>
+                                                                                        <td className="px-3 py-2 text-slate-500 italic max-w-xs truncate">{log.notes || '-'}</td>
+                                                                                        <td className="px-3 py-2 font-medium text-slate-900 text-right">
+                                                                                            ${((log.dailyPay || 0) + (log.bonusPay || 0)).toLocaleString()}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {(selectedDeployment.dailyLogs || []).length === 0 && (
+                                                        <div className="px-6 py-8 text-center text-slate-500 italic">
+                                                            No daily logs recorded yet. Add logs to see financial breakdown.
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1322,316 +1324,318 @@ const DeploymentTracker: React.FC = () => {
                                                     <button onClick={() => setGeneratedLink(null)} className="text-emerald-400 hover:text-emerald-600">
                                                         &times;
                                                     </button>
-                                                    ) : activeModalTab === 'site-assets' ? (
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : activeModalTab === 'site-assets' ? (
 
-                                                    <div className="p-6 space-y-6">
-                                                        <div className="flex justify-between items-center">
-                                                            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                                <Zap className="w-4 h-4 text-amber-500" />
-                                                                Site-Linked Assets
-                                                            </h4>
-                                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">
-                                                                Site ID: {selectedDeployment.siteId || 'None'}
+                                    <div className="p-6 space-y-6">
+                                        <div className="flex justify-between items-center">
+                                            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                <Zap className="w-4 h-4 text-amber-500" />
+                                                Site-Linked Assets
+                                            </h4>
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">
+                                                Site ID: {selectedDeployment.siteId || 'None'}
+                                            </div>
+                                        </div>
+
+                                        {loadingAssets ? (
+                                            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                                                <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                                                <p className="text-sm">Fetching enterprise assets...</p>
+                                            </div>
+                                        ) : siteAssets.length === 0 ? (
+                                            <div className="bg-white rounded-xl border border-dashed border-slate-200 p-12 text-center">
+                                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                    <Activity className="w-5 h-5 text-slate-300" />
+                                                </div>
+                                                <h5 className="text-sm font-medium text-slate-900">No assets linked to this site</h5>
+                                                <p className="text-xs text-slate-500 mt-1">Visit the Assets tab to register equipment for {selectedDeployment.siteName}.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {siteAssets.map((asset) => (
+                                                    <div key={asset.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-blue-200 transition-all group">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${asset.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
+                                                                <Zap className="w-5 h-5" />
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-sm font-bold text-slate-900">{asset.name}</p>
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                                        {asset.status}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-slate-500">{asset.category} • {asset.location}</p>
                                                             </div>
                                                         </div>
-
-                                                        {loadingAssets ? (
-                                                            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                                                                <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                                                                <p className="text-sm">Fetching enterprise assets...</p>
-                                                            </div>
-                                                        ) : siteAssets.length === 0 ? (
-                                                            <div className="bg-white rounded-xl border border-dashed border-slate-200 p-12 text-center">
-                                                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                                                                    <Activity className="w-5 h-5 text-slate-300" />
-                                                                </div>
-                                                                <h5 className="text-sm font-medium text-slate-900">No assets linked to this site</h5>
-                                                                <p className="text-xs text-slate-500 mt-1">Visit the Assets tab to register equipment for {selectedDeployment.siteName}.</p>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="grid grid-cols-1 gap-3">
-                                                                {siteAssets.map((asset) => (
-                                                                    <div key={asset.id} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:shadow-md hover:border-blue-200 transition-all group">
-                                                                        <div className="flex items-center gap-4">
-                                                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${asset.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
-                                                                                <Zap className="w-5 h-5" />
-                                                                            </div>
-                                                                            <div>
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <p className="text-sm font-bold text-slate-900">{asset.name}</p>
-                                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${asset.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                                                        {asset.status}
-                                                                                    </span>
-                                                                                </div>
-                                                                                <p className="text-xs text-slate-500">{asset.category} • {asset.location}</p>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex flex-col items-end gap-1">
-                                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Next Audit</p>
-                                                                            <p className="text-xs font-medium text-slate-700">{asset.nextInspectionDate || 'Not Scheduled'}</p>
-                                                                        </div>
+                                                        <div className="flex flex-col items-end gap-1">
+                                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Next Audit</p>
+                                                            <p className="text-xs font-medium text-slate-700">{asset.nextInspectionDate || 'Not Scheduled'}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : activeModalTab === 'team' ? (
+                                    <div className="p-6 space-y-8">
+                                        {/* Team Setup Content */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            {/* Flight Crew / Personnel */}
+                                            <div className="space-y-4">
+                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                    <Plane className="w-4 h-4 text-blue-500" />
+                                                    Flight Crew (Pilots/Techs)
+                                                </h4>
+                                                <div className="space-y-2">
+                                                    {(selectedDeployment.technicianIds || []).map(techId => {
+                                                        const p = personnel.find(per => per.id === techId);
+                                                        if (!p) return null;
+                                                        return (
+                                                            <div key={techId} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
+                                                                        {p.fullName.charAt(0)}
                                                                     </div>
-                                                                ))}
+                                                                    <div>
+                                                                        <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
+                                                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => handleUnassignPersonnel(techId)}
+                                                                    className="text-slate-400 hover:text-red-600 p-1"
+                                                                >
+                                                                    <XCircle className="w-4 h-4" />
+                                                                </button>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                    ) : activeModalTab === 'team' ? (
-                                                    <div className="p-6 space-y-8">
-                                                        {/* Team Setup Content */}
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                            {/* Flight Crew / Personnel */}
-                                                            <div className="space-y-4">
-                                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                                    <Plane className="w-4 h-4 text-blue-500" />
-                                                                    Flight Crew (Pilots/Techs)
-                                                                </h4>
-                                                                <div className="space-y-2">
-                                                                    {(selectedDeployment.technicianIds || []).map(techId => {
-                                                                        const p = personnel.find(per => per.id === techId);
-                                                                        if (!p) return null;
-                                                                        return (
-                                                                            <div key={techId} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
-                                                                                <div className="flex items-center gap-3">
-                                                                                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                                                                                        {p.fullName.charAt(0)}
-                                                                                    </div>
-                                                                                    <div>
-                                                                                        <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
-                                                                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <button
-                                                                                    onClick={() => handleUnassignPersonnel(techId)}
-                                                                                    className="text-slate-400 hover:text-red-600 p-1"
-                                                                                >
-                                                                                    <XCircle className="w-4 h-4" />
-                                                                                </button>
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                    {(selectedDeployment.technicianIds || []).length === 0 && (
-                                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No flight crew assigned.</p>
-                                                                    )}
-                                                                </div>
-
-                                                                <div className="pt-2">
-                                                                    <select
-                                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                                        onChange={(e) => {
-                                                                            if (e.target.value) handleAssignPersonnel(e.target.value);
-                                                                            e.target.value = "";
-                                                                        }}
-                                                                    >
-                                                                        <option value="">+ Assign Pilot/Technician</option>
-                                                                        {personnel
-                                                                            .filter(p => p.status === 'Active' && !(selectedDeployment.technicianIds || []).includes(p.id))
-                                                                            .map(p => (
-                                                                                <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
-                                                                            ))}
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Mission Monitoring / Users */}
-                                                            <div className="space-y-4">
-                                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                                                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                                                                    Mission Monitoring (Control)
-                                                                </h4>
-                                                                <div className="space-y-2">
-                                                                    {(selectedDeployment.monitoringTeam || []).map(u => (
-                                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-emerald-100 rounded-lg shadow-sm shadow-emerald-50/50">
-                                                                            <div className="flex items-center gap-3">
-                                                                                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
-                                                                                    {u.fullName.charAt(0)}
-                                                                                </div>
-                                                                                <div>
-                                                                                    <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
-                                                                                    <p className="text-[10px] text-emerald-600 font-bold uppercase">{u.role}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                            <button
-                                                                                onClick={() => handleUnassignMonitor(u.id)}
-                                                                                className="text-slate-400 hover:text-red-600 p-1"
-                                                                            >
-                                                                                <XCircle className="w-4 h-4" />
-                                                                            </button>
-                                                                        </div>
-                                                                    ))}
-                                                                    {(selectedDeployment.monitoringTeam || []).length === 0 && (
-                                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No monitoring team assigned.</p>
-                                                                    )}
-                                                                </div>
-
-                                                                <div className="pt-2">
-                                                                    <select
-                                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                                                                        onChange={(e) => {
-                                                                            if (e.target.value) handleAssignMonitor(e.target.value);
-                                                                            e.target.value = "";
-                                                                        }}
-                                                                    >
-                                                                        <option value="">+ Assign Monitoring Team</option>
-                                                                        {allUsers
-                                                                            .filter(u => !(selectedDeployment.monitoringTeam || []).some(m => m.id === u.id))
-                                                                            .map(u => (
-                                                                                <option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>
-                                                                            ))}
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    ) : (
-                                                    <div className="p-6 flex items-center justify-center text-slate-500">
-                                                        Select a tab to view details
-                                                    </div>
+                                                        );
+                                                    })}
+                                                    {(selectedDeployment.technicianIds || []).length === 0 && (
+                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No flight crew assigned.</p>
                                                     )}
                                                 </div>
 
-                                                <div className="bg-white border-t border-slate-200 p-4 flex justify-between items-center shrink-0">
-                                                    <div className="text-sm">
-                                                        <span className="text-slate-500">Total Mission Cost: </span>
-                                                        <span className="font-bold text-slate-900 text-lg">${getTotalCost(selectedDeployment).toLocaleString()}</span>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setIsLogModalOpen(false)}
-                                                        className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
+                                                <div className="pt-2">
+                                                    <select
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                        onChange={(e) => {
+                                                            if (e.target.value) handleAssignPersonnel(e.target.value);
+                                                            e.target.value = "";
+                                                        }}
                                                     >
-                                                        Close
-                                                    </button>
+                                                        <option value="">+ Assign Pilot/Technician</option>
+                                                        {personnel
+                                                            .filter(p => p.status === 'Active' && !(selectedDeployment.technicianIds || []).includes(p.id))
+                                                            .map(p => (
+                                                                <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
+                                                            ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Mission Monitoring / Users */}
+                                            <div className="space-y-4">
+                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                                    Mission Monitoring (Control)
+                                                </h4>
+                                                <div className="space-y-2">
+                                                    {(selectedDeployment.monitoringTeam || []).map(u => (
+                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-emerald-100 rounded-lg shadow-sm shadow-emerald-50/50">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
+                                                                    {u.fullName.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
+                                                                    <p className="text-[10px] text-emerald-600 font-bold uppercase">{u.role}</p>
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => handleUnassignMonitor(u.id)}
+                                                                className="text-slate-400 hover:text-red-600 p-1"
+                                                            >
+                                                                <XCircle className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {(selectedDeployment.monitoringTeam || []).length === 0 && (
+                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No monitoring team assigned.</p>
+                                                    )}
+                                                </div>
+
+                                                <div className="pt-2">
+                                                    <select
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                                                        onChange={(e) => {
+                                                            if (e.target.value) handleAssignMonitor(e.target.value);
+                                                            e.target.value = "";
+                                                        }}
+                                                    >
+                                                        <option value="">+ Assign Monitoring Team</option>
+                                                        {allUsers
+                                                            .filter(u => !(selectedDeployment.monitoringTeam || []).some(m => m.id === u.id))
+                                                            .map(u => (
+                                                                <option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>
+                                                            ))}
+                                                    </select>
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+                                ) : (
+                                    <div className="p-6 flex items-center justify-center text-slate-500">
+                                        Select a tab to view details
+                                    </div>
                                 )}
-                                )
-            }
-
-                                {/* Add Mission Modal */}
-                                {
-                                    isAddModalOpen && (
-                                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                                            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-                                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                                                    <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                                                        <Plane className="w-4 h-4" /> Schedule New Mission
-                                                    </h3>
-                                                    <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                                        &times;
-                                                    </button>
-                                                </div>
-                                                <div className="p-6 space-y-4">
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            placeholder="e.g. Q3 Roof Inspection"
-                                                            value={newDeployment.title || ''}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
-                                                            <select
-                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                                value={newDeployment.type}
-                                                                onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
-                                                            >
-                                                                {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
-                                                            <select
-                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                                value={newDeployment.status}
-                                                                onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
-                                                            >
-                                                                {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                                            </select>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
-                                                            <input
-                                                                type="text"
-                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                                placeholder="e.g. Site Alpha"
-                                                                value={newDeployment.siteName || ''}
-                                                                onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
-                                                            <input
-                                                                type="date"
-                                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                                value={newDeployment.date}
-                                                                onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
-                                                            />
-                                                        </div>
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
-                                                        <input
-                                                            type="text"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            placeholder="City, State or Coordinates"
-                                                            value={newDeployment.location || ''}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                            placeholder="e.g. 5"
-                                                            value={newDeployment.daysOnSite || ''}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
-                                                        />
-                                                    </div>
-
-                                                    <div>
-                                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
-                                                        <textarea
-                                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
-                                                            placeholder="Flight plan details, hazards, etc."
-                                                            value={newDeployment.notes || ''}
-                                                            onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
-                                                        />
-                                                    </div>
-
-                                                </div>
-                                                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                                                    <button
-                                                        onClick={() => setIsAddModalOpen(false)}
-                                                        className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                    <button
-                                                        onClick={handleAddDeployment}
-                                                        disabled={!newDeployment.title || !newDeployment.siteName}
-                                                        className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
-                                                    >
-                                                        Confirm Schedule
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )
-                                }
                             </div>
-                            );
+
+                            <div className="bg-white border-t border-slate-200 p-4 flex justify-between items-center shrink-0">
+                                <div className="text-sm">
+                                    <span className="text-slate-500">Total Mission Cost: </span>
+                                    <span className="font-bold text-slate-900 text-lg">${getTotalCost(selectedDeployment).toLocaleString()}</span>
+                                </div>
+                                <button
+                                    onClick={() => setIsLogModalOpen(false)}
+                                    className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+            {/* Add Mission Modal */}
+            {
+                isAddModalOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                                    <Plane className="w-4 h-4" /> Schedule New Mission
+                                </h3>
+                                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                    &times;
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                        placeholder="e.g. Q3 Roof Inspection"
+                                        value={newDeployment.title || ''}
+                                        onChange={e => setNewDeployment({ ...newDeployment, title: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                            value={newDeployment.type}
+                                            onChange={e => setNewDeployment({ ...newDeployment, type: e.target.value as DeploymentType })}
+                                        >
+                                            {Object.values(DeploymentType).map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                            value={newDeployment.status}
+                                            onChange={e => setNewDeployment({ ...newDeployment, status: e.target.value as DeploymentStatus })}
+                                        >
+                                            {Object.values(DeploymentStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
+                                        <input
+                                            type="text"
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                            placeholder="e.g. Site Alpha"
+                                            value={newDeployment.siteName || ''}
+                                            onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+                                        <input
+                                            type="date"
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                            value={newDeployment.date}
+                                            onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                        placeholder="City, State or Coordinates"
+                                        value={newDeployment.location || ''}
+                                        onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                        placeholder="e.g. 5"
+                                        value={newDeployment.daysOnSite || ''}
+                                        onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Operational Notes</label>
+                                    <textarea
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none h-20 resize-none"
+                                        placeholder="Flight plan details, hazards, etc."
+                                        value={newDeployment.notes || ''}
+                                        onChange={e => setNewDeployment({ ...newDeployment, notes: e.target.value })}
+                                    />
+                                </div>
+
+                            </div>
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                <button
+                                    onClick={() => setIsAddModalOpen(false)}
+                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleAddDeployment}
+                                    disabled={!newDeployment.title || !newDeployment.siteName}
+                                    className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
+                                >
+                                    Confirm Schedule
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+        </div>
+    );
 };
 
-                            export default DeploymentTracker;
+export default DeploymentTracker;
