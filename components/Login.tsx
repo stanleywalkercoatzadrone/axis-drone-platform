@@ -71,7 +71,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         onLogin(user);
       } catch (err: any) {
         console.error('Auth error:', err);
-        setError(err.response?.data?.message || 'Authentication failed. Please check your credentials.');
+        const detailedError = err.response?.data?.message || err.message || JSON.stringify(err);
+        setError(`DEBUG: ${detailedError}`);
       } finally {
         setIsLoading(false);
       }
