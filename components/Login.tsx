@@ -71,7 +71,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         onLogin(user);
       } catch (err: any) {
         console.error('Auth error:', err);
-        const detailedError = err.response?.data?.message || err.message || JSON.stringify(err);
+        const detailedError = err.response?.data?.error?.message || err.response?.data?.message || err.message || JSON.stringify(err);
         setError(`DEBUG: ${detailedError}`);
       } finally {
         setIsLoading(false);
