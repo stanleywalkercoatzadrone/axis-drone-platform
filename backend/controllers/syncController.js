@@ -1,6 +1,6 @@
 import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { io } from '../server.js';
+import { io } from '../app.js';
 import { uploadToDrive, findOrCreateFolder } from '../services/googleDriveService.js';
 
 export const syncToVault = async (req, res, next) => {

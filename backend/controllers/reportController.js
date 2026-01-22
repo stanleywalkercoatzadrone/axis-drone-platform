@@ -1,6 +1,6 @@
 import { query, transaction } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { io } from '../server.js';
+import { io } from '../app.js';
 import { uploadFile } from '../services/storageService.js';
 import { v4 as uuidv4 } from 'uuid';
 

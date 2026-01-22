@@ -10,7 +10,7 @@
  * - Full audit trail
  */
 
-import { GoogleGenerativeAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { logger } from './logger.js';
 import { query } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';

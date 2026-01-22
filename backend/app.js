@@ -33,8 +33,29 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+import { Server } from 'socket.io';
+
 const app = express();
 const httpServer = createServer(app);
+
+// Initialize Socket.io
+const io = new Server(httpServer, {
+    cors: {
+        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        methods: ["GET", "POST"],
+        credentials: true
+    }
+});
+
+// Socket.io connection handler
+io.on('connection', (socket) => {
+    console.log('🔌 Client connected:', socket.id);
+
+    socket.on('disconnect', () => {
+        console.log('🔌 Client disconnected:', socket.id);
+    });
+});
+
 
 // Security middleware
 app.use(helmet({
@@ -106,7 +127,7 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// Export httpServer instead of listening
-export { httpServer, app };
+// Export httpServer and io
+export { httpServer, app, io };
 
 console.log('✅ App Logic Loaded');

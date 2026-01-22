@@ -2,7 +2,7 @@ import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { uploadToS3, uploadLocal, deleteFromS3 } from '../services/storageService.js';
 import { analyzeInspectionImage } from '../services/geminiService.js';
-import { io } from '../server.js';
+import { io } from '../app.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const USE_S3 = process.env.USE_S3 === 'true';
