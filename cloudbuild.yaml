@@ -39,7 +39,7 @@ steps:
       - '--timeout'
       - '600'
       - '--set-env-vars'
-      - 'NODE_ENV=production'
+      - 'NODE_ENV=production,DATABASE_URL=postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:5432/postgres,JWT_SECRET=skylens_secure_session_token_2025'
       # Note: Sensitive env vars (DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, FRONTEND_URL)
       # should be set via Cloud Run Console or using --set-secrets flag
 
