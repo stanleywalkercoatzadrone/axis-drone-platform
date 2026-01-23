@@ -204,7 +204,7 @@ export const updateReport = async (req, res, next) => {
                      status = COALESCE($8, status),
                      version = version + 1,
                      updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $9 AND user_id = $10
+                 WHERE id = $9 AND (user_id = $10 OR $11 = 'ADMIN')
                  RETURNING *`,
                 [
                     title, client, summary,
@@ -213,7 +213,7 @@ export const updateReport = async (req, res, next) => {
                     config ? JSON.stringify(config) : null,
                     branding ? JSON.stringify(branding) : null,
                     status,
-                    id, req.user.id
+                    id, req.user.id, req.user.role
                 ]
             );
 
@@ -283,15 +283,18 @@ export const finalizeReport = async (req, res, next) => {
     try {
         const { id } = req.params;
 
-        const result = await query(
-            `UPDATE reports
-       SET status = 'FINALIZED',
-           finalized_at = CURRENT_TIMESTAMP,
-           version = version + 1
-       WHERE id = $1 AND user_id = $2
-       RETURNING *`,
-            [id, req.user.id]
-        );
+        const isOwner = req.user.role !== 'ADMIN';
+        const queryText = `
+            UPDATE reports
+            SET status = 'FINALIZED',
+                finalized_at = CURRENT_TIMESTAMP,
+                version = version + 1
+            WHERE id = $1 ${isOwner ? 'AND user_id = $2' : ''}
+            RETURNING *
+        `;
+        const params = isOwner ? [id, req.user.id] : [id];
+
+        const result = await query(queryText, params);
 
         if (result.rows.length === 0) {
             throw new AppError('Report not found or not authorized', 404);
@@ -327,8 +330,8 @@ export const deleteReport = async (req, res, next) => {
         const { id } = req.params;
 
         const result = await query(
-            'DELETE FROM reports WHERE id = $1 AND user_id = $2 RETURNING id',
-            [id, req.user.id]
+            'DELETE FROM reports WHERE id = $1 AND (user_id = $2 OR $3 = \'ADMIN\') RETURNING id',
+            [id, req.user.id, req.user.role]
         );
 
         if (result.rows.length === 0) {
