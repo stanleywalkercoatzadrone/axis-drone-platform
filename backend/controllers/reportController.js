@@ -3,7 +3,32 @@ import { AppError } from '../middleware/errorHandler.js';
 import { io } from '../app.js';
 import { uploadFile } from '../services/storageService.js';
 import { v4 as uuidv4 } from 'uuid';
-
+// Helper to map DB columns to frontend camelCase
+const mapReportToFrontend = (row) => ({
+    id: row.id,
+    rootId: row.id, // Assuming same for now
+    version: row.version,
+    title: row.title,
+    client: row.client,
+    industry: row.industry,
+    theme: row.theme,
+    status: row.status,
+    approvalStatus: row.approval_status || 'Draft',
+    date: row.created_at,
+    summary: row.summary,
+    siteContext: row.site_context,
+    strategicAssessment: row.strategic_assessment,
+    config: row.config,
+    branding: row.branding,
+    images: (row.images || []).map(img => ({
+        id: img.id,
+        url: img.storage_url || img.url,
+        annotations: img.annotations || [],
+        summary: img.summary
+    })),
+    history: row.history || [],
+    authorName: row.author_name
+});
 export const getReports = async (req, res, next) => {
     try {
         const { status, industry } = req.query;
@@ -39,7 +64,7 @@ export const getReports = async (req, res, next) => {
         res.json({
             success: true,
             count: result.rows.length,
-            data: result.rows
+            data: result.rows.map(mapReportToFrontend)
         });
     } catch (error) {
         next(error);
@@ -72,7 +97,7 @@ export const getReport = async (req, res, next) => {
 
         res.json({
             success: true,
-            data: report
+            data: mapReportToFrontend(report)
         });
     } catch (error) {
         next(error);
@@ -147,7 +172,7 @@ export const createReport = async (req, res, next) => {
 
         res.status(201).json({
             success: true,
-            data: report
+            data: mapReportToFrontend(report)
         });
     } catch (error) {
         next(error);
@@ -247,7 +272,7 @@ export const updateReport = async (req, res, next) => {
 
         res.json({
             success: true,
-            data: updatedReport
+            data: mapReportToFrontend(updatedReport)
         });
     } catch (error) {
         next(error);
@@ -290,7 +315,7 @@ export const finalizeReport = async (req, res, next) => {
 
         res.json({
             success: true,
-            data: report
+            data: mapReportToFrontend(report)
         });
     } catch (error) {
         next(error);
