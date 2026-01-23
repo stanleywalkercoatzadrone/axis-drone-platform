@@ -39,8 +39,23 @@ export const register = async (req, res, next) => {
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
 
+        // Map to camelCase for frontend
+        const safeUser = {
+            id: user.id,
+            email: user.email,
+            fullName: user.full_name,
+            companyName: user.company_name,
+            title: user.title,
+            role: user.role,
+            permissions: user.permissions,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            driveFolder: user.drive_folder,
+            createdAt: user.created_at
+        };
+
         // Cache user data
-        await setCache(`user:${user.id}`, user, 3600);
+        await setCache(`user:${user.id}`, safeUser, 3600);
 
         // Log audit event
         await query(
@@ -52,7 +67,7 @@ export const register = async (req, res, next) => {
         res.status(201).json({
             success: true,
             data: {
-                user,
+                user: safeUser,
                 token,
                 refreshToken
             }
@@ -103,8 +118,24 @@ export const login = async (req, res, next) => {
         const token = generateToken(user.id);
         const refreshToken = generateRefreshToken(user.id);
 
-        // Cache user data
-        await setCache(`user:${user.id}`, user, 3600);
+        // Map to camelCase for frontend
+        const safeUser = {
+            id: user.id,
+            email: user.email,
+            fullName: user.full_name,
+            companyName: user.company_name,
+            title: user.title,
+            role: user.role,
+            permissions: user.permissions,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            driveFolder: user.drive_folder,
+            createdAt: user.created_at,
+            lastLogin: user.last_login
+        };
+
+        // Cache user data (using the transformed object)
+        await setCache(`user:${user.id}`, safeUser, 3600);
 
         // Log audit event
         await query(
@@ -116,7 +147,7 @@ export const login = async (req, res, next) => {
         res.json({
             success: true,
             data: {
-                user,
+                user: safeUser,
                 token,
                 refreshToken
             }
@@ -162,9 +193,25 @@ export const getMe = async (req, res, next) => {
             [req.user.id]
         );
 
+        const user = result.rows[0];
+        const safeUser = {
+            id: user.id,
+            email: user.email,
+            fullName: user.full_name,
+            companyName: user.company_name,
+            title: user.title,
+            role: user.role,
+            permissions: user.permissions,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            driveFolder: user.drive_folder,
+            createdAt: user.created_at,
+            lastLogin: user.last_login
+        };
+
         res.json({
             success: true,
-            data: result.rows[0]
+            data: safeUser
         });
     } catch (error) {
         next(error);
