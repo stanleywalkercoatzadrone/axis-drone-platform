@@ -1,0 +1,8 @@
+Title,Description,Assigned To,Due Date,Priority,External ID
+Pre-flight Safety Check,Complete visual inspection of drone and verify all systems operational,john@example.com,2026-02-10,High,TASK-001
+Battery Inspection,Check battery levels and ensure full charge before flight,sarah@example.com,2026-02-10,High,TASK-002
+Weather Assessment,Review weather conditions and confirm safe flying parameters,john@example.com,2026-02-10,Medium,TASK-003
+Flight Path Planning,Map out inspection route and identify key areas of interest,sarah@example.com,2026-02-11,Medium,TASK-004
+Equipment Calibration,Calibrate camera and sensors for optimal data capture,john@example.com,2026-02-11,High,TASK-005
+Data Upload Verification,Confirm all captured data is properly uploaded to cloud storage,sarah@example.com,2026-02-12,Medium,TASK-006
+Post-flight Report,Complete detailed flight report with findings and recommendations,john@example.com,2026-02-12,Low,TASK-007

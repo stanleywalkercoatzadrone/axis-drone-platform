@@ -1,0 +1,14 @@
+[2026-02-03T18:49:26.644Z] Error: Not authorized. Use Bearer scheme.
+    at protect (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/middleware/auth.js:17:19)
+    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:328:13)
+    at /Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:346:12)
+    at next (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:280:10)
+    at Function.handle (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:175:3)
+    at router (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:47:12)
+    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:328:13)
+Request: GET /api/workbooks/history
+Body: {}
+-------------------

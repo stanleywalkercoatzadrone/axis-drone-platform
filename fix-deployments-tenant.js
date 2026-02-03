@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+
+// Add tenant_id to deployments table
+import pkg from 'pg';
+const { Pool } = pkg;
+
+const DATABASE_URL = 'postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres';
+
+const pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+
+async function addTenantIdColumn() {
+    try {
+        console.log('🔧 Adding tenant_id column to deployments table...');
+
+        // Add tenant_id column if it doesn't exist
+        await pool.query(`
+            ALTER TABLE deployments 
+            ADD COLUMN IF NOT EXISTS tenant_id UUID;
+        `);
+
+        console.log('✅ tenant_id column added to deployments');
+
+        // Set tenant_id for existing rows (use first tenant from users table)
+        const result = await pool.query(`
+            UPDATE deployments 
+            SET tenant_id = (SELECT tenant_id::uuid FROM users LIMIT 1)
+            WHERE tenant_id IS NULL;
+        `);
+
+        console.log(`✅ Updated ${result.rowCount} existing deployment rows with tenant_id`);
+
+        // Make it NOT NULL
+        await pool.query(`
+            ALTER TABLE deployments 
+            ALTER COLUMN tenant_id SET NOT NULL;
+        `);
+
+        console.log('✅ tenant_id column set to NOT NULL');
+
+        await pool.end();
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Error:', error.message);
+        await pool.end();
+        process.exit(1);
+    }
+}
+
+addTenantIdColumn();
