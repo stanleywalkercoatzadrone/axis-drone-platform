@@ -9,11 +9,12 @@ TIMESTAMP=$(date +%s)
 # Submit build
 # Using absolute path to project root if script is run from elsewhere, 
 # but assuming this script sits in the project root.
-PROJECT_DIR="/Users/Huvrs/Projects/axis-drone-platform"
+# The project directory is the directory containing this script
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [ -d "$PROJECT_DIR" ]; then
     cd "$PROJECT_DIR"
-    echo "Files locatd. Building..."
+    echo "Files located at $PROJECT_DIR. Building..."
     gcloud beta builds submit --config cloudbuild.yaml --substitutions=COMMIT_SHA="manual-$TIMESTAMP" .
 else
     echo "Error: Project directory not found at $PROJECT_DIR"

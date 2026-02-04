@@ -79,7 +79,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
   // System State
   const [systemHealth, setSystemHealth] = useState<{ node: string, model: string, database: string, uptime: number, version: string } | null>(null);
-  const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[] }>({ adminEmail: '', ccEmails: [] });
+  const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[], paymentTermsDays: number }>({ adminEmail: '', ccEmails: [], paymentTermsDays: 30 });
 
   const [formData, setFormData] = useState({
     fullName: currentUser.fullName,
@@ -119,7 +119,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           const ccs = s.invoice_cc_emails ? JSON.parse(s.invoice_cc_emails) : [];
           setInvoiceSettings({
             adminEmail: s.invoice_admin_email || '',
-            ccEmails: ccs
+            ccEmails: ccs,
+            paymentTermsDays: s.invoice_payment_days ? parseInt(s.invoice_payment_days) : 30
           });
           if (s.ai_sensitivity_default) {
             setFormData(prev => ({ ...prev, aiSensitivity: parseInt(s.ai_sensitivity_default) }));
@@ -198,6 +199,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_admin_email', value: invoiceSettings.adminEmail }));
         }
         adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_cc_emails', value: JSON.stringify(invoiceSettings.ccEmails.filter(e => e)) }));
+        adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_payment_days', value: invoiceSettings.paymentTermsDays.toString() }));
         adminPromises.push(apiClient.post('/system/settings', { key: 'ai_sensitivity_default', value: formData.aiSensitivity.toString() }));
 
         await Promise.all(adminPromises);
@@ -732,6 +734,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                       <Plus className="w-3 h-3" /> Add CC Recipient
                     </button>
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Payment Terms (Days)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      max="180"
+                      value={invoiceSettings.paymentTermsDays}
+                      onChange={e => setInvoiceSettings({ ...invoiceSettings, paymentTermsDays: parseInt(e.target.value) || 30 })}
+                      className="w-32 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                    />
+                    <span className="text-slate-500 text-sm">days (typically 30, 60, or 90)</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">This will display as "Net {invoiceSettings.paymentTermsDays}" on all generated invoices.</p>
                 </div>
               </div>
             </div>

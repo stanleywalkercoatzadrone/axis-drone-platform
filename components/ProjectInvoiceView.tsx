@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle } from 'lucide-react';
 import { Deployment, DailyLog } from '../types';
+import apiClient from '../src/services/apiClient';
 
 interface ProjectInvoiceViewProps {
     deployment: Deployment;
@@ -8,6 +9,19 @@ interface ProjectInvoiceViewProps {
 }
 
 const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, logs }) => {
+    const [paymentDays, setPaymentDays] = useState(30);
+
+    useEffect(() => {
+        // Fetch payment terms setting
+        apiClient.get('/system/settings').then(res => {
+            if (res.data.success) {
+                const settings = res.data.data;
+                if (settings.invoice_payment_days) {
+                    setPaymentDays(parseInt(settings.invoice_payment_days));
+                }
+            }
+        }).catch(err => console.error('Failed to fetch payment terms:', err));
+    }, []);
 
     // Calculate totals
     const totalAmount = logs.reduce((sum, log) => sum + (log.dailyPay || 0) + (log.bonusPay || 0), 0);
@@ -83,8 +97,8 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                         <p className="text-sm font-medium">Ref no.: <span className="text-slate-900 font-bold">{deployment.id.slice(0, 8)}</span></p>
                     </div>
                     <div className="flex flex-col justify-end">
-                        {/* Terms usually static or from deployment settings? */}
-                        <p className="text-sm font-medium">Terms: <span className="text-slate-900 font-bold">Net 30</span></p>
+                        {/* Terms using dynamic payment days */}
+                        <p className="text-sm font-medium">Terms: <span className="text-slate-900 font-bold">Net {paymentDays}</span></p>
                     </div>
                     <div className="flex flex-col justify-end">
                         <p className="text-sm font-medium">Start date: <span className="text-slate-900 font-bold">{invoiceDate}</span></p>

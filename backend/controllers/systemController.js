@@ -36,7 +36,7 @@ export const getSystemHealth = async (req, res, next) => {
                 model: 'GEMINI-2.0-PRO',
                 database: dbStatus.rowCount > 0 ? 'CONNECTED' : 'DISCONNECTED',
                 uptime: Math.floor(process.uptime()),
-                version: '1.2.0-AXIS'
+                version: '1.2.1-AXIS-PAYMENT'
             }
         });
     } catch (error) {

@@ -25,6 +25,7 @@ const InvoiceView = () => {
     const [invoice, setInvoice] = useState<InvoiceData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [paymentDays, setPaymentDays] = useState(30);
 
     useEffect(() => {
         const fetchInvoice = async () => {
@@ -42,6 +43,16 @@ const InvoiceView = () => {
         if (token) {
             fetchInvoice();
         }
+
+        // Fetch payment terms setting
+        apiClient.get('/system/settings').then(res => {
+            if (res.data.success) {
+                const settings = res.data.data;
+                if (settings.invoice_payment_days) {
+                    setPaymentDays(parseInt(settings.invoice_payment_days));
+                }
+            }
+        }).catch(err => console.error('Failed to fetch payment terms:', err));
     }, [token]);
 
     if (loading) {
@@ -119,13 +130,13 @@ const InvoiceView = () => {
                                 <p className="text-sm font-medium">Invoice no.: <span className="text-slate-900 font-bold">{invoice.id.slice(0, 4)}</span></p>
                             </div>
                             <div className="flex flex-col justify-end">
-                                <p className="text-sm font-medium">Terms: <span className="text-slate-900 font-bold">Net 30</span></p>
+                                <p className="text-sm font-medium">Terms: <span className="text-slate-900 font-bold">Net {paymentDays}</span></p>
                             </div>
                             <div className="flex flex-col justify-end">
                                 <p className="text-sm font-medium">Invoice date: <span className="text-slate-900 font-bold">{new Date(invoice.created_at).toLocaleDateString()}</span></p>
                             </div>
                             <div className="flex flex-col justify-end">
-                                <p className="text-sm font-medium">Due date: <span className="text-slate-900 font-bold">{new Date(new Date(invoice.created_at).setDate(new Date(invoice.created_at).getDate() + 30)).toLocaleDateString()}</span></p>
+                                <p className="text-sm font-medium">Due date: <span className="text-slate-900 font-bold">{new Date(new Date(invoice.created_at).setDate(new Date(invoice.created_at).getDate() + paymentDays)).toLocaleDateString()}</span></p>
                             </div>
                         </div>
                     </div>
