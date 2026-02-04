@@ -426,3 +426,36 @@ export interface Workbook {
   uploadedBy: string;
   createdAt: string;
 }
+
+export interface GridAsset {
+  id: string;
+  siteId: string;
+  assetKey: string;
+  assetType: string;
+  industry: string;
+  description?: string;
+  status: 'not_started' | 'in_progress' | 'complete' | 'blocked' | 'needs_review';
+  plannedCount?: number;
+  completedCount: number;
+  assignedToUserId?: string;
+  assignedToName?: string;
+  assignedToAvatar?: string;
+  completedAt?: string;
+  completedByUserId?: string;
+  lastUpdatedAt: string;
+  lastUpdatedByUserId?: string;
+  version: number;
+  meta?: Record<string, any>;
+}
+
+export interface GridAssetEvent {
+  id: string;
+  assetId: string;
+  eventType: 'status_change' | 'field_update' | 'comment' | 'attachment' | 'assignment';
+  beforeState?: any;
+  afterState?: any;
+  message?: string;
+  createdByUserId?: string;
+  userName?: string;
+  createdAt: string;
+}

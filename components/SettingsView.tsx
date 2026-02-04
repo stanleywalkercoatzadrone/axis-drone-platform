@@ -37,6 +37,7 @@ import {
   FileText,
   BrainCircuit
 } from 'lucide-react';
+import { isAdmin } from '../src/utils/roleUtils';
 import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry } from '../types';
 import { testAIConnection } from '../geminiService';
 import { googleAuthService } from '../src/services/googleAuthService';
@@ -79,7 +80,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
   // System State
   const [systemHealth, setSystemHealth] = useState<{ node: string, model: string, database: string, uptime: number, version: string } | null>(null);
-  const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[] }>({ adminEmail: '', ccEmails: [] });
+  const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[], paymentTermsDays: number }>({ adminEmail: '', ccEmails: [], paymentTermsDays: 30 });
 
   const [formData, setFormData] = useState({
     fullName: currentUser.fullName,
@@ -109,17 +110,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   }, [currentUser]);
 
   useEffect(() => {
-    if (activeSection === 'team' && (formData.role === UserRole.ADMIN)) {
+    // console.log('DEBUG: SettingsView mounted. Current User:', currentUser);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (activeSection === 'team' && isAdmin(currentUser)) {
       fetchUsers();
     }
-    if (activeSection === 'invoicing' && (formData.role === UserRole.ADMIN)) {
+    if (activeSection === 'invoicing' && isAdmin(currentUser)) {
       apiClient.get('/system/settings').then(res => {
         if (res.data.success) {
           const s = res.data.data;
           const ccs = s.invoice_cc_emails ? JSON.parse(s.invoice_cc_emails) : [];
           setInvoiceSettings({
             adminEmail: s.invoice_admin_email || '',
-            ccEmails: ccs
+            ccEmails: ccs,
+            paymentTermsDays: s.invoice_payment_days ? parseInt(s.invoice_payment_days) : 30
           });
           if (s.ai_sensitivity_default) {
             setFormData(prev => ({ ...prev, aiSensitivity: parseInt(s.ai_sensitivity_default) }));
@@ -127,7 +133,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         }
       }).catch(err => console.error(err));
     }
-    if (activeSection === 'system' && (formData.role === UserRole.ADMIN)) {
+    if (activeSection === 'system' && isAdmin(currentUser)) {
       apiClient.get('/system/health-status').then(res => {
         if (res.data.success) setSystemHealth(res.data.data);
       }).catch(err => console.error(err));
@@ -192,12 +198,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         throw new Error(profileResponse.data.message || 'Failed to update profile');
       }
 
-      if (formData.role === UserRole.ADMIN) {
+      if (isAdmin(currentUser)) {
         const adminPromises: Promise<any>[] = [];
         if (invoiceSettings.adminEmail) {
           adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_admin_email', value: invoiceSettings.adminEmail }));
         }
         adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_cc_emails', value: JSON.stringify(invoiceSettings.ccEmails.filter(e => e)) }));
+        adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_payment_days', value: invoiceSettings.paymentTermsDays.toString() }));
         adminPromises.push(apiClient.post('/system/settings', { key: 'ai_sensitivity_default', value: formData.aiSensitivity.toString() }));
 
         await Promise.all(adminPromises);
@@ -417,7 +424,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
     <div className="max-w-4xl mx-auto space-y-8 pb-20 animate-in fade-in duration-500">
       <div className="flex justify-between items-end border-b border-slate-200 pb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">System Configuration</h2>
+          <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+            System Configuration
+            <span className={`text-xs px-2 py-1 rounded-full border ${isAdmin(currentUser) ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+              {currentUser.role}
+            </span>
+          </h2>
           <p className="text-slate-500 mt-1">Manage your identity, team access, and integrations.</p>
         </div>
         <button
@@ -441,7 +453,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'User Management', icon: Users, admin: true }
           ].map(item => (
-            (!item.admin || formData.role === UserRole.ADMIN) && (
+            (!item.admin || isAdmin(currentUser)) && (
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
@@ -623,7 +635,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'system' && (formData.role === UserRole.ADMIN) && (
+          {activeSection === 'system' && (isAdmin(currentUser)) && (
             <div className="space-y-6">
               <div className="bg-white border border-slate-200 rounded-xl p-8">
                 <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -678,7 +690,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'invoicing' && (formData.role === UserRole.ADMIN) && (
+          {activeSection === 'invoicing' && (isAdmin(currentUser)) && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -733,11 +745,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                     </button>
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Payment Terms (Days)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      max="180"
+                      value={invoiceSettings.paymentTermsDays}
+                      onChange={e => setInvoiceSettings({ ...invoiceSettings, paymentTermsDays: parseInt(e.target.value) || 30 })}
+                      className="w-32 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                    />
+                    <span className="text-slate-500 text-sm">days (typically 30, 60, or 90)</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">This will display as "Net {invoiceSettings.paymentTermsDays}" on all generated invoices.</p>
+                </div>
               </div>
             </div>
           )}
 
-          {activeSection === 'team' && (formData.role === UserRole.ADMIN) && (
+          {activeSection === 'team' && (isAdmin(currentUser)) && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -865,13 +893,13 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'personnel' && (formData.role === UserRole.ADMIN) && (
+          {activeSection === 'personnel' && (isAdmin(currentUser)) && (
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
               <PersonnelTracker />
             </div>
           )}
 
-          {activeSection === 'ai' && (formData.role === UserRole.ADMIN) && (
+          {activeSection === 'ai' && (isAdmin(currentUser)) && (
             <SystemAIView
               aiSensitivity={formData.aiSensitivity}
               onSensitivityChange={(val) => setFormData(prev => ({ ...prev, aiSensitivity: val }))}

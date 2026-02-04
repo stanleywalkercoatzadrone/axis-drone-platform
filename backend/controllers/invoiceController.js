@@ -6,7 +6,7 @@ import crypto from 'crypto';
  */
 export const createInvoice = async (req, res) => {
     try {
-        const { deploymentId, personnelId } = req.body;
+        const { deploymentId, personnelId, paymentTermsDays } = req.body;
 
         // 1. Calculate total pay for this person on this deployment
         const logsResult = await query(
@@ -23,17 +23,27 @@ export const createInvoice = async (req, res) => {
             });
         }
 
+        // Determine payment terms: use provided value, or fetch from settings, or default to 30
+        let paymentDays = paymentTermsDays || 30;
+        if (!paymentTermsDays) {
+            // Fetch from global settings if not provided
+            const settingsRes = await query('SELECT setting_value FROM system_settings WHERE setting_key = $1', ['invoice_payment_days']);
+            if (settingsRes.rows.length > 0) {
+                paymentDays = parseInt(settingsRes.rows[0].setting_value) || 30;
+            }
+        }
+
         // 2. Generate secure token
         const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7); // 7 day expiration
 
-        // 3. Create Invoice Record
+        // 3. Create Invoice Record with payment_days
         const result = await query(
-            `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at)
-             VALUES ($1, $2, $3, 'SENT', $4, $5)
+            `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at, payment_days)
+             VALUES ($1, $2, $3, 'SENT', $4, $5, $6)
              RETURNING *`,
-            [deploymentId, personnelId, amount, token, expiresAt]
+            [deploymentId, personnelId, amount, token, expiresAt, paymentDays]
         );
 
         // 4. Return the link
@@ -72,12 +82,13 @@ export const getInvoiceByToken = async (req, res) => {
     try {
         const { token } = req.params;
 
-        // 1. Find valid unused token
+        // 1. Find valid unused token - now including payment_days
         const result = await query(
             `SELECT i.*, 
                     d.title as mission_title, d.site_name, d.date as mission_date,
                     p.full_name as pilot_name, p.email as pilot_email,
-                    p.home_address, p.bank_name, p.routing_number, p.account_number
+                    p.home_address, p.bank_name, p.routing_number, p.account_number,
+                    COALESCE(i.payment_days, 30) as payment_days
              FROM invoices i
              JOIN deployments d ON i.deployment_id = d.id
              JOIN personnel p ON i.personnel_id = p.id

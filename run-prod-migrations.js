@@ -22,7 +22,7 @@ async function runMigrations() {
     try {
         console.log('🔄 Running production database migrations...');
 
-        const migrationsDir = '/Users/Huvrs/Projects/axis-drone-platform/backend/migrations';
+        const migrationsDir = join(__dirname, 'backend', 'migrations');
         const files = readdirSync(migrationsDir)
             .filter(file => file.endsWith('.sql'))
             .sort();

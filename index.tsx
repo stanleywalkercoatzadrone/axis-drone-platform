@@ -5,6 +5,7 @@ import './index.css'; // Global Styles
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AuthProvider } from './src/context/AuthContext';
+import { GlobalProvider } from './src/context/GlobalContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -16,7 +17,9 @@ root.render(
   <React.StrictMode>
     <ErrorBoundary>
       <AuthProvider>
-        <App />
+        <GlobalProvider>
+          <App />
+        </GlobalProvider>
       </AuthProvider>
     </ErrorBoundary>
   </React.StrictMode>

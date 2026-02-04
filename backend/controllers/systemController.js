@@ -36,7 +36,7 @@ export const getSystemHealth = async (req, res, next) => {
                 model: 'GEMINI-2.0-PRO',
                 database: dbStatus.rowCount > 0 ? 'CONNECTED' : 'DISCONNECTED',
                 uptime: Math.floor(process.uptime()),
-                version: '1.2.0-AXIS'
+                version: '1.2.1-AXIS-PAYMENT'
             }
         });
     } catch (error) {
@@ -150,5 +150,28 @@ export const unlinkMasterDrive = async (req, res, next) => {
         });
     } catch (error) {
         next(error);
+    }
+};
+export const logError = async (req, res, next) => {
+    try {
+        const { message, stack, componentStack, timestamp, userAgent, url } = req.body;
+
+        console.error('------------------------------------------------');
+        console.error('🚨 CLIENT-SIDE ERROR REPORTED');
+        console.error('Time:', timestamp);
+        console.error('URL:', url);
+        console.error('User Agent:', userAgent);
+        console.error('Message:', message);
+        console.error('Component Stack:', componentStack);
+        console.error('Stack:', stack);
+        console.error('------------------------------------------------');
+
+        // Optional: Persist to DB if needed, but console logs are enough for Cloud Logging
+        // await query(...) 
+
+        res.json({ success: true, message: 'Error logged' });
+    } catch (error) {
+        console.error('Failed to process client error log:', error);
+        res.status(500).json({ success: false });
     }
 };

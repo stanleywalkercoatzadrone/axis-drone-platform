@@ -107,6 +107,7 @@ const DeploymentTracker: React.FC = () => {
 
     const [isAddingExtraDay, setIsAddingExtraDay] = useState(false);
     const [extraDayDate, setExtraDayDate] = useState('');
+    const [deploymentPaymentTerms, setDeploymentPaymentTerms] = useState<number>(30); // Per-deployment payment terms override
 
     const confirmAddExtraDay = () => {
         if (!extraDayDate || !selectedDeployment) return;
@@ -444,7 +445,8 @@ const DeploymentTracker: React.FC = () => {
         try {
             const response = await apiClient.post('/invoices', {
                 deploymentId: selectedDeployment.id,
-                personnelId: personnelId
+                personnelId: personnelId,
+                paymentTermsDays: deploymentPaymentTerms // Send payment terms override
             });
             const link = response.data.data.link;
             // Assuming the link returned by backend is relative /invoice/token
@@ -1476,6 +1478,20 @@ const DeploymentTracker: React.FC = () => {
                                                         <div className="text-right">
                                                             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Total Project Gross</p>
                                                             <p className="text-2xl font-bold text-slate-900">${getTotalCost(selectedDeployment).toLocaleString()}</p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <label className="text-xs text-slate-500 uppercase tracking-wider font-bold block mb-1">Payment Terms</label>
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    max="180"
+                                                                    value={deploymentPaymentTerms}
+                                                                    onChange={e => setDeploymentPaymentTerms(parseInt(e.target.value) || 30)}
+                                                                    className="w-20 px-3 py-1.5 border border-slate-200 rounded text-sm font-medium text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                                />
+                                                                <span className="text-xs text-slate-500">days</span>
+                                                            </div>
                                                         </div>
                                                         <div className="flex gap-2 no-print" onClick={e => e.stopPropagation()}>
                                                             <button
