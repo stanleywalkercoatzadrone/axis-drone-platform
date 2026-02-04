@@ -6,12 +6,17 @@ import apiClient from '../src/services/apiClient';
 interface ProjectInvoiceViewProps {
     deployment: Deployment;
     logs: DailyLog[];
+    paymentTerms?: number;
 }
 
-const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, logs }) => {
-    const [paymentDays, setPaymentDays] = useState(30);
+const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, logs, paymentTerms }) => {
+    const [paymentDays, setPaymentDays] = useState(paymentTerms || 30);
 
     useEffect(() => {
+        if (paymentTerms) {
+            setPaymentDays(paymentTerms);
+            return;
+        }
         // Fetch payment terms setting
         apiClient.get('/system/settings').then(res => {
             if (res.data.success) {
@@ -104,7 +109,7 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                         <p className="text-sm font-medium">Start date: <span className="text-slate-900 font-bold">{invoiceDate}</span></p>
                     </div>
                     <div className="flex flex-col justify-end">
-                        <p className="text-sm font-medium">Due date: <span className="text-slate-900 font-bold">Upon Receipt</span></p>
+                        <p className="text-sm font-medium">Due date: <span className="text-slate-900 font-bold">{new Date(new Date(deployment.date || new Date()).setDate(new Date(deployment.date || new Date()).getDate() + paymentDays)).toLocaleDateString()}</span></p>
                     </div>
                 </div>
             </div>

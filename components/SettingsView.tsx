@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { isAdmin } from '../src/utils/roleUtils';
 import {
   User,
   Building2,
@@ -109,10 +110,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   }, [currentUser]);
 
   useEffect(() => {
-    if (activeSection === 'team' && (formData.role === UserRole.ADMIN)) {
+    if (activeSection === 'team' && isAdmin(currentUser)) {
       fetchUsers();
     }
-    if (activeSection === 'invoicing' && (formData.role === UserRole.ADMIN)) {
+    if (activeSection === 'invoicing' && isAdmin(currentUser)) {
       apiClient.get('/system/settings').then(res => {
         if (res.data.success) {
           const s = res.data.data;
@@ -128,7 +129,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         }
       }).catch(err => console.error(err));
     }
-    if (activeSection === 'system' && (formData.role === UserRole.ADMIN)) {
+    if (activeSection === 'system' && isAdmin(currentUser)) {
       apiClient.get('/system/health-status').then(res => {
         if (res.data.success) setSystemHealth(res.data.data);
       }).catch(err => console.error(err));
@@ -193,7 +194,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         throw new Error(profileResponse.data.message || 'Failed to update profile');
       }
 
-      if (formData.role === UserRole.ADMIN) {
+      if (isAdmin(currentUser)) {
         const adminPromises: Promise<any>[] = [];
         if (invoiceSettings.adminEmail) {
           adminPromises.push(apiClient.post('/system/settings', { key: 'invoice_admin_email', value: invoiceSettings.adminEmail }));
@@ -443,7 +444,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'User Management', icon: Users, admin: true }
           ].map(item => (
-            (!item.admin || formData.role === UserRole.ADMIN) && (
+            (!item.admin || isAdmin(currentUser)) && (
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
