@@ -390,9 +390,9 @@ const PersonnelTracker: React.FC = () => {
                         )}
                     </div>
                 ) : (
-                    <div className="w-full bg-slate-50 relative overflow-hidden group" style={{ height: '600px' }}>
+                    <div className="w-full bg-slate-100 relative overflow-hidden group border border-slate-200 rounded-lg" style={{ height: '600px' }}>
                         {/* Mock Map Background */}
-                        <div className="absolute inset-0 opacity-10"
+                        <div className="absolute inset-0 opacity-30"
                             style={{ backgroundImage: 'radial-gradient(circle, #94a3b8 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
                         </div>
 
@@ -770,7 +770,7 @@ const PersonnelTracker: React.FC = () => {
 
                                             <div className="flex items-center gap-4 group">
                                                 <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-purple-600 group-hover:bg-purple-50 transition-colors">
-                                                    <Map className="w-4 h-4" />
+                                                    <MapIcon className="w-4 h-4" />
                                                 </div>
                                                 <div>
                                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Max Travel</p>
