@@ -3,6 +3,22 @@ import React, { useState, useEffect } from 'react';
 import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map as MapIcon, Send, CheckCircle2, LayoutGrid, MapPin, Navigation } from 'lucide-react';
 import { Personnel, PersonnelRole } from '../types';
 import apiClient from '../src/services/apiClient';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Fix for default marker icons in React-Leaflet
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+    iconUrl: icon,
+    shadowUrl: iconShadow,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
 
 const PersonnelTracker: React.FC = () => {
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
@@ -390,49 +406,46 @@ const PersonnelTracker: React.FC = () => {
                         )}
                     </div>
                 ) : (
-                    <div className="w-full bg-slate-100 relative overflow-hidden group border border-slate-200 rounded-lg" style={{ height: '600px' }}>
-                        {/* Mock Map Background */}
-                        <div className="absolute inset-0 opacity-30"
-                            style={{ backgroundImage: 'radial-gradient(circle, #94a3b8 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-                        </div>
+                    <div className="w-full bg-slate-100 relative group border border-slate-200 rounded-lg overflow-hidden" style={{ height: '600px', zIndex: 0 }}>
+                        <MapContainer
+                            center={[30.2672, -97.7431]}
+                            zoom={10}
+                            style={{ height: '100%', width: '100%' }}
+                        >
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            />
+                            {filteredPersonnel.map((person, i) => {
+                                // Generate mock coordinates seeded by ID/Index to be deterministic but spread out
+                                // BASE: Austin TX (30.2672, -97.7431)
+                                const latOffset = ((i * 1337) % 100 - 50) / 500; // Spread approx +/- 0.1 deg
+                                const lngOffset = ((i * 7331) % 100 - 50) / 500;
+                                const position: [number, number] = [30.2672 + latOffset, -97.7431 + lngOffset];
 
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="text-center opacity-40">
-                                <MapIcon className="w-16 h-16 mx-auto text-slate-400 mb-2" />
-                                <p className="text-sm font-medium text-slate-500">Interactive Map View</p>
-                            </div>
-                        </div>
-
-                        {/* Personnel Pins (Randomly placed for demo since we don't have real lat/lng yet) */}
-                        {filteredPersonnel.map((person, i) => (
-                            <div
-                                key={person.id}
-                                className="absolute cursor-pointer transform hover:scale-110 transition-transform z-10"
-                                style={{
-                                    top: `${20 + (i * 17) % 60}%`,
-                                    left: `${20 + (i * 23) % 60}%`
-                                }}
-                                onClick={() => handleViewDetails(person)}
-                            >
-                                <div className="relative group/pin">
-                                    <div className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-xs font-bold text-white
-                                        ${person.role === 'Pilot' ? 'bg-blue-500' : 'bg-amber-500'}`}>
-                                        {person.fullName.charAt(0)}
-                                    </div>
-                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-inherit z-0"></div>
-
-                                    {/* Tooltip */}
-                                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover/pin:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">
-                                        {person.fullName}
-                                        <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-
-                        <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-sm text-xs text-slate-500 border border-slate-200">
-                            Showing {filteredPersonnel.length} personnel in current view
-                        </div>
+                                return (
+                                    <Marker key={person.id} position={position}>
+                                        <Popup>
+                                            <div className="p-1">
+                                                <div className="font-bold text-slate-800">{person.fullName}</div>
+                                                <div className="text-xs text-slate-500">{person.role}</div>
+                                                {person.homeAddress && (
+                                                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                        <MapIcon className="w-3 h-3" /> {person.homeAddress}
+                                                    </div>
+                                                )}
+                                                <button
+                                                    className="mt-2 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded w-full hover:bg-blue-100 font-medium"
+                                                    onClick={() => handleViewDetails(person)}
+                                                >
+                                                    View Profile
+                                                </button>
+                                            </div>
+                                        </Popup>
+                                    </Marker>
+                                );
+                            })}
+                        </MapContainer>
                     </div>
                 )}
             </div>
