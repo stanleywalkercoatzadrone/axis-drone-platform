@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, LayoutGrid, MapPin, Navigation } from 'lucide-react';
+import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map as MapIcon, Send, CheckCircle2, LayoutGrid, MapPin, Navigation } from 'lucide-react';
 import { Personnel, PersonnelRole } from '../types';
 import apiClient from '../src/services/apiClient';
 
@@ -229,7 +229,7 @@ const PersonnelTracker: React.FC = () => {
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
-                                <Map className="w-3.5 h-3.5" /> Map
+                                <MapIcon className="w-3.5 h-3.5" /> Map
                             </button>
                         </div>
                         <div className="h-6 w-px bg-slate-200"></div>
@@ -390,7 +390,7 @@ const PersonnelTracker: React.FC = () => {
                         )}
                     </div>
                 ) : (
-                    <div className="h-[600px] w-full bg-slate-50 relative overflow-hidden group">
+                    <div className="w-full bg-slate-50 relative overflow-hidden group" style={{ height: '600px' }}>
                         {/* Mock Map Background */}
                         <div className="absolute inset-0 opacity-10"
                             style={{ backgroundImage: 'radial-gradient(circle, #94a3b8 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
@@ -398,7 +398,7 @@ const PersonnelTracker: React.FC = () => {
 
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="text-center opacity-40">
-                                <Map className="w-16 h-16 mx-auto text-slate-400 mb-2" />
+                                <MapIcon className="w-16 h-16 mx-auto text-slate-400 mb-2" />
                                 <p className="text-sm font-medium text-slate-500">Interactive Map View</p>
                             </div>
                         </div>
@@ -526,7 +526,7 @@ const PersonnelTracker: React.FC = () => {
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Max Travel Distance (Miles)</label>
                                     <div className="relative">
-                                        <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <MapIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                         <input
                                             type="number"
                                             min="0"
@@ -672,7 +672,7 @@ const PersonnelTracker: React.FC = () => {
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Max Travel Distance (Miles)</label>
                                             <div className="relative">
-                                                <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                                <MapIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                                 <input
                                                     type="number"
                                                     min="0"
