@@ -322,6 +322,7 @@ export interface Personnel {
   role: PersonnelRole;
   email: string;
   phone?: string;
+  homeAddress?: string;
   certificationLevel?: string;
   dailyPayRate?: number;
   maxTravelDistance?: number;

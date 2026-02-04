@@ -96,7 +96,7 @@ export const PageShell: React.FC<PageShellProps> = ({ children, title, actions, 
                         />
                         <NavItem
                             icon={<Users />}
-                            label="Stakeholders"
+                            label="Pilots/Technicians"
                             active={activeTab === 'personnel'}
                             onClick={() => onNavigate?.('personnel')}
                         />

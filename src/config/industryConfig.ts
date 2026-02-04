@@ -34,7 +34,7 @@ export const INDUSTRY_CONFIG: Record<IndustryKey, { name: string; labels: Indust
             asset: 'Property Item',
             workItem: 'Action Item',
             report: 'Claim Report',
-            stakeholder: 'Claimant',
+            stakeholder: 'Adjuster',
             dashboardTitle: 'Claims Dashboard'
         }
     },
@@ -60,7 +60,7 @@ export const INDUSTRY_CONFIG: Record<IndustryKey, { name: string; labels: Indust
             asset: 'Grid Asset',
             workItem: 'Work Order',
             report: 'Audit Report',
-            stakeholder: 'Utility Contact',
+            stakeholder: 'Technician',
             dashboardTitle: 'Grid Monitoring'
         }
     },
@@ -73,7 +73,7 @@ export const INDUSTRY_CONFIG: Record<IndustryKey, { name: string; labels: Indust
             asset: 'Antenna',
             workItem: 'Ticket',
             report: 'Tower Audit',
-            stakeholder: 'Site Contact',
+            stakeholder: 'Climber',
             dashboardTitle: 'Tower Operations'
         }
     },
@@ -86,7 +86,7 @@ export const INDUSTRY_CONFIG: Record<IndustryKey, { name: string; labels: Indust
             asset: 'Asset',
             workItem: 'Task',
             report: 'Report',
-            stakeholder: 'Stakeholder',
+            stakeholder: 'Pilot/Technician',
             dashboardTitle: 'Dashboard'
         }
     }

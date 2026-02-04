@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2 } from 'lucide-react';
+import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, LayoutGrid, MapPin, Navigation } from 'lucide-react';
 import { Personnel, PersonnelRole } from '../types';
 import apiClient from '../src/services/apiClient';
 
 const PersonnelTracker: React.FC = () => {
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
     const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('pt_searchQuery') || '');
+
     const [roleFilter, setRoleFilter] = useState<'All' | PersonnelRole>(() => (sessionStorage.getItem('pt_roleFilter') as any) || 'All');
+    const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
     // Persistence Effects
     useEffect(() => { sessionStorage.setItem('pt_searchQuery', searchQuery); }, [searchQuery]);
@@ -24,8 +26,10 @@ const PersonnelTracker: React.FC = () => {
         role: PersonnelRole.PILOT,
         status: 'Active',
         certificationLevel: 'Part 107',
+
         dailyPayRate: 0,
-        maxTravelDistance: 0
+        maxTravelDistance: 0,
+        homeAddress: ''
     });
     const [sendingOnboarding, setSendingOnboarding] = useState(false);
     const [onboardingPromptOpen, setOnboardingPromptOpen] = useState<{ isOpen: boolean; personnelId?: string; name?: string }>({ isOpen: false });
@@ -60,8 +64,10 @@ const PersonnelTracker: React.FC = () => {
                 phone: newPersonnel.phone,
                 certificationLevel: newPersonnel.certificationLevel,
                 dailyPayRate: newPersonnel.dailyPayRate || 0,
+
                 maxTravelDistance: newPersonnel.maxTravelDistance || 0,
-                status: newPersonnel.status || 'Active'
+                status: newPersonnel.status || 'Active',
+                homeAddress: newPersonnel.homeAddress
             });
 
             const data = response.data;
@@ -72,7 +78,8 @@ const PersonnelTracker: React.FC = () => {
                 status: 'Active',
                 certificationLevel: 'Part 107',
                 dailyPayRate: 0,
-                maxTravelDistance: 0
+                maxTravelDistance: 0,
+                homeAddress: ''
             });
 
             // Prompt to send onboarding package
@@ -153,7 +160,9 @@ const PersonnelTracker: React.FC = () => {
                 certificationLevel: editedPerson.certificationLevel,
                 dailyPayRate: editedPerson.dailyPayRate,
                 maxTravelDistance: editedPerson.maxTravelDistance,
-                status: editedPerson.status
+
+                status: editedPerson.status,
+                homeAddress: editedPerson.homeAddress
             });
 
             const updatedPersonnel = personnel.map(p =>
@@ -197,22 +206,47 @@ const PersonnelTracker: React.FC = () => {
                 </button>
             </div>
 
+
+
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                {/* Filters */}
+                {/* View Toggle & Filters */}
                 <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                        {['All', PersonnelRole.PILOT, PersonnelRole.TECHNICIAN].map((role) => (
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center bg-slate-100 p-1 rounded-lg">
                             <button
-                                key={role}
-                                onClick={() => setRoleFilter(role as any)}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${roleFilter === role
+                                onClick={() => setViewMode('list')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 ${viewMode === 'list'
                                     ? 'bg-white text-slate-900 shadow-sm'
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
-                                {role}
+                                <LayoutGrid className="w-3.5 h-3.5" /> List
                             </button>
-                        ))}
+                            <button
+                                onClick={() => setViewMode('map')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 ${viewMode === 'map'
+                                    ? 'bg-white text-slate-900 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                            >
+                                <Map className="w-3.5 h-3.5" /> Map
+                            </button>
+                        </div>
+                        <div className="h-6 w-px bg-slate-200"></div>
+                        <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+                            {['All', PersonnelRole.PILOT, PersonnelRole.TECHNICIAN].map((role) => (
+                                <button
+                                    key={role}
+                                    onClick={() => setRoleFilter(role as any)}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${roleFilter === role
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        }`}
+                                >
+                                    {role}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="relative w-full sm:w-64">
@@ -227,531 +261,632 @@ const PersonnelTracker: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Table */}
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-100">
-                            <tr>
-                                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Certification</th>
-                                <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredPersonnel.map((person) => (
-                                <tr
-                                    key={person.id}
-                                    onClick={() => handleViewDetails(person)}
-                                    className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                                >
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
-                                                {person.fullName.split(' ').map(n => n[0]).join('')}
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-slate-900">{person.fullName}</p>
-                                                <p className="text-xs text-slate-500 font-mono">{person.id}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            {person.role === PersonnelRole.PILOT ? (
-                                                <BadgeCheck className="w-4 h-4 text-blue-500" />
-                                            ) : person.role === PersonnelRole.BOTH ? (
-                                                <div className="flex -space-x-1">
-                                                    <BadgeCheck className="w-4 h-4 text-blue-500 z-10" />
-                                                    <HardHat className="w-4 h-4 text-amber-500" />
-                                                </div>
-                                            ) : (
-                                                <HardHat className="w-4 h-4 text-amber-500" />
-                                            )}
-                                            <span className="text-sm text-slate-700">{person.role}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="space-y-1">
-                                            <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                <Mail className="w-3 h-3 text-slate-400" /> {person.email}
-                                            </div>
-                                            <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                <Phone className="w-3 h-3 text-slate-400" /> {person.phone}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                                            {person.certificationLevel}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${person.status === 'Active'
-                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                            : person.status === 'On Leave'
-                                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                                : 'bg-slate-100 text-slate-500 border-slate-200'
-                                            }`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${person.status === 'Active' ? 'bg-emerald-500' : person.status === 'On Leave' ? 'bg-amber-500' : 'bg-slate-400'
-                                                }`} />
-                                            {person.status}
-                                        </span>
-                                        {person.onboarding_status && person.onboarding_status !== 'not_sent' && (
-                                            <div className="mt-1">
-                                                <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${person.onboarding_status === 'completed' ? 'text-emerald-600' :
-                                                    person.onboarding_status === 'in_progress' ? 'text-amber-600' : 'text-blue-600'
-                                                    }`}>
-                                                    {person.onboarding_status === 'completed' && <CheckCircle2 className="w-3 h-3" />}
-                                                    {person.onboarding_status === 'sent' && <Send className="w-3 h-3" />}
-                                                    {person.onboarding_status === 'completed' ? 'Onboarding Complete' : 'Onboarding Sent'}
-                                                </span>
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
-                                            {!['completed', 'in_progress'].includes(person.onboarding_status || '') && (
-                                                <button
-                                                    onClick={() => handleSendOnboarding(person.id)}
-                                                    disabled={sendingOnboarding}
-                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                    title="Send Onboarding Package"
-                                                >
-                                                    <Send className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={() => handleDeletePersonnel(person.id)}
-                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors group/delete"
-                                                title="Remove Personnel"
-                                            >
-                                                <MoreHorizontal className="w-4 h-4 text-slate-400 group-hover/delete:hidden" />
-                                                <span className="hidden group-hover/delete:inline text-[10px] font-bold uppercase tracking-wider text-red-600">Remove</span>
-                                            </button>
-                                        </div>
-                                    </td>
+                {/* Content Area */}
+                {viewMode === 'list' ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contact</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Certification</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {filteredPersonnel.map((person) => (
+                                    <tr
+                                        key={person.id}
+                                        onClick={() => handleViewDetails(person)}
+                                        className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                                    >
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                                                    {person.fullName.split(' ').map(n => n[0]).join('')}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-900">{person.fullName}</p>
+                                                    <p className="text-xs text-slate-500 font-mono">{person.id}</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2">
+                                                {person.role === PersonnelRole.PILOT ? (
+                                                    <BadgeCheck className="w-4 h-4 text-blue-500" />
+                                                ) : person.role === PersonnelRole.BOTH ? (
+                                                    <div className="flex -space-x-1">
+                                                        <BadgeCheck className="w-4 h-4 text-blue-500 z-10" />
+                                                        <HardHat className="w-4 h-4 text-amber-500" />
+                                                    </div>
+                                                ) : (
+                                                    <HardHat className="w-4 h-4 text-amber-500" />
+                                                )}
+                                                <span className="text-sm text-slate-700">{person.role}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                    <Mail className="w-3 h-3 text-slate-400" /> {person.email}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                    <Phone className="w-3 h-3 text-slate-400" /> {person.phone}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                                {person.certificationLevel}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${person.status === 'Active'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                                : person.status === 'On Leave'
+                                                    ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                }`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${person.status === 'Active' ? 'bg-emerald-500' : person.status === 'On Leave' ? 'bg-amber-500' : 'bg-slate-400'
+                                                    }`} />
+                                                {person.status}
+                                            </span>
+                                            {person.onboarding_status && person.onboarding_status !== 'not_sent' && (
+                                                <div className="mt-1">
+                                                    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${person.onboarding_status === 'completed' ? 'text-emerald-600' :
+                                                        person.onboarding_status === 'in_progress' ? 'text-amber-600' : 'text-blue-600'
+                                                        }`}>
+                                                        {person.onboarding_status === 'completed' && <CheckCircle2 className="w-3 h-3" />}
+                                                        {person.onboarding_status === 'sent' && <Send className="w-3 h-3" />}
+                                                        {person.onboarding_status === 'completed' ? 'Onboarding Complete' : 'Onboarding Sent'}
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
+                                                {!['completed', 'in_progress'].includes(person.onboarding_status || '') && (
+                                                    <button
+                                                        onClick={() => handleSendOnboarding(person.id)}
+                                                        disabled={sendingOnboarding}
+                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                        title="Send Onboarding Package"
+                                                    >
+                                                        <Send className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDeletePersonnel(person.id)}
+                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors group/delete"
+                                                    title="Remove Personnel"
+                                                >
+                                                    <MoreHorizontal className="w-4 h-4 text-slate-400 group-hover/delete:hidden" />
+                                                    <span className="hidden group-hover/delete:inline text-[10px] font-bold uppercase tracking-wider text-red-600">Remove</span>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
 
-                    {filteredPersonnel.length === 0 && (
-                        <div className="p-12 text-center">
-                            <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                                <Search className="w-5 h-5 text-slate-400" />
+                        {filteredPersonnel.length === 0 && (
+                            <div className="p-12 text-center">
+                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Search className="w-5 h-5 text-slate-400" />
+                                </div>
+                                <h3 className="text-sm font-medium text-slate-900">No personnel found</h3>
+                                <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search query.</p>
+                                <button
+                                    onClick={() => setIsAddModalOpen(true)}
+                                    className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                                >
+                                    Add Personnel
+                                </button>
                             </div>
-                            <h3 className="text-sm font-medium text-slate-900">No personnel found</h3>
-                            <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search query.</p>
-                            <button
-                                onClick={() => setIsAddModalOpen(true)}
-                                className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                            >
-                                Add Personnel
-                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="h-[600px] w-full bg-slate-50 relative overflow-hidden group">
+                        {/* Mock Map Background */}
+                        <div className="absolute inset-0 opacity-10"
+                            style={{ backgroundImage: 'radial-gradient(circle, #94a3b8 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
                         </div>
-                    )}
-                </div>
+
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="text-center opacity-40">
+                                <Map className="w-16 h-16 mx-auto text-slate-400 mb-2" />
+                                <p className="text-sm font-medium text-slate-500">Interactive Map View</p>
+                            </div>
+                        </div>
+
+                        {/* Personnel Pins (Randomly placed for demo since we don't have real lat/lng yet) */}
+                        {filteredPersonnel.map((person, i) => (
+                            <div
+                                key={person.id}
+                                className="absolute cursor-pointer transform hover:scale-110 transition-transform z-10"
+                                style={{
+                                    top: `${20 + (i * 17) % 60}%`,
+                                    left: `${20 + (i * 23) % 60}%`
+                                }}
+                                onClick={() => handleViewDetails(person)}
+                            >
+                                <div className="relative group/pin">
+                                    <div className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-xs font-bold text-white
+                                        ${person.role === 'Pilot' ? 'bg-blue-500' : 'bg-amber-500'}`}>
+                                        {person.fullName.charAt(0)}
+                                    </div>
+                                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-inherit z-0"></div>
+
+                                    {/* Tooltip */}
+                                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs py-1 px-2 rounded opacity-0 group-hover/pin:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">
+                                        {person.fullName}
+                                        <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+
+                        <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-sm text-xs text-slate-500 border border-slate-200">
+                            Showing {filteredPersonnel.length} personnel in current view
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Add Personnel Modal */}
-            {isAddModalOpen && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="font-semibold text-slate-900">Add New Personnel</h3>
-                            <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                                &times;
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
-                                <input
-                                    type="text"
-                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                    placeholder="e.g. Jane Doe"
-                                    value={newPersonnel.fullName || ''}
-                                    onChange={e => setNewPersonnel({ ...newPersonnel, fullName: e.target.value })}
-                                />
+            {
+                isAddModalOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                                <h3 className="font-semibold text-slate-900">Add New Personnel</h3>
+                                <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                    &times;
+                                </button>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
-                                <input
-                                    type="email"
-                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                    placeholder="e.g. jane@axis.com"
-                                    value={newPersonnel.email || ''}
-                                    onChange={e => setNewPersonnel({ ...newPersonnel, email: e.target.value })}
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="p-6 space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
-                                    <select
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                        value={newPersonnel.role}
-                                        onChange={e => setNewPersonnel({ ...newPersonnel, role: e.target.value as PersonnelRole })}
-                                    >
-                                        <option value={PersonnelRole.PILOT}>Pilot</option>
-                                        <option value={PersonnelRole.TECHNICIAN}>Technician</option>
-                                        <option value={PersonnelRole.BOTH}>Both</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                                    <select
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                        value={newPersonnel.status}
-                                        onChange={e => setNewPersonnel({ ...newPersonnel, status: e.target.value as any })}
-                                    >
-                                        <option value="Active">Active</option>
-                                        <option value="On Leave">On Leave</option>
-                                        <option value="Inactive">Inactive</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Daily Pay Rate ($)</label>
-                                <div className="relative">
-                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
                                     <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                        placeholder="e.g. 450.00"
-                                        value={newPersonnel.dailyPayRate || ''}
-                                        onChange={e => setNewPersonnel({ ...newPersonnel, dailyPayRate: parseFloat(e.target.value) || 0 })}
+                                        type="text"
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                        placeholder="e.g. Jane Doe"
+                                        value={newPersonnel.fullName || ''}
+                                        onChange={e => setNewPersonnel({ ...newPersonnel, fullName: e.target.value })}
                                     />
                                 </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Max Travel Distance (Miles)</label>
-                                <div className="relative">
-                                    <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
                                     <input
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                        placeholder="e.g. 50"
-                                        value={newPersonnel.maxTravelDistance || ''}
-                                        onChange={e => setNewPersonnel({ ...newPersonnel, maxTravelDistance: parseInt(e.target.value) || 0 })}
+                                        type="email"
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                        placeholder="e.g. jane@axis.com"
+                                        value={newPersonnel.email || ''}
+                                        onChange={e => setNewPersonnel({ ...newPersonnel, email: e.target.value })}
                                     />
                                 </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">Role</label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                            value={newPersonnel.role}
+                                            onChange={e => setNewPersonnel({ ...newPersonnel, role: e.target.value as PersonnelRole })}
+                                        >
+                                            <option value={PersonnelRole.PILOT}>Pilot</option>
+                                            <option value={PersonnelRole.TECHNICIAN}>Technician</option>
+                                            <option value={PersonnelRole.BOTH}>Both</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                            value={newPersonnel.status}
+                                            onChange={e => setNewPersonnel({ ...newPersonnel, status: e.target.value as any })}
+                                        >
+                                            <option value="Active">Active</option>
+                                            <option value="On Leave">On Leave</option>
+                                            <option value="Inactive">Inactive</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Daily Pay Rate ($)</label>
+                                    <div className="relative">
+                                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                            placeholder="e.g. 450.00"
+                                            value={newPersonnel.dailyPayRate || ''}
+                                            onChange={e => setNewPersonnel({ ...newPersonnel, dailyPayRate: parseFloat(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Home Address</label>
+                                    <div className="relative">
+                                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                            placeholder="e.g. 123 Main St, Austin, TX"
+                                            value={newPersonnel.homeAddress || ''}
+                                            onChange={e => setNewPersonnel({ ...newPersonnel, homeAddress: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Max Travel Distance (Miles)</label>
+                                    <div className="relative">
+                                        <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                            placeholder="e.g. 50"
+                                            value={newPersonnel.maxTravelDistance || ''}
+                                            onChange={e => setNewPersonnel({ ...newPersonnel, maxTravelDistance: parseInt(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                            <button
-                                onClick={() => setIsAddModalOpen(false)}
-                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleAddPersonnel}
-                                disabled={!newPersonnel.fullName || !newPersonnel.email}
-                                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm"
-                            >
-                                Save Personnel
-                            </button>
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                <button
+                                    onClick={() => setIsAddModalOpen(false)}
+                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleAddPersonnel}
+                                    disabled={!newPersonnel.fullName || !newPersonnel.email}
+                                    className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-sm"
+                                >
+                                    Save Personnel
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
             {/* Personnel Detail Modal */}
-            {isDetailModalOpen && selectedPerson && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shadow-inner">
-                                    {selectedPerson.fullName.split(' ').map(n => n[0]).join('')}
+            {
+                isDetailModalOpen && selectedPerson && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-lg font-bold text-slate-600 shadow-inner">
+                                        {selectedPerson.fullName.split(' ').map(n => n[0]).join('')}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-slate-900 text-lg leading-tight">{selectedPerson.fullName}</h3>
+                                        <p className="text-[10px] text-slate-500 font-mono tracking-wider">ID: {selectedPerson.id.substring(0, 6).toUpperCase()}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="font-bold text-slate-900 text-lg leading-tight">{selectedPerson.fullName}</h3>
-                                    <p className="text-[10px] text-slate-500 font-mono tracking-wider">ID: {selectedPerson.id.substring(0, 6).toUpperCase()}</p>
-                                </div>
+                                <button onClick={() => setIsDetailModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-white rounded-full transition-all">
+                                    &times;
+                                </button>
                             </div>
-                            <button onClick={() => setIsDetailModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-white rounded-full transition-all">
-                                &times;
-                            </button>
-                        </div>
 
-                        <div className="p-6 space-y-6">
-                            {isEditMode ? (
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Full Name</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                            value={editedPerson?.fullName || ''}
-                                            onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, fullName: e.target.value } : null)}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
+                            <div className="p-6 space-y-6">
+                                {isEditMode ? (
+                                    <div className="space-y-4">
                                         <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Role</label>
-                                            <select
-                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                value={editedPerson?.role}
-                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, role: e.target.value as PersonnelRole } : null)}
-                                            >
-                                                <option value={PersonnelRole.PILOT}>Pilot</option>
-                                                <option value={PersonnelRole.TECHNICIAN}>Technician</option>
-                                                <option value={PersonnelRole.BOTH}>Both</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Status</label>
-                                            <select
-                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                value={editedPerson?.status}
-                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, status: e.target.value as any } : null)}
-                                            >
-                                                <option value="Active">Active</option>
-                                                <option value="On Leave">On Leave</option>
-                                                <option value="Inactive">Inactive</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Email Address</label>
-                                        <input
-                                            type="email"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                            value={editedPerson?.email || ''}
-                                            onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, email: e.target.value } : null)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Phone Number</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                            value={editedPerson?.phone || ''}
-                                            onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, phone: e.target.value } : null)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Certification Level</label>
-                                        <input
-                                            type="text"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                            value={editedPerson?.certificationLevel || ''}
-                                            onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, certificationLevel: e.target.value } : null)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Daily Pay Rate ($)</label>
-                                        <div className="relative">
-                                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Full Name</label>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                value={editedPerson?.dailyPayRate || ''}
-                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, dailyPayRate: parseFloat(e.target.value) || 0 } : null)}
+                                                type="text"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                value={editedPerson?.fullName || ''}
+                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, fullName: e.target.value } : null)}
                                             />
                                         </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Max Travel Distance (Miles)</label>
-                                        <div className="relative">
-                                            <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Role</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                    value={editedPerson?.role}
+                                                    onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, role: e.target.value as PersonnelRole } : null)}
+                                                >
+                                                    <option value={PersonnelRole.PILOT}>Pilot</option>
+                                                    <option value={PersonnelRole.TECHNICIAN}>Technician</option>
+                                                    <option value={PersonnelRole.BOTH}>Both</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Status</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                    value={editedPerson?.status}
+                                                    onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, status: e.target.value as any } : null)}
+                                                >
+                                                    <option value="Active">Active</option>
+                                                    <option value="On Leave">On Leave</option>
+                                                    <option value="Inactive">Inactive</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Email Address</label>
                                             <input
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                value={editedPerson?.maxTravelDistance || ''}
-                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, maxTravelDistance: parseInt(e.target.value) || 0 } : null)}
+                                                type="email"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                value={editedPerson?.email || ''}
+                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, email: e.target.value } : null)}
                                             />
                                         </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Phone Number</label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                value={editedPerson?.phone || ''}
+                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, phone: e.target.value } : null)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Certification Level</label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                value={editedPerson?.certificationLevel || ''}
+                                                onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, certificationLevel: e.target.value } : null)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Home Address</label>
+                                            <div className="relative">
+                                                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                    value={editedPerson?.homeAddress || ''}
+                                                    onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, homeAddress: e.target.value } : null)}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Daily Pay Rate ($)</label>
+                                            <div className="relative">
+                                                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                    value={editedPerson?.dailyPayRate || ''}
+                                                    onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, dailyPayRate: parseFloat(e.target.value) || 0 } : null)}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Max Travel Distance (Miles)</label>
+                                            <div className="relative">
+                                                <Map className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                                    value={editedPerson?.maxTravelDistance || ''}
+                                                    onChange={e => setEditedPerson(editedPerson ? { ...editedPerson, maxTravelDistance: parseInt(e.target.value) || 0 } : null)}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Role</p>
-                                            <div className="flex items-center gap-2">
-                                                {selectedPerson.role === PersonnelRole.PILOT ? <BadgeCheck className="w-4 h-4 text-blue-500" /> : <HardHat className="w-4 h-4 text-amber-500" />}
-                                                <span className="text-sm font-medium text-slate-700">{selectedPerson.role}</span>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-6">
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Role</p>
+                                                <div className="flex items-center gap-2">
+                                                    {selectedPerson.role === PersonnelRole.PILOT ? <BadgeCheck className="w-4 h-4 text-blue-500" /> : <HardHat className="w-4 h-4 text-amber-500" />}
+                                                    <span className="text-sm font-medium text-slate-700">{selectedPerson.role}</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</p>
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${selectedPerson.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${selectedPerson.status === 'Active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                                                {selectedPerson.status}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4 pt-4 border-t border-slate-100">
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
-                                                <Mail className="w-4 h-4" />
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Email Address</p>
-                                                <p className="text-sm font-medium text-slate-700">{selectedPerson.email}</p>
+                                            <div className="space-y-1">
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</p>
+                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${selectedPerson.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${selectedPerson.status === 'Active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                                    {selectedPerson.status}
+                                                </span>
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
-                                                <Phone className="w-4 h-4" />
+                                        <div className="space-y-4 pt-4 border-t border-slate-100">
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
+                                                    <Mail className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Email Address</p>
+                                                    <p className="text-sm font-medium text-slate-700">{selectedPerson.email}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Phone Number</p>
-                                                <p className="text-sm font-medium text-slate-700">{selectedPerson.phone || 'Not provided'}</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
-                                                <FileText className="w-4 h-4" />
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
+                                                    <Phone className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Phone Number</p>
+                                                    <p className="text-sm font-medium text-slate-700">{selectedPerson.phone || 'Not provided'}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Certifications</p>
-                                                <p className="text-sm font-medium text-slate-700">{selectedPerson.certificationLevel}</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-emerald-600 group-hover:bg-emerald-50 transition-colors">
-                                                <DollarSign className="w-4 h-4" />
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-blue-600 group-hover:bg-blue-50 transition-colors">
+                                                    <FileText className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Certifications</p>
+                                                    <p className="text-sm font-medium text-slate-700">{selectedPerson.certificationLevel}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Daily Pay Rate</p>
-                                                <p className="text-sm font-medium text-slate-700">${selectedPerson.dailyPayRate?.toLocaleString() || '0.00'}</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-purple-600 group-hover:bg-purple-50 transition-colors">
-                                                <Map className="w-4 h-4" />
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-emerald-600 group-hover:bg-emerald-50 transition-colors">
+                                                    <DollarSign className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Daily Pay Rate</p>
+                                                    <p className="text-sm font-medium text-slate-700">${selectedPerson.dailyPayRate?.toLocaleString() || '0.00'}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Max Travel</p>
-                                                <p className="text-sm font-medium text-slate-700">{selectedPerson.maxTravelDistance ? `${selectedPerson.maxTravelDistance} Miles` : 'Not specified'}</p>
-                                            </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-4 group">
-                                            <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-amber-600 group-hover:bg-amber-50 transition-colors">
-                                                <Send className="w-4 h-4" />
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-cyan-600 group-hover:bg-cyan-50 transition-colors">
+                                                    <MapPin className="w-4 h-4" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Home Base</p>
+                                                    <div className="flex justify-between items-start">
+                                                        <p className="text-sm font-medium text-slate-700 truncate max-w-[200px]">
+                                                            {selectedPerson.homeAddress || 'No address on file'}
+                                                        </p>
+                                                        {selectedPerson.homeAddress && (
+                                                            <a
+                                                                href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(selectedPerson.homeAddress)}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                                                            >
+                                                                <Navigation className="w-3 h-3" /> Get Directions
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="flex-1">
-                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Onboarding</p>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-medium text-slate-700">
-                                                        {selectedPerson.onboarding_status === 'completed' ? 'Completed' :
-                                                            selectedPerson.onboarding_status === 'sent' ? 'Sent' :
-                                                                selectedPerson.onboarding_status === 'in_progress' ? 'In Progress' : 'Not Sent'}
-                                                    </span>
-                                                    {!['completed', 'in_progress'].includes(selectedPerson.onboarding_status || '') && (
-                                                        <button
-                                                            onClick={() => handleSendOnboarding(selectedPerson.id)}
-                                                            disabled={sendingOnboarding}
-                                                            className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline disabled:opacity-50"
-                                                        >
-                                                            {sendingOnboarding ? 'Sending...' : 'Send Package'}
-                                                        </button>
-                                                    )}
+
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-purple-600 group-hover:bg-purple-50 transition-colors">
+                                                    <Map className="w-4 h-4" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Max Travel</p>
+                                                    <p className="text-sm font-medium text-slate-700">{selectedPerson.maxTravelDistance ? `${selectedPerson.maxTravelDistance} Miles` : 'Not specified'}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-4 group">
+                                                <div className="w-9 h-9 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-amber-600 group-hover:bg-amber-50 transition-colors">
+                                                    <Send className="w-4 h-4" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Onboarding</p>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm font-medium text-slate-700">
+                                                            {selectedPerson.onboarding_status === 'completed' ? 'Completed' :
+                                                                selectedPerson.onboarding_status === 'sent' ? 'Sent' :
+                                                                    selectedPerson.onboarding_status === 'in_progress' ? 'In Progress' : 'Not Sent'}
+                                                        </span>
+                                                        {!['completed', 'in_progress'].includes(selectedPerson.onboarding_status || '') && (
+                                                            <button
+                                                                onClick={() => handleSendOnboarding(selectedPerson.id)}
+                                                                disabled={sendingOnboarding}
+                                                                className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline disabled:opacity-50"
+                                                            >
+                                                                {sendingOnboarding ? 'Sending...' : 'Send Package'}
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                                    </>
+                                )}
+                            </div>
 
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-                            {isEditMode ? (
-                                <>
-                                    <button
-                                        onClick={handleCancelEdit}
-                                        className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleUpdatePersonnel}
-                                        className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
-                                    >
-                                        Save Changes
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => handleDeletePersonnel(selectedPerson.id)}
-                                        className="px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2 uppercase tracking-wider"
-                                    >
-                                        Remove From Registry
-                                    </button>
-                                    <div className="flex gap-2">
+                            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                                {isEditMode ? (
+                                    <>
                                         <button
-                                            onClick={() => setIsEditMode(true)}
-                                            className="px-4 py-2 text-sm font-bold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
-                                        >
-                                            Edit Personnel
-                                        </button>
-                                        <button
-                                            onClick={() => setIsDetailModalOpen(false)}
+                                            onClick={handleCancelEdit}
                                             className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                                         >
-                                            Close View
+                                            Cancel
                                         </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+                                        <button
+                                            onClick={handleUpdatePersonnel}
+                                            className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm"
+                                        >
+                                            Save Changes
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={() => handleDeletePersonnel(selectedPerson.id)}
+                                            className="px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-2 uppercase tracking-wider"
+                                        >
+                                            Remove From Registry
+                                        </button>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setIsEditMode(true)}
+                                                className="px-4 py-2 text-sm font-bold bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-all shadow-sm"
+                                            >
+                                                Edit Personnel
+                                            </button>
+                                            <button
+                                                onClick={() => setIsDetailModalOpen(false)}
+                                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                            >
+                                                Close View
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div >
+                    </div >
+                )}
 
             {/* Onboarding Prompt Modal */}
-            {onboardingPromptOpen.isOpen && (
-                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-6 text-center">
-                            <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Send className="w-6 h-6 text-blue-600" />
-                            </div>
-                            <h3 className="text-lg font-bold text-slate-900 mb-2">Send Welcome Package?</h3>
-                            <p className="text-sm text-slate-600 mb-6">
-                                Would you like to send the onboarding welcome package (NDA, W-9, etc.) to <strong>{onboardingPromptOpen.name}</strong> now?
-                            </p>
+            {
+                onboardingPromptOpen.isOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="p-6 text-center">
+                                <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Send className="w-6 h-6 text-blue-600" />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-900 mb-2">Send Welcome Package?</h3>
+                                <p className="text-sm text-slate-600 mb-6">
+                                    Would you like to send the onboarding welcome package (NDA, W-9, etc.) to <strong>{onboardingPromptOpen.name}</strong> now?
+                                </p>
 
-                            <div className="flex gap-3 justify-center">
-                                <button
-                                    onClick={() => setOnboardingPromptOpen({ isOpen: false })}
-                                    className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    Not Now
-                                </button>
-                                <button
-                                    onClick={() => onboardingPromptOpen.personnelId && handleSendOnboarding(onboardingPromptOpen.personnelId)}
-                                    disabled={sendingOnboarding}
-                                    className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm disabled:opacity-70"
-                                >
-                                    {sendingOnboarding ? 'Sending...' : 'Send Package'}
-                                </button>
+                                <div className="flex gap-3 justify-center">
+                                    <button
+                                        onClick={() => setOnboardingPromptOpen({ isOpen: false })}
+                                        className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                    >
+                                        Not Now
+                                    </button>
+                                    <button
+                                        onClick={() => onboardingPromptOpen.personnelId && handleSendOnboarding(onboardingPromptOpen.personnelId)}
+                                        disabled={sendingOnboarding}
+                                        className="px-4 py-2 text-sm font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-sm disabled:opacity-70"
+                                    >
+                                        {sendingOnboarding ? 'Sending...' : 'Send Package'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
