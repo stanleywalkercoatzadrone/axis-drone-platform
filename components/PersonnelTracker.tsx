@@ -37,6 +37,80 @@ const PersonnelTracker: React.FC = () => {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedPerson, setSelectedPerson] = useState<Personnel | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
+
+    // Geocoding State (Map from Personnel ID to [lat, lng])
+    const [geocodedPositions, setGeocodedPositions] = useState<Record<string, [number, number]>>({});
+
+    // Load cached geocodes on mount
+    useEffect(() => {
+        try {
+            const cached = localStorage.getItem('pt_geocodes');
+            if (cached) {
+                setGeocodedPositions(JSON.parse(cached));
+            }
+        } catch (e) {
+            console.error("Failed to load geocodes", e);
+        }
+    }, []);
+
+    // Geocode new personnel addresses
+    useEffect(() => {
+        const geocodeAddresses = async () => {
+            let updated = false;
+            const newPositions = { ...geocodedPositions };
+
+            // Filter personnel who have an address but no geocoded position
+            const toGeocode = personnel.filter(p =>
+                p.homeAddress &&
+                p.homeAddress.length > 5 &&
+                !newPositions[p.id]
+            );
+
+            if (toGeocode.length === 0) return;
+
+            // Sequential fetch with delay to respect Nominatim usage policy (1 req/sec)
+            for (const person of toGeocode) {
+                if (!person.homeAddress) continue;
+
+                try {
+                    // Check if we already have this address string cached (handle strictly address-based cache if desired, but ID-based is simpler for now)
+                    // Simple fetch
+                    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(person.homeAddress)}`, {
+                        headers: {
+                            'User-Agent': 'Skylens-Enterprise-Drone-Platform/1.0'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data && data.length > 0) {
+                            const lat = parseFloat(data[0].lat);
+                            const lng = parseFloat(data[0].lon);
+                            newPositions[person.id] = [lat, lng];
+                            updated = true;
+
+                            // Update state incrementally to show progress
+                            setGeocodedPositions(prev => ({ ...prev, [person.id]: [lat, lng] }));
+                        }
+                    }
+                } catch (err) {
+                    console.error(`Failed to geocode ${person.fullName}:`, err);
+                }
+
+                // Wait 1.1 seconds between requests
+                await new Promise(resolve => setTimeout(resolve, 1100));
+            }
+
+            if (updated) {
+                localStorage.setItem('pt_geocodes', JSON.stringify(newPositions));
+            }
+        };
+
+        if (viewMode === 'map' && personnel.length > 0) {
+            geocodeAddresses();
+        }
+    }, [personnel, viewMode]);
+
     const [editedPerson, setEditedPerson] = useState<Personnel | null>(null);
     const [newPersonnel, setNewPersonnel] = useState<Partial<Personnel>>({
         role: PersonnelRole.PILOT,
@@ -417,28 +491,52 @@ const PersonnelTracker: React.FC = () => {
                                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                             />
                             {filteredPersonnel.map((person, i) => {
-                                // Generate mock coordinates seeded by ID/Index to be deterministic but spread out
-                                // BASE: Austin TX (30.2672, -97.7431)
-                                const latOffset = ((i * 1337) % 100 - 50) / 500; // Spread approx +/- 0.1 deg
-                                const lngOffset = ((i * 7331) % 100 - 50) / 500;
-                                const position: [number, number] = [30.2672 + latOffset, -97.7431 + lngOffset];
+                                // Priority: 
+                                // 1. Geocoded Real Position
+                                // 2. Fallback Deterministic Calculation (Austin-based offset)
+
+                                let position: [number, number];
+
+                                if (geocodedPositions[person.id]) {
+                                    position = geocodedPositions[person.id];
+                                } else {
+                                    // Fallback: Austin TX (30.2672, -97.7431) with deterministic scatter
+                                    const latOffset = ((i * 1337) % 100 - 50) / 1000;
+                                    const lngOffset = ((i * 7331) % 100 - 50) / 1000;
+                                    position = [30.2672 + latOffset, -97.7431 + lngOffset];
+                                }
 
                                 return (
-                                    <Marker key={person.id} position={position}>
+                                    <Marker
+                                        key={person.id}
+                                        position={position}
+                                        eventHandlers={{
+                                            click: () => handleViewDetails(person),
+                                        }}
+                                    >
                                         <Popup>
-                                            <div className="p-1">
-                                                <div className="font-bold text-slate-800">{person.fullName}</div>
-                                                <div className="text-xs text-slate-500">{person.role}</div>
+                                            <div className="p-1 min-w-[150px]">
+                                                <div className="font-bold text-slate-800 text-sm mb-1">{person.fullName}</div>
+                                                <div className="text-xs text-slate-500 font-medium mb-1 uppercase tracking-wide">{person.role}</div>
+
                                                 {person.homeAddress && (
-                                                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                        <MapIcon className="w-3 h-3" /> {person.homeAddress}
+                                                    <div className="text-xs text-slate-600 mb-2 flex items-start gap-1 bg-slate-50 p-1 rounded border border-slate-100">
+                                                        <MapIcon className="w-3 h-3 mt-0.5 flex-shrink-0 text-slate-400" />
+                                                        <span className="leading-tight">{person.homeAddress}</span>
                                                     </div>
                                                 )}
+
+                                                {!geocodedPositions[person.id] && person.homeAddress && (
+                                                    <div className="text-[10px] text-amber-600 mb-2 italic">
+                                                        📍 Locating address...
+                                                    </div>
+                                                )}
+
                                                 <button
-                                                    className="mt-2 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded w-full hover:bg-blue-100 font-medium"
+                                                    className="text-xs bg-blue-50 text-blue-600 px-2 py-1.5 rounded w-full hover:bg-blue-100 hover:text-blue-700 font-semibold transition-colors flex items-center justify-center gap-1"
                                                     onClick={() => handleViewDetails(person)}
                                                 >
-                                                    View Profile
+                                                    View Profile <Navigation className="w-3 h-3" />
                                                 </button>
                                             </div>
                                         </Popup>
