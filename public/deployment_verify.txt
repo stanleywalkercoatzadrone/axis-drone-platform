@@ -1,0 +1,4 @@
+Status: PUSHED TO GITHUB (READY FOR VERCEL/RAILWAY)
+Version: 1.2.1-AXIS-PAYMENT-SYNC
+Notes: Fixed Net 30 visibility, role normalization, and project invoice due dates.
+Last Sync: 2026-02-04 00:18

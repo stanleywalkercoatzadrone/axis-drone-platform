@@ -109,6 +109,15 @@ const DeploymentTracker: React.FC = () => {
     const [extraDayDate, setExtraDayDate] = useState('');
     const [deploymentPaymentTerms, setDeploymentPaymentTerms] = useState<number>(30); // Per-deployment payment terms override
 
+    // Fetch global payment terms on mount to set the default for new mission overrides
+    useEffect(() => {
+        apiClient.get('/system/settings').then(res => {
+            if (res.data.success && res.data.data.invoice_payment_days) {
+                setDeploymentPaymentTerms(parseInt(res.data.data.invoice_payment_days));
+            }
+        }).catch(err => console.error('Failed to fetch global terms:', err));
+    }, []);
+
     const confirmAddExtraDay = () => {
         if (!extraDayDate || !selectedDeployment) return;
 
@@ -1531,6 +1540,7 @@ const DeploymentTracker: React.FC = () => {
                                                         <ProjectInvoiceView
                                                             deployment={selectedDeployment}
                                                             logs={selectedDeployment.dailyLogs || []}
+                                                            paymentTerms={deploymentPaymentTerms}
                                                         />
                                                     </div>
                                                 )}
