@@ -22,7 +22,7 @@
     "@types/react-router-dom": "^5.3.3",
     "aws-sdk": "^2.1691.0",
     "axios": "^1.7.9",
-    "bcryptjs": "^2.4.3",
+    "bcryptjs": "^3.0.3",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -48,7 +48,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
+    "@types/bcryptjs": "^3.0.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.7",
