@@ -38,6 +38,10 @@ const PersonnelTracker: React.FC = () => {
     const [selectedPerson, setSelectedPerson] = useState<Personnel | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
 
+    // Geocoding Status State
+    const [geocodingStatus, setGeocodingStatus] = useState<'idle' | 'processing' | 'completed'>('idle');
+    const [pendingCount, setPendingCount] = useState(0);
+
     // Geocoding State (Map from Personnel ID to [lat, lng])
     const [geocodedPositions, setGeocodedPositions] = useState<Record<string, [number, number]>>({});
 
@@ -56,7 +60,6 @@ const PersonnelTracker: React.FC = () => {
     // Geocode new personnel addresses
     useEffect(() => {
         const geocodeAddresses = async () => {
-            let updated = false;
             const newPositions = { ...geocodedPositions };
 
             // Filter personnel who have an address but no geocoded position
@@ -66,20 +69,23 @@ const PersonnelTracker: React.FC = () => {
                 !newPositions[p.id]
             );
 
-            if (toGeocode.length === 0) return;
+            if (toGeocode.length === 0) {
+                setGeocodingStatus('completed');
+                return;
+            }
 
-            // Sequential fetch with delay to respect Nominatim usage policy (1 req/sec)
+            setGeocodingStatus('processing');
+            setPendingCount(toGeocode.length);
+            let processed = 0;
+            let updated = false;
+
+            // Sequential fetch with delay
             for (const person of toGeocode) {
                 if (!person.homeAddress) continue;
 
                 try {
-                    // Check if we already have this address string cached (handle strictly address-based cache if desired, but ID-based is simpler for now)
-                    // Simple fetch
-                    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(person.homeAddress)}`, {
-                        headers: {
-                            'User-Agent': 'Skylens-Enterprise-Drone-Platform/1.0'
-                        }
-                    });
+                    // Removed User-Agent header (forbidden in browser fetch)
+                    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(person.homeAddress)}`);
 
                     if (response.ok) {
                         const data = await response.json();
@@ -88,14 +94,15 @@ const PersonnelTracker: React.FC = () => {
                             const lng = parseFloat(data[0].lon);
                             newPositions[person.id] = [lat, lng];
                             updated = true;
-
-                            // Update state incrementally to show progress
                             setGeocodedPositions(prev => ({ ...prev, [person.id]: [lat, lng] }));
                         }
                     }
                 } catch (err) {
                     console.error(`Failed to geocode ${person.fullName}:`, err);
                 }
+
+                processed++;
+                setPendingCount(toGeocode.length - processed);
 
                 // Wait 1.1 seconds between requests
                 await new Promise(resolve => setTimeout(resolve, 1100));
@@ -104,12 +111,19 @@ const PersonnelTracker: React.FC = () => {
             if (updated) {
                 localStorage.setItem('pt_geocodes', JSON.stringify(newPositions));
             }
+            setGeocodingStatus('completed');
         };
 
         if (viewMode === 'map' && personnel.length > 0) {
-            geocodeAddresses();
+            // Check if we need to start geocoding
+            const needsGeocoding = personnel.some(p => p.homeAddress && p.homeAddress.length > 5 && !geocodedPositions[p.id]);
+            if (needsGeocoding) {
+                geocodeAddresses();
+            } else {
+                setGeocodingStatus('completed');
+            }
         }
-    }, [personnel, viewMode]);
+    }, [personnel, viewMode, geocodedPositions]);
 
     const [editedPerson, setEditedPerson] = useState<Personnel | null>(null);
     const [newPersonnel, setNewPersonnel] = useState<Partial<Personnel>>({
@@ -544,6 +558,19 @@ const PersonnelTracker: React.FC = () => {
                                 );
                             })}
                         </MapContainer>
+
+                        {/* Geocoding Status Overlay */}
+                        <div className="absolute bottom-4 right-4 z-[500] flex flex-col gap-2 items-end pointer-events-none">
+                            {geocodingStatus === 'processing' && (
+                                <div className="bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-md border border-slate-200 text-xs text-slate-600 flex items-center gap-2 pointer-events-auto">
+                                    <div className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin"></div>
+                                    <span>Locating {pendingCount} personnel...</span>
+                                </div>
+                            )}
+                            <div className="bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-auto">
+                                Showing {filteredPersonnel.length} personnel in current view
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
