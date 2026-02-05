@@ -39,8 +39,9 @@ const PersonnelTracker: React.FC = () => {
     const [isEditMode, setIsEditMode] = useState(false);
 
     // Geocoding Status State
-    const [geocodingStatus, setGeocodingStatus] = useState<'idle' | 'processing' | 'completed'>('idle');
+    const [geocodingStatus, setGeocodingStatus] = useState<'idle' | 'processing' | 'completed' | 'error'>('idle');
     const [pendingCount, setPendingCount] = useState(0);
+    const [errorCount, setErrorCount] = useState(0);
 
     // Geocoding State (Map from Personnel ID to [lat, lng])
     const [geocodedPositions, setGeocodedPositions] = useState<Record<string, [number, number]>>({});
@@ -65,9 +66,11 @@ const PersonnelTracker: React.FC = () => {
             // Filter personnel who have an address but no geocoded position
             const toGeocode = personnel.filter(p =>
                 p.homeAddress &&
-                p.homeAddress.length > 5 &&
+                p.homeAddress.trim().length > 5 &&
                 !newPositions[p.id]
             );
+
+            console.log(`[Geocoding] Found ${toGeocode.length} addresses to geocode.`);
 
             if (toGeocode.length === 0) {
                 setGeocodingStatus('completed');
@@ -76,14 +79,18 @@ const PersonnelTracker: React.FC = () => {
 
             setGeocodingStatus('processing');
             setPendingCount(toGeocode.length);
+            setErrorCount(0);
+
             let processed = 0;
             let updated = false;
+            let currentErrors = 0;
 
             // Sequential fetch with delay
             for (const person of toGeocode) {
                 if (!person.homeAddress) continue;
 
                 try {
+                    console.log(`[Geocoding] Fetching: ${person.homeAddress}`);
                     // Removed User-Agent header (forbidden in browser fetch)
                     const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(person.homeAddress)}`);
 
@@ -95,14 +102,23 @@ const PersonnelTracker: React.FC = () => {
                             newPositions[person.id] = [lat, lng];
                             updated = true;
                             setGeocodedPositions(prev => ({ ...prev, [person.id]: [lat, lng] }));
+                            console.log(`[Geocoding] Success: ${person.fullName} -> ${lat}, ${lng}`);
+                        } else {
+                            console.warn(`[Geocoding] No results for: ${person.homeAddress}`);
+                            currentErrors++;
                         }
+                    } else {
+                        console.error(`[Geocoding] API Error: ${response.status}`);
+                        currentErrors++;
                     }
                 } catch (err) {
                     console.error(`Failed to geocode ${person.fullName}:`, err);
+                    currentErrors++;
                 }
 
                 processed++;
                 setPendingCount(toGeocode.length - processed);
+                setErrorCount(currentErrors);
 
                 // Wait 1.1 seconds between requests
                 await new Promise(resolve => setTimeout(resolve, 1100));
@@ -111,12 +127,12 @@ const PersonnelTracker: React.FC = () => {
             if (updated) {
                 localStorage.setItem('pt_geocodes', JSON.stringify(newPositions));
             }
-            setGeocodingStatus('completed');
+            setGeocodingStatus(currentErrors > 0 ? 'error' : 'completed');
         };
 
         if (viewMode === 'map' && personnel.length > 0) {
             // Check if we need to start geocoding
-            const needsGeocoding = personnel.some(p => p.homeAddress && p.homeAddress.length > 5 && !geocodedPositions[p.id]);
+            const needsGeocoding = personnel.some(p => p.homeAddress && p.homeAddress.trim().length > 5 && !geocodedPositions[p.id]);
             if (needsGeocoding) {
                 geocodeAddresses();
             } else {
@@ -565,6 +581,16 @@ const PersonnelTracker: React.FC = () => {
                                 <div className="bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-md border border-slate-200 text-xs text-slate-600 flex items-center gap-2 pointer-events-auto">
                                     <div className="w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin"></div>
                                     <span>Locating {pendingCount} personnel...</span>
+                                </div>
+                            )}
+                            {geocodingStatus === 'error' && errorCount > 0 && (
+                                <div className="bg-red-50/90 backdrop-blur px-3 py-2 rounded-lg shadow-md border border-red-200 text-xs text-red-600 flex items-center gap-2 pointer-events-auto">
+                                    <span>⚠️ Failed to locate {errorCount} addresses</span>
+                                </div>
+                            )}
+                            {geocodingStatus === 'completed' && errorCount === 0 && (
+                                <div className="bg-emerald-50/90 backdrop-blur px-3 py-2 rounded-lg shadow-md border border-emerald-200 text-xs text-emerald-600 flex items-center gap-2 pointer-events-auto animate-out fade-out duration-1000 delay-3000 fill-mode-forwards">
+                                    <span>✓ All locations updated</span>
                                 </div>
                             )}
                             <div className="bg-white/90 backdrop-blur px-3 py-2 rounded-lg shadow-sm border border-slate-200 text-xs text-slate-500 pointer-events-auto">
