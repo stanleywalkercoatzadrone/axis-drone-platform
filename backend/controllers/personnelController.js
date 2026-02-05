@@ -38,31 +38,39 @@ const mapPersonnelRow = (row) => {
 const geocodeAddress = async (address) => {
     if (!address || address.trim().length < 5) return null;
 
-    try {
-        console.log(`[Geocoding] Server request for: ${address}`);
-        const response = await axios.get('https://nominatim.openstreetmap.org/search', {
-            params: {
-                format: 'json',
-                q: address,
-                limit: 1
-            },
-            headers: {
-                'User-Agent': 'Skylens-Enterprise-Platform/1.0 (internal-server-side)'
-            }
-        });
+    const fetchFromApi = async (query) => {
+        try {
+            console.log(`[Geocoding] Server request for: ${query}`);
+            const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+                params: { format: 'json', q: query, limit: 1 },
+                headers: { 'User-Agent': 'Skylens-Enterprise-Platform/1.0 (internal-server-side)' }
+            });
 
-        if (response.data && response.data.length > 0) {
-            const result = response.data[0];
-            return {
-                lat: parseFloat(result.lat),
-                lng: parseFloat(result.lon)
-            };
+            if (response.data && response.data.length > 0) {
+                const result = response.data[0];
+                return {
+                    lat: parseFloat(result.lat),
+                    lng: parseFloat(result.lon)
+                };
+            }
+        } catch (error) {
+            console.error(`[Geocoding] Failed for query "${query}":`, error.message);
         }
         return null;
-    } catch (error) {
-        console.error(`[Geocoding] Failed for address "${address}":`, error.message);
-        return null;
+    };
+
+    // 1. Try exact address
+    let result = await fetchFromApi(address);
+    if (result) return result;
+
+    // 2. Try removing unit numbers
+    const cleanAddress = address.replace(/(?:#|Unit|Apt|Suite)\s*\w+\d*\b,?/gi, '').replace(/\s+,/g, ',');
+    if (cleanAddress !== address) {
+        console.log(`[Geocoding] Retrying with cleaned address: ${cleanAddress}`);
+        result = await fetchFromApi(cleanAddress);
     }
+
+    return result;
 };
 
 /**

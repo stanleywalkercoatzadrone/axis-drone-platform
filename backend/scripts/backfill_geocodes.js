@@ -12,21 +12,40 @@ dotenv.config({ path: path.join(projectRoot, '.env.local') });
 
 const geocodeAddress = async (address) => {
     if (!address || address.trim().length < 5) return null;
-    try {
-        console.log(`Searching: ${address}`);
-        const response = await axios.get('https://nominatim.openstreetmap.org/search', {
-            params: { format: 'json', q: address, limit: 1 },
-            headers: { 'User-Agent': 'Skylens-Enterprise-Platform/1.0 (backfill-script)' }
-        });
-        if (response.data && response.data.length > 0) {
-            return {
-                lat: parseFloat(response.data[0].lat),
-                lng: parseFloat(response.data[0].lon)
-            };
+
+    // Helper to request from Nominatim
+    const fetchFromApi = async (query) => {
+        try {
+            console.log(`Searching: ${query}`);
+            const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+                params: { format: 'json', q: query, limit: 1 },
+                headers: { 'User-Agent': 'Skylens-Enterprise-Platform/1.0 (backfill-script)' }
+            });
+            if (response.data && response.data.length > 0) {
+                return {
+                    lat: parseFloat(response.data[0].lat),
+                    lng: parseFloat(response.data[0].lon)
+                };
+            }
+        } catch (error) {
+            console.error(`Error requesting ${query}:`, error.message);
         }
-    } catch (error) {
-        console.error(`Error geocoding ${address}:`, error.message);
+        return null;
+    };
+
+    // 1. Try exact address
+    let result = await fetchFromApi(address);
+    if (result) return result;
+
+    // 2. Try removing unit/apartment numbers (e.g., "#102", "Apt 5", "Unit B")
+    const cleanAddress = address.replace(/(?:#|Unit|Apt|Suite)\s*\w+\d*\b,?/gi, '').replace(/\s+,/g, ',');
+
+    if (cleanAddress !== address) {
+        console.log(`Retrying with cleaned address: ${cleanAddress}`);
+        result = await fetchFromApi(cleanAddress);
+        if (result) return result;
     }
+
     return null;
 };
 
