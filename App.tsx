@@ -42,6 +42,12 @@ import ClientList from './components/ClientList';
 import ClientDetail from './components/ClientDetail';
 import AssetDashboard from './components/AssetGrid/AssetDashboard';
 import AssetGrid from './components/AssetGrid/AssetGrid';
+
+import OnboardingStart from './components/onboarding/OnboardingStart';
+import OnboardingSetup from './components/onboarding/OnboardingSetup';
+import OnboardingStep1 from './components/onboarding/OnboardingStep1';
+import OnboardingStep2 from './components/onboarding/OnboardingStep2';
+
 import { Industry, InspectionReport, UserAccount, UserRole } from './types';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { IndustryProvider, useIndustry } from './src/context/IndustryContext';
@@ -205,6 +211,14 @@ const App: React.FC = () => {
               </PageShell>
             } />
 
+            {/* Client Onboarding Wizard */}
+            <Route path="/clients/new/start" element={<PageShell activeTab="clients" title="Client Onboarding"><OnboardingStart /></PageShell>} />
+            <Route path="/clients/new/setup" element={<PageShell activeTab="clients" title="Onboarding Setup"><OnboardingSetup /></PageShell>} />
+            <Route path="/clients/new/step-1" element={<PageShell activeTab="clients" title="Client Onboarding — Step 1"><OnboardingStep1 /></PageShell>} />
+            <Route path="/clients/new/step-2" element={<PageShell activeTab="clients" title="Client Onboarding — Step 2"><OnboardingStep2 /></PageShell>} />
+            <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Client Onboarding — Step 3"><div className="p-20 text-center text-slate-500">Step 3: Stakeholders & Permissions (Coming Soon)</div></PageShell>} />
+
+            <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Step 3"><div className="p-20 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl mx-20 mt-10">Step 3: Stakeholders & Permissions (Coming Next)</div></PageShell>} />
             {/* Main platform routes */}
             <Route path="/*" element={<AppContent />} />
 

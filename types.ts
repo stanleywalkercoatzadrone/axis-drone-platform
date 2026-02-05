@@ -462,3 +462,54 @@ export interface GridAssetEvent {
   userName?: string;
   createdAt: string;
 }
+
+export interface ClientSettings {
+  clientId: string;
+  workStructure: 'site' | 'project' | 'both';
+  defaultSlaHours: number;
+  preferredContactMethod: 'email' | 'sms' | 'both';
+  escalationContactEmail?: string;
+  notificationPreferences: {
+    notifyOnUploadComplete: boolean;
+    notifyOnDeliverableReady: boolean;
+    notifyOnOverdue: boolean;
+  };
+  deliverableFormats: string[];
+  deliverableNotes?: string;
+  qaRequired: boolean;
+  dataDestinationType: 'google_drive' | 's3' | 'sharepoint' | 'email' | 'manual_download';
+  dataDestinationValue?: string;
+  dataDestinationInstructions?: string;
+  billingContactName?: string;
+  billingContactEmail?: string;
+  billingContactPhone?: string;
+  billingAddressLine1?: string;
+  billingAddressLine2?: string;
+  billingCity?: string;
+  billingState?: string;
+  billingZip?: string;
+  billingCountry: string;
+  poRequired: boolean;
+  invoiceDeliveryMethod: 'email' | 'portal';
+  invoiceEmailList: string[];
+  taxNotes?: string;
+  solar?: {
+    lbdTemplateType: 'sensehawk' | 'inflights' | 'custom' | 'unknown';
+    blockIdConventionNotes?: string;
+    kmlUsage: 'boundary_only' | 'per_block_polygons' | 'both' | 'unknown';
+    clientAssetEditing: 'read_only' | 'status_only' | 'full_edit';
+  };
+}
+
+export interface ClientOnboardingConfig {
+  id: string;
+  templateName: string;
+  industry?: string;
+  config: {
+    sections: Record<string, {
+      enabled: boolean;
+      fields: Record<string, { enabled: boolean; required: boolean }>
+    }>;
+  };
+  clientId?: string;
+}
