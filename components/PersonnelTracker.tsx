@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map as MapIcon, Send, CheckCircle2, LayoutGrid, MapPin, Navigation } from 'lucide-react';
 import { Personnel, PersonnelRole } from '../types';
 import apiClient from '../src/services/apiClient';
@@ -58,40 +58,53 @@ const PersonnelTracker: React.FC = () => {
         }
     }, []);
 
+    // Track processing Status to prevent duplicate requests
+    const isProcessingRef = useRef(false);
+
     // Geocode new personnel addresses
     useEffect(() => {
-        const geocodeAddresses = async () => {
-            const newPositions = { ...geocodedPositions };
+        if (viewMode !== 'map' || personnel.length === 0) return;
+        if (isProcessingRef.current) return;
 
-            // Filter personnel who have an address but no geocoded position
+        const geocodeAddresses = async () => {
+            // Read fresh state from localStorage or Ref would be better, but we can't easily.
+            // Instead, we will use the functional update pattern's knowledge or just check localStorage.
+            // Simplest fix: Read localStorage first to get 'absolute truth' of what we have.
+            let currentPositions: Record<string, [number, number]> = {};
+            try {
+                const cached = localStorage.getItem('pt_geocodes');
+                if (cached) currentPositions = JSON.parse(cached);
+            } catch (e) { }
+
+            // Filter personnel who have an address but NOT in currentPositions
             const toGeocode = personnel.filter(p =>
                 p.homeAddress &&
                 p.homeAddress.trim().length > 5 &&
-                !newPositions[p.id]
+                !currentPositions[p.id]
             );
-
-            console.log(`[Geocoding] Found ${toGeocode.length} addresses to geocode.`);
 
             if (toGeocode.length === 0) {
                 setGeocodingStatus('completed');
                 return;
             }
 
+            console.log(`[Geocoding] Starting batch for ${toGeocode.length} addresses.`);
+            isProcessingRef.current = true;
             setGeocodingStatus('processing');
             setPendingCount(toGeocode.length);
             setErrorCount(0);
 
             let processed = 0;
-            let updated = false;
             let currentErrors = 0;
+            let batchUpdates = { ...currentPositions };
+            let hasNewUpdates = false;
 
-            // Sequential fetch with delay
+            // Sequential fetch
             for (const person of toGeocode) {
-                if (!person.homeAddress) continue;
+                // Double check if component unmounted or mode changed? (Hard to check inside async loop without Ref)
 
                 try {
                     console.log(`[Geocoding] Fetching: ${person.homeAddress}`);
-                    // Removed User-Agent header (forbidden in browser fetch)
                     const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(person.homeAddress)}`);
 
                     if (response.ok) {
@@ -99,10 +112,13 @@ const PersonnelTracker: React.FC = () => {
                         if (data && data.length > 0) {
                             const lat = parseFloat(data[0].lat);
                             const lng = parseFloat(data[0].lon);
-                            newPositions[person.id] = [lat, lng];
-                            updated = true;
+
+                            batchUpdates[person.id] = [lat, lng];
+                            hasNewUpdates = true;
+
+                            // Update UI state immediately for this person
                             setGeocodedPositions(prev => ({ ...prev, [person.id]: [lat, lng] }));
-                            console.log(`[Geocoding] Success: ${person.fullName} -> ${lat}, ${lng}`);
+                            console.log(`[Geocoding] Success: ${person.fullName}`);
                         } else {
                             console.warn(`[Geocoding] No results for: ${person.homeAddress}`);
                             currentErrors++;
@@ -118,28 +134,22 @@ const PersonnelTracker: React.FC = () => {
 
                 processed++;
                 setPendingCount(toGeocode.length - processed);
-                setErrorCount(currentErrors);
+                if (currentErrors > 0) setErrorCount(currentErrors); // Update error count only if errors exist
 
-                // Wait 1.1 seconds between requests
+                // Wait 1.1 seconds between requests to be safe
                 await new Promise(resolve => setTimeout(resolve, 1100));
             }
 
-            if (updated) {
-                localStorage.setItem('pt_geocodes', JSON.stringify(newPositions));
+            if (hasNewUpdates) {
+                localStorage.setItem('pt_geocodes', JSON.stringify(batchUpdates));
             }
+
             setGeocodingStatus(currentErrors > 0 ? 'error' : 'completed');
+            isProcessingRef.current = false;
         };
 
-        if (viewMode === 'map' && personnel.length > 0) {
-            // Check if we need to start geocoding
-            const needsGeocoding = personnel.some(p => p.homeAddress && p.homeAddress.trim().length > 5 && !geocodedPositions[p.id]);
-            if (needsGeocoding) {
-                geocodeAddresses();
-            } else {
-                setGeocodingStatus('completed');
-            }
-        }
-    }, [personnel, viewMode, geocodedPositions]);
+        geocodeAddresses();
+    }, [personnel, viewMode]); // Removed geocodedPositions from dependency to break loop
 
     const [editedPerson, setEditedPerson] = useState<Personnel | null>(null);
     const [newPersonnel, setNewPersonnel] = useState<Partial<Personnel>>({
