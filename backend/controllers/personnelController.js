@@ -1,4 +1,5 @@
 import db from '../config/database.js';
+import axios from 'axios';
 
 /**
  * Helper to map personnel database row to camelCase
@@ -19,12 +20,49 @@ const mapPersonnelRow = (row) => {
         onboarding_sent_at: row.onboarding_sent_at,
         onboarding_completed_at: row.onboarding_completed_at,
         homeAddress: row.home_address,
+        latitude: row.latitude,
+        longitude: row.longitude,
         bankName: row.bank_name,
         routingNumber: row.routing_number,
         accountNumber: row.account_number,
         createdAt: row.created_at,
         updatedAt: row.updated_at
     };
+};
+
+/**
+ * Geocode address using Nominatim (Server-side)
+ * @param {string} address 
+ * @returns {Promise<{lat: number, lng: number} | null>}
+ */
+const geocodeAddress = async (address) => {
+    if (!address || address.trim().length < 5) return null;
+
+    try {
+        console.log(`[Geocoding] Server request for: ${address}`);
+        const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+            params: {
+                format: 'json',
+                q: address,
+                limit: 1
+            },
+            headers: {
+                'User-Agent': 'Skylens-Enterprise-Platform/1.0 (internal-server-side)'
+            }
+        });
+
+        if (response.data && response.data.length > 0) {
+            const result = response.data[0];
+            return {
+                lat: parseFloat(result.lat),
+                lng: parseFloat(result.lon)
+            };
+        }
+        return null;
+    } catch (error) {
+        console.error(`[Geocoding] Failed for address "${address}":`, error.message);
+        return null;
+    }
 };
 
 /**
@@ -133,10 +171,21 @@ export const createPersonnel = async (req, res) => {
             });
         }
 
+        // Geocode if address provided
+        let latitude = null;
+        let longitude = null;
+        if (homeAddress) {
+            const coords = await geocodeAddress(homeAddress);
+            if (coords) {
+                latitude = coords.lat;
+                longitude = coords.lng;
+            }
+        }
+
         const result = await db.query(
             `INSERT INTO personnel 
-            (full_name, role, email, phone, certification_level, daily_pay_rate, max_travel_distance, status, home_address, bank_name, routing_number, account_number, tenant_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            (full_name, role, email, phone, certification_level, daily_pay_rate, max_travel_distance, status, home_address, latitude, longitude, bank_name, routing_number, account_number, tenant_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *`,
             [
                 fullName,
@@ -148,6 +197,8 @@ export const createPersonnel = async (req, res) => {
                 maxTravelDistance || 0,
                 status || 'Active',
                 homeAddress || null,
+                latitude,
+                longitude,
                 bankName || null,
                 routingNumber || null,
                 accountNumber || null,
@@ -213,6 +264,26 @@ export const updatePersonnel = async (req, res) => {
             });
         }
 
+        // Check if address is being updated
+        let latitude = undefined;
+        let longitude = undefined;
+
+        if (homeAddress !== undefined) {
+            // If address changed (or is new), re-geocode
+            // We could check against DB, but for now if it's in the body we assume intentional update
+            if (homeAddress) {
+                const coords = await geocodeAddress(homeAddress);
+                if (coords) {
+                    latitude = coords.lat;
+                    longitude = coords.lng;
+                }
+            } else {
+                // Address cleared
+                latitude = null;
+                longitude = null;
+            }
+        }
+
         const result = await db.query(
             `UPDATE personnel 
             SET full_name = COALESCE($1, full_name),
@@ -224,12 +295,14 @@ export const updatePersonnel = async (req, res) => {
             max_travel_distance = COALESCE($7, max_travel_distance),
             status = COALESCE($8, status),
             home_address = COALESCE($9, home_address),
-            bank_name = COALESCE($10, bank_name),
-            routing_number = COALESCE($11, routing_number),
-            account_number = COALESCE($12, account_number)
-            WHERE id = $13 AND tenant_id = $14
+            latitude = COALESCE($10, latitude),
+            longitude = COALESCE($11, longitude),
+            bank_name = COALESCE($12, bank_name),
+            routing_number = COALESCE($13, routing_number),
+            account_number = COALESCE($14, account_number)
+            WHERE id = $15 AND tenant_id = $16
             RETURNING *`,
-            [fullName, role, email, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress, bankName, routingNumber, accountNumber, id, req.user.tenantId]
+            [fullName, role, email, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress, latitude, longitude, bankName, routingNumber, accountNumber, id, req.user.tenantId]
         );
 
         res.json({

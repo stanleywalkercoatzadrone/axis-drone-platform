@@ -7,9 +7,10 @@ import pool from '../config/database.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env.local from project root
+// Load .env from project root (fallback to .env if .env.local missing)
 const projectRoot = path.resolve(__dirname, '../..');
-dotenv.config({ path: path.join(projectRoot, '.env.local') });
+dotenv.config({ path: path.join(projectRoot, '.env') });
+dotenv.config({ path: path.join(projectRoot, '.env.local') }); // Override with local if exists
 
 async function runMigrations() {
     try {

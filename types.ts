@@ -323,6 +323,8 @@ export interface Personnel {
   email: string;
   phone?: string;
   homeAddress?: string;
+  latitude?: number;
+  longitude?: number;
   certificationLevel?: string;
   dailyPayRate?: number;
   maxTravelDistance?: number;
