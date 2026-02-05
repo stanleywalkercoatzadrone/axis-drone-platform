@@ -1,0 +1,4 @@
+-- Migration 20260205: Add Email to Clients Table
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS primary_contact_name VARCHAR(255);

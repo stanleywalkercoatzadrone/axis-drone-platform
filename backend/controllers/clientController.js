@@ -96,8 +96,8 @@ export const createClient = async (req, res, next) => {
         }
 
         const query = `
-      INSERT INTO clients (industry_id, name, external_id, address)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO clients (industry_id, name, external_id, address, email, phone, primary_contact_name)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
 
@@ -105,7 +105,10 @@ export const createClient = async (req, res, next) => {
             finalIndustryId,
             name,
             externalId || null,
-            address || {}
+            address || {},
+            req.body.email || null,
+            req.body.phone || null,
+            req.body.primaryContactName || null
         ]);
 
         res.status(201).json({

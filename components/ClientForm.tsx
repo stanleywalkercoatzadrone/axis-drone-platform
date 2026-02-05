@@ -16,6 +16,7 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
 
     // Form State
     const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
     const [industryKey, setIndustryKey] = useState(availableIndustries[0]?.key || 'solar');
     const [address, setAddress] = useState({ street: '', city: '', state: '', zip: '' });
     const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +30,7 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
         try {
             await apiClient.post('/clients', {
                 name,
+                email,
                 industryKey, // Backend resolves this to UUID
                 address
             });
@@ -72,6 +74,19 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
                             onChange={(e) => setName(e.target.value)}
                             className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                             placeholder="e.g. Acme Solar"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Email / Contact
+                        </label>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                            placeholder="contact@company.com"
                         />
                     </div>
 
