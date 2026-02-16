@@ -105,34 +105,9 @@ export const getInvoiceByToken = async (req, res) => {
 
         const invoice = result.rows[0];
 
-        // 2. Check Expiry
-        if (new Date() > new Date(invoice.token_expires_at)) {
-            return res.status(410).json({
-                success: false,
-                message: 'This invoice link has expired.'
-            });
-        }
+        // Invoice links are now reusable - removed expiration and single-use checks
 
-        // 3. Check One-time use
-        if (invoice.token_used) {
-            return res.status(403).json({
-                success: false,
-                message: 'This secure link has already been used. Please contact support for a new one.'
-            });
-        }
-
-        // 4. Mark as used
-        await query(
-            'UPDATE invoices SET token_used = TRUE, status = $2 WHERE id = $1',
-            [invoice.id, 'PAID'] // We mark as 'PAID' or just 'VIEWED'? 
-            // User said "create invoice... and send... use one time".
-            // Usually viewing the invoice doesn't pay it. 
-            // But if "use" means "redeem/process", maybe.
-            // Let's just mark token_used. status can stay SENT or become VIEWED.
-            // Let's keep status as SENT for now or update.
-        );
-
-        // 5. Return Details
+        // Return Details
         res.json({
             success: true,
             data: invoice
@@ -307,6 +282,96 @@ export const sendDeploymentInvoices = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to send invoices',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Get all created invoices for a specific deployment
+ */
+export const getInvoicesByDeployment = async (req, res) => {
+    try {
+        const { deploymentId } = req.params;
+
+        const result = await query(
+            `SELECT i.*, p.full_name as pilot_name, p.email as pilot_email 
+             FROM invoices i 
+             JOIN personnel p ON i.personnel_id = p.id 
+             WHERE i.deployment_id = $1 AND (i.status = 'SENT' OR i.status = 'PAID' OR i.status = 'VIEWED')
+             ORDER BY p.full_name ASC`,
+            [deploymentId]
+        );
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching deployment invoices:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch invoices',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Generate a Master Invoice for a Deployment (Aggregating multiple pilot invoices)
+ */
+export const createMasterInvoice = async (req, res) => {
+    try {
+        const { deploymentId, invoiceIds } = req.body;
+
+        if (!invoiceIds || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No invoices selected for Master Invoice.'
+            });
+        }
+
+        // 1. Fetch Deployment Details
+        const deploymentRes = await query(
+            'SELECT * FROM deployments WHERE id = $1 AND tenant_id = $2',
+            [deploymentId, req.user.tenantId]
+        );
+
+        if (deploymentRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        }
+        const deployment = deploymentRes.rows[0];
+
+        // 2. Fetch Selected Invoices with details
+        const invoicesRes = await query(
+            `SELECT i.*, p.full_name as pilot_name 
+             FROM invoices i
+             JOIN personnel p ON i.personnel_id = p.id
+             WHERE i.id = ANY($1) AND i.deployment_id = $2`,
+            [invoiceIds, deploymentId]
+        );
+
+        const invoices = invoicesRes.rows;
+
+        // Calculate Total
+        const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+
+        // 3. Return Data for Rendering
+        res.json({
+            success: true,
+            data: {
+                deployment,
+                invoices,
+                totalAmount,
+                generatedAt: new Date()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating master invoice:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create master invoice',
             error: error.message
         });
     }
