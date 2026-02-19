@@ -59,16 +59,41 @@ process.on('unhandledRejection', (reason, promise) => {
         })();
 
         // 3. Switch to Real Server
+        // CRITICAL FIX: probeServer.close() only stops NEW connections — its callback
+        // never fires if there's an active keep-alive connection (e.g. Cloud Run health probe).
+        // This means httpServer.listen() is never called and the server hangs forever.
+        // Fix: force-close all connections first, then start the real server.
         console.log('step_4_switching: Closing probe and starting real server...');
-        probeServer.close(() => {
-            console.log('   Probe closed.');
+
+        let realServerStarted = false;
+        const startRealServer = () => {
+            if (realServerStarted) return; // Guard against double-call
+            realServerStarted = true;
             httpServer.listen(PORT, '0.0.0.0', () => {
                 console.log('----------------------------------------');
                 console.log(`✅ REAL SERVER STARTED SUCCESSFULLY`);
                 console.log(`📡 Listening on PORT: ${PORT}`);
                 console.log('----------------------------------------');
             });
+        };
+
+        // Force-drop all existing probe connections (Node 18.2+), then close
+        if (typeof probeServer.closeAllConnections === 'function') {
+            probeServer.closeAllConnections();
+        }
+        probeServer.close(() => {
+            console.log('   Probe closed.');
+            startRealServer();
         });
+
+        // Safety fallback: if probe.close() callback doesn't fire within 2s
+        // (happens when an active connection is held open), start real server anyway
+        setTimeout(() => {
+            if (!realServerStarted) {
+                console.warn('⚠️  Probe close timed out — force-starting real server');
+                startRealServer();
+            }
+        }, 2000);
 
         // Setup graceful shutdown
         process.on('SIGTERM', () => {
