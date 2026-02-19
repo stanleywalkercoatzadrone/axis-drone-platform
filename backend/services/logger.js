@@ -1,26 +1,37 @@
 /**
  * Centralized Logging Service for GCP Cloud Logging
  * Provides structured logging with severity levels and metadata
+ *
+ * IMPORTANT: @google-cloud/logging is lazily imported to prevent a startup hang.
+ * The Google Auth Library (used by @google-cloud/logging) auto-discovers credentials
+ * by calling the GCP metadata server (http://metadata.google.internal/). During a
+ * Cloud Run cold start, this metadata server request can hang before the networking
+ * stack is fully ready, blocking the entire ESM module graph and preventing app.js
+ * from loading. By deferring the import to the first actual log write, we avoid
+ * this race condition during container startup.
  */
-
-import { Logging } from '@google-cloud/logging';
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Initialize GCP Logging client (only in production)
-let logging;
-let log;
+// Lazy GCP logging — only initialized when first log write is attempted in production
+let _log = null;
+let _gcpInitAttempted = false;
 
-if (isProduction && process.env.GCP_PROJECT_ID) {
+async function getGcpLog() {
+    if (_gcpInitAttempted) return _log;
+    _gcpInitAttempted = true;
+
+    if (!isProduction || !process.env.GCP_PROJECT_ID) return null;
+
     try {
-        logging = new Logging({
-            projectId: process.env.GCP_PROJECT_ID
-        });
-        log = logging.log('axis-backend');
+        const { Logging } = await import('@google-cloud/logging');
+        const logging = new Logging({ projectId: process.env.GCP_PROJECT_ID });
+        _log = logging.log('axis-backend');
     } catch (error) {
         console.error('Failed to initialize GCP Logging:', error);
     }
+    return _log;
 }
 
 /**
@@ -60,24 +71,20 @@ async function writeLog(severity, message, metadata = {}) {
         return;
     }
 
-    // In production, send to GCP Cloud Logging
+    // In production, try GCP Cloud Logging (lazy-loaded)
+    const log = await getGcpLog();
     if (log) {
         try {
             const entry = log.entry({
                 severity,
-                resource: {
-                    type: 'global'
-                }
+                resource: { type: 'global' }
             }, logEntry);
-
             await log.write(entry);
         } catch (error) {
-            // Fallback to console if GCP logging fails
             console.error('GCP Logging failed:', error);
             console.log(logEntry);
         }
     } else {
-        // Fallback to console if GCP not configured
         console.log(logEntry);
     }
 }
@@ -90,7 +97,6 @@ class Logger {
         this.context = context;
     }
 
-    // Create a scoped logger with additional context
     child(additionalContext) {
         return new Logger({ ...this.context, ...additionalContext });
     }
@@ -119,7 +125,6 @@ class Logger {
         return writeLog(LogLevel.CRITICAL, message, { ...this.context, ...metadata });
     }
 
-    // Log HTTP request
     logRequest(req, res, duration) {
         const metadata = {
             method: req.method,
@@ -139,7 +144,6 @@ class Logger {
         return writeLog(severity, `${req.method} ${req.url}`, metadata);
     }
 
-    // Log AI/LLM operations
     logAIOperation(operation, input, output, metadata = {}) {
         return writeLog(LogLevel.INFO, `AI Operation: ${operation}`, {
             operation,
@@ -150,7 +154,6 @@ class Logger {
         });
     }
 
-    // Log security events
     logSecurityEvent(event, metadata = {}) {
         return writeLog(LogLevel.WARNING, `Security Event: ${event}`, {
             event,
