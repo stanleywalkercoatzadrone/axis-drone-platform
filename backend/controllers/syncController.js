@@ -1,7 +1,10 @@
 import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { io } from '../app.js';
 import { uploadToDrive, findOrCreateFolder } from '../services/googleDriveService.js';
+
+// NOTE: io is imported lazily (not at module top-level) to break the circular dependency:
+// app.js → sync.js → syncController.js → app.js (circular, causes ESM deadlock)
+const getIo = async () => (await import('../app.js')).io;
 
 export const syncToVault = async (req, res, next) => {
     try {
@@ -67,6 +70,7 @@ export const syncToVault = async (req, res, next) => {
             });
 
             // Emit progress
+            const io = await getIo();
             io.to(`user:${req.user.id}`).emit('sync:progress', {
                 reportId,
                 destination: 'User Vault',
