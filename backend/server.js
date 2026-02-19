@@ -22,44 +22,55 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // STARTUP WRAPPER
 (async () => {
+    const PORT = process.env.PORT || 8080;
+
+    // 1. Start PROBE Server immediately to satisfy Cloud Run
+    // This ensures logs are flushed and container doesn't "timeout" silently
+    const probeServer = createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Server is starting up... Please wait.');
+    });
+
+    probeServer.listen(PORT, '0.0.0.0', () => {
+        console.log('----------------------------------------');
+        console.log(`🔍 PROBE SERVER LISTENING ON PORT ${PORT}`);
+        console.log('   Waiting for application to load...');
+        console.log('----------------------------------------');
+    });
+
     try {
-        console.log('📦 Loading Application Logic...');
-
-        // DYNAMIC IMPORT - This catches hanging dependencies!
-        // The server.js body runs immediately, while this import 
-        // will resolve only when all dependencies (db, redis, etc) are loaded.
-
-        // Run Migrations (if in production or requested)
-        if (process.env.NODE_ENV === 'production') {
-            try {
-                console.log('🔄 Running Database Migrations...');
-                // We use a separate process or just import the runner
-                // NOTE: 'run.js' is designed to be a script, so we might need to exec it or slightly modify it to be callable.
-                // For safety in this container, we'll try to exec it as a child process to avoid scope pollution,
-                // OR if it exports a function, call it. 
-                // Let's assume for now we can import it if it has an export, but it likely doesn't.
-                // Safest bet: use child_process
-                const { execSync } = await import('child_process');
-                execSync('node backend/migrations/run.js', { stdio: 'inherit' });
-                console.log('✅ Migrations Completed.');
-            } catch (migErr) {
-                console.error('⚠️ Migration Error (non-fatal, proceeding):', migErr.message);
-            }
-        }
-
+        console.log('step_1_loading_app: Importing app.js...');
         const { httpServer } = await import('./app.js');
+        console.log('step_1_success: app.js loaded');
 
-        const PORT = process.env.PORT || 8080;
+        console.log('step_2_loading_db: Importing database config...');
+        const { default: pool } = await import('./config/database.js');
+        console.log('step_2_success: Database config loaded');
 
-        // Start Listening
-        httpServer.listen(PORT, '0.0.0.0', () => {
-            console.log('----------------------------------------');
-            console.log(`✅ SERVER STARTED SUCCESSFULLY`);
-            console.log(`📡 Listening on PORT: ${PORT}`);
-            console.log('----------------------------------------');
+        // Check DB in background (don't block)
+        (async () => {
+            try {
+                console.log('step_3_db_check: Testing connection...');
+                const res = await pool.query('SELECT NOW() as now');
+                console.log('step_3_success: DB Connected', res.rows[0].now);
+            } catch (dbErr) {
+                console.error('step_3_fail: DB Connection Error', dbErr.message);
+            }
+        })();
+
+        // 3. Switch to Real Server
+        console.log('step_4_switching: Closing probe and starting real server...');
+        probeServer.close(() => {
+            console.log('   Probe closed.');
+            httpServer.listen(PORT, '0.0.0.0', () => {
+                console.log('----------------------------------------');
+                console.log(`✅ REAL SERVER STARTED SUCCESSFULLY`);
+                console.log(`📡 Listening on PORT: ${PORT}`);
+                console.log('----------------------------------------');
+            });
         });
 
-        // Setup graceful shutdown here as well since we own the server instance
+        // Setup graceful shutdown
         process.on('SIGTERM', () => {
             console.log('📥 SIGTERM received. Shutting down...');
             httpServer.close(() => {
@@ -70,8 +81,9 @@ process.on('unhandledRejection', (reason, promise) => {
 
     } catch (error) {
         console.error('❌ FATAL ERROR DURING STARTUP ❌');
-        console.error('This error occurred while importing the application modules.');
         console.error(error);
+        // Keep probe running so we can see logs? 
+        // No, better to exit so Cloud Run restarts or we see crash
         process.exit(1);
     }
 })();
