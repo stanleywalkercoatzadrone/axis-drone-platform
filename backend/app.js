@@ -25,8 +25,11 @@ import workbookRoutes from './routes/workbooks.js';
 import workItemRoutes from './routes/workItems.js';
 import clientRoutes from './routes/clients.js';
 import industryRoutes from './routes/industries.js';
-import ingestionRoutes from './routes/ingestion.js';
+import uploadRoutes from './routes/uploads.js';
+import documentRoutes from './routes/documents.js';
+import aiRoutes from './routes/ai.js';
 import v1Routes from './routes/v1/index.js';
+import migrationRoutes from './routes/migrations.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -71,9 +74,9 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-            imgSrc: ["'self'", "data:", "https:", "blob:"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
+            imgSrc: ["'self'", "data:", "https:", "blob:", "https://unpkg.com"],
             connectSrc: ["'self'", "https://api.openai.com", "https://generativelanguage.googleapis.com"],
             fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
             objectSrc: ["'none'"],
@@ -104,6 +107,67 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Serve static files
+const distPath = path.join(__dirname, '../dist');
+app.use(express.static(distPath));
+
+// Debug endpoint for DB
+app.get('/api/debug-db', async (req, res) => {
+    try {
+        const { default: pool } = await import('./config/database.js');
+        const result = await pool.query('SELECT NOW(), current_database(), current_user');
+        res.json({
+            status: 'ok',
+            connection: 'success',
+            info: result.rows[0],
+            env_check: process.env.DATABASE_URL ? 'Set' : 'Missing'
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message,
+            stack: error.stack,
+            env_check: process.env.DATABASE_URL ? 'Set' : 'Missing'
+        });
+    }
+});
+
+// Debug endpoint to check file existence in production
+app.get('/api/debug-files', async (req, res) => {
+    try {
+        const { readdir, stat } = await import('fs/promises');
+
+        const listDir = async (dirPath) => {
+            try {
+                const files = await readdir(dirPath);
+                const stats = await Promise.all(files.map(async file => {
+                    const filePath = path.join(dirPath, file);
+                    const fileStat = await stat(filePath);
+                    return {
+                        name: file,
+                        isDirectory: fileStat.isDirectory(),
+                        size: fileStat.size
+                    };
+                }));
+                return stats;
+            } catch (err) {
+                return { error: err.message, path: dirPath };
+            }
+        };
+
+        const distFiles = await listDir(distPath);
+        const assetsFiles = await listDir(path.join(distPath, 'assets'));
+
+        res.json({
+            distPath,
+            distFiles,
+            assetsFiles
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Apply rate limiting
 app.use('/api/', standardLimiter);
 
@@ -127,7 +191,10 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/work-items', workItemRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/industries', industryRoutes);
-app.use('/api/ingestion', ingestionRoutes);
+app.use('/api/uploads', uploadRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/migrations', migrationRoutes);
 
 // Error handling for API routes
 app.use('/api/*', notFound);
@@ -144,16 +211,14 @@ app.use('/uploads', express.static(uploadsPath, {
     }
 }));
 
-// Serve static files
-const distPath = path.join(__dirname, '../dist');
-app.use(express.static(distPath));
-
 // SPA fallback
 app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// Export httpServer and io
+// Export app as default (used by server.js single-server handoff)
+// Also export httpServer and io as named exports for backward compat
+export default app;
 export { httpServer, app, io };
 
 console.log('✅ App Logic Loaded');
