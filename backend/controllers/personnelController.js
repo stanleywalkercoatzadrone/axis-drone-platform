@@ -1,7 +1,9 @@
 import db from '../config/database.js';
 import axios from 'axios';
+import fs from 'fs';
 import { logAudit } from '../utils/auditLogger.js';
 import { uploadFile } from '../services/storageService.js';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /**
  * Helper to map personnel database row to camelCase
@@ -14,6 +16,10 @@ const mapPersonnelRow = (row) => {
         role: row.role,
         email: row.email,
         phone: row.phone,
+        secondaryPhone: row.secondary_phone,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactPhone: row.emergency_contact_phone,
+        taxClassification: row.tax_classification,
         certificationLevel: row.certification_level,
         dailyPayRate: row.daily_pay_rate ? parseFloat(row.daily_pay_rate) : 0,
         maxTravelDistance: row.max_travel_distance || 0,
@@ -21,13 +27,27 @@ const mapPersonnelRow = (row) => {
         onboarding_status: row.onboarding_status,
         onboarding_sent_at: row.onboarding_sent_at,
         onboarding_completed_at: row.onboarding_completed_at,
+        companyName: row.company_name,
         homeAddress: row.home_address,
+        city: row.city,
+        state: row.state,
+        zipCode: row.zip_code,
+        country: row.country,
         latitude: row.latitude,
         longitude: row.longitude,
         bankName: row.bank_name,
         routingNumber: row.routing_number,
         accountNumber: row.account_number,
-        profilePictureUrl: row.profile_picture_url,
+        accountType: row.account_type,
+        swiftCode: row.swift_code,
+        photoUrl: row.photo_url || row.profile_picture_url,
+        complianceStatus: row.compliance_status || 'pending',
+        totalMissions: row.total_missions || 0,
+        averageRating: row.average_rating ? parseFloat(row.average_rating) : 0,
+        lifetimeScore: row.lifetime_score || 0,
+        rollingScore: row.rolling_30_day_score || 0,
+        tierLevel: row.tier_level || 'Bronze',
+        reliabilityFlag: row.reliability_flag,
         createdAt: row.created_at,
         updatedAt: row.updated_at
     };
@@ -46,7 +66,8 @@ const geocodeAddress = async (address) => {
             console.log(`[Geocoding] Server request for: ${query}`);
             const response = await axios.get('https://nominatim.openstreetmap.org/search', {
                 params: { format: 'json', q: query, limit: 1 },
-                headers: { 'User-Agent': 'Skylens-Enterprise-Platform/1.0 (internal-server-side)' }
+                headers: { 'User-Agent': 'Skylens-Enterprise-Platform/1.0 (internal-server-side)' },
+                timeout: 5000
             });
 
             if (response.data && response.data.length > 0) {
@@ -83,20 +104,24 @@ export const getAllPersonnel = async (req, res) => {
     try {
         const { role, status } = req.query;
 
-        let query = 'SELECT * FROM personnel WHERE (tenant_id = $1 OR (tenant_id IS NULL AND $1 IS NULL))';
-        const params = [req.user.tenantId];
+        let query = `
+            SELECT p.*, 'pending' as compliance_status
+            FROM personnel p
+            WHERE ($1::text IS NULL OR p.tenant_id = $1)
+        `;
+        const params = [req.user.tenantId || null];
 
         if (role) {
             params.push(role);
-            query += ` AND role = $${params.length}`;
+            query += ` AND p.role = $${params.length}`;
         }
 
         if (status) {
             params.push(status);
-            query += ` AND status = $${params.length}`;
+            query += ` AND p.status = $${params.length}`;
         }
 
-        query += ' ORDER BY created_at DESC';
+        query += ' ORDER BY p.created_at DESC';
 
         const result = await db.query(query, params);
 
@@ -122,8 +147,8 @@ export const getPersonnelById = async (req, res) => {
         const { id } = req.params;
 
         const result = await db.query(
-            'SELECT * FROM personnel WHERE id = $1 AND (tenant_id = $2 OR (tenant_id IS NULL AND $2 IS NULL))',
-            [id, req.user.tenantId]
+            'SELECT * FROM personnel WHERE id = $1 AND ($2::text IS NULL OR tenant_id = $2)',
+            [id, req.user.tenantId || null]
         );
 
         if (result.rows.length === 0) {
@@ -153,18 +178,10 @@ export const getPersonnelById = async (req, res) => {
 export const createPersonnel = async (req, res) => {
     try {
         const {
-            fullName,
-            role,
-            email,
-            phone,
-            certificationLevel,
-            dailyPayRate,
-            maxTravelDistance,
-            status,
-            homeAddress,
-            bankName,
-            routingNumber,
-            accountNumber
+            fullName, role, email, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress,
+            bankName, routingNumber, accountNumber, accountType, companyName, swiftCode,
+            secondaryPhone, emergencyContactName, emergencyContactPhone, taxClassification,
+            city, state, zipCode, country
         } = req.body;
 
         // Validation
@@ -194,26 +211,27 @@ export const createPersonnel = async (req, res) => {
         }
 
         const result = await db.query(
-            `INSERT INTO personnel 
-            (full_name, role, email, phone, certification_level, daily_pay_rate, max_travel_distance, status, home_address, latitude, longitude, bank_name, routing_number, account_number, tenant_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            RETURNING *`,
+            `INSERT INTO personnel (
+                full_name, role, email, phone, certification_level, daily_pay_rate, max_travel_distance, status, 
+                home_address, latitude, longitude, bank_name, routing_number, account_number, tenant_id, 
+                company_name, swift_code, account_type,
+                secondary_phone, emergency_contact_name, emergency_contact_phone, tax_classification,
+                city, state, zip_code, country
+            )
+            VALUES(
+                $1, $2, $3, $4, $5, $6, $7, $8, 
+                $9, $10, $11, $12, $13, $14, $15, 
+                $16, $17, $18,
+                $19, $20, $21, $22,
+                $23, $24, $25, $26
+            )
+            RETURNING * `,
             [
-                fullName,
-                role,
-                email,
-                phone || null,
-                certificationLevel || null,
-                dailyPayRate || 0,
-                maxTravelDistance || 0,
-                status || 'Active',
-                homeAddress || null,
-                latitude,
-                longitude,
-                bankName || null,
-                routingNumber || null,
-                accountNumber || null,
-                req.user.tenantId
+                fullName || null, role || null, email || null, phone || null, certificationLevel || null, dailyPayRate || 0, maxTravelDistance || 0, status || 'Active',
+                homeAddress || null, latitude || null, longitude || null, bankName || null, routingNumber || null, accountNumber || null, req.user.tenantId || null,
+                companyName || null, swiftCode || null, accountType || 'Checking',
+                secondaryPhone || null, emergencyContactName || null, emergencyContactPhone || null, taxClassification || null,
+                city || null, state || null, zipCode || null, country || null
             ]
         );
 
@@ -248,24 +266,19 @@ export const updatePersonnel = async (req, res) => {
     try {
         const { id } = req.params;
         const {
-            fullName,
-            role,
-            email,
-            phone,
-            certificationLevel,
-            dailyPayRate,
-            maxTravelDistance,
-            status,
-            homeAddress,
-            bankName,
-            routingNumber,
-            accountNumber,
-            profilePictureUrl // Allow direct update if needed (e.g. clear)
+            fullName, role, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress,
+            bankName, routingNumber, accountNumber, accountType, companyName, swiftCode, photoUrl,
+            secondaryPhone, emergencyContactName, emergencyContactPhone, taxClassification,
+            city, state, zipCode, country
         } = req.body;
+
+        const cleanRouting = routingNumber ? String(routingNumber).replace(/\D/g, '') : undefined;
+        const cleanAccount = accountNumber ? String(accountNumber).replace(/\D/g, '') : undefined;
+        const cleanSwift = swiftCode ? String(swiftCode).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : undefined;
 
         // Check if personnel exists
         const checkResult = await db.query(
-            'SELECT id FROM personnel WHERE id = $1 AND (tenant_id = $2 OR (tenant_id IS NULL AND $2 IS NULL))',
+            'SELECT id, role FROM personnel WHERE id = $1 AND (tenant_id = $2::text OR (tenant_id IS NULL AND $2 IS NULL))',
             [id, req.user.tenantId]
         );
 
@@ -277,7 +290,7 @@ export const updatePersonnel = async (req, res) => {
         }
 
         // Audit Log for Role Change
-        const currentPerson = mapPersonnelRow(checkResult.rows[0]);
+        const currentPerson = checkResult.rows[0];
         if (role && role !== currentPerson.role) {
             await logAudit(
                 req.user.id,
@@ -294,8 +307,6 @@ export const updatePersonnel = async (req, res) => {
         let longitude = undefined;
 
         if (homeAddress !== undefined) {
-            // If address changed (or is new), re-geocode
-            // We could check against DB, but for now if it's in the body we assume intentional update
             if (homeAddress) {
                 const coords = await geocodeAddress(homeAddress);
                 if (coords) {
@@ -303,32 +314,54 @@ export const updatePersonnel = async (req, res) => {
                     longitude = coords.lng;
                 }
             } else {
-                // Address cleared
                 latitude = null;
                 longitude = null;
             }
         }
 
+        // Fix potential NaN or undefined for numeric fields
+        const payRate = (dailyPayRate === undefined || dailyPayRate === "" || isNaN(dailyPayRate)) ? undefined : parseFloat(dailyPayRate);
+        const travelDist = (maxTravelDistance === undefined || maxTravelDistance === "" || isNaN(maxTravelDistance)) ? undefined : parseFloat(maxTravelDistance);
+
         const result = await db.query(
             `UPDATE personnel 
             SET full_name = COALESCE($1, full_name),
             role = COALESCE($2, role),
-            email = COALESCE($3, email),
-            phone = COALESCE($4, phone),
-            certification_level = COALESCE($5, certification_level),
-            daily_pay_rate = COALESCE($6, daily_pay_rate),
-            max_travel_distance = COALESCE($7, max_travel_distance),
-            status = COALESCE($8, status),
-            home_address = COALESCE($9, home_address),
-            latitude = COALESCE($10, latitude),
-            longitude = COALESCE($11, longitude),
-            bank_name = COALESCE($12, bank_name),
-            routing_number = COALESCE($13, routing_number),
-            account_number = COALESCE($14, account_number),
-            profile_picture_url = COALESCE($15, profile_picture_url)
-            WHERE id = $16 AND (tenant_id = $17 OR (tenant_id IS NULL AND $17 IS NULL))
-            RETURNING *`,
-            [fullName, role, email, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress, latitude, longitude, bankName, routingNumber, accountNumber, profilePictureUrl, id, req.user.tenantId]
+            phone = COALESCE($3, phone),
+            certification_level = COALESCE($4, certification_level),
+            daily_pay_rate = COALESCE($5, daily_pay_rate),
+            max_travel_distance = COALESCE($6, max_travel_distance),
+            status = COALESCE($7, status),
+            home_address = COALESCE($8, home_address),
+            latitude = COALESCE($9, latitude),
+            longitude = COALESCE($10, longitude),
+            bank_name = COALESCE($11, bank_name),
+            routing_number = COALESCE($12, routing_number),
+            account_number = COALESCE($13, account_number),
+            photo_url = COALESCE($14, photo_url),
+            company_name = COALESCE($15, company_name),
+            swift_code = COALESCE($16, swift_code),
+            secondary_phone = COALESCE($17, secondary_phone),
+            emergency_contact_name = COALESCE($18, emergency_contact_name),
+            emergency_contact_phone = COALESCE($19, emergency_contact_phone),
+            tax_classification = COALESCE($20, tax_classification),
+            city = COALESCE($21, city),
+            state = COALESCE($22, state),
+            zip_code = COALESCE($23, zip_code),
+            country = COALESCE($24, country),
+            account_type = COALESCE($25, account_type),
+            updated_at = CURRENT_TIMESTAMP
+            WHERE id = $26 AND (tenant_id = $27::text OR (tenant_id IS NULL AND $27 IS NULL))
+            RETURNING * `,
+            [
+                fullName || null, role || null, phone || null, certificationLevel || null, payRate || null, travelDist || null, status || null,
+                homeAddress || null, latitude || null, longitude || null, bankName || null, cleanRouting || null, cleanAccount || null, photoUrl || null,
+                companyName || null, cleanSwift || null,
+                secondaryPhone || null, emergencyContactName || null, emergencyContactPhone || null, taxClassification || null,
+                city || null, state || null, zipCode || null, country || null,
+                accountType || null,
+                id, req.user.tenantId
+            ]
         );
 
         res.json({
@@ -362,7 +395,7 @@ export const deletePersonnel = async (req, res) => {
         const { id } = req.params;
 
         const result = await db.query(
-            'DELETE FROM personnel WHERE id = $1 AND (tenant_id = $2 OR (tenant_id IS NULL AND $2 IS NULL)) RETURNING id',
+            'DELETE FROM personnel WHERE id = $1 AND (tenant_id = $2::text OR (tenant_id IS NULL AND $2 IS NULL)) RETURNING id',
             [id, req.user.tenantId]
         );
 
@@ -463,21 +496,21 @@ export const updatePersonnelAuthorization = async (req, res) => {
             result = await db.query(
                 `UPDATE pilot_country_authorizations 
                  SET license_number = COALESCE($1, license_number),
-                     authority = COALESCE($2, authority),
-                     expiration_date = COALESCE($3, expiration_date),
-                     status = COALESCE($4, status),
-                     updated_at = CURRENT_TIMESTAMP
+            authority = COALESCE($2, authority),
+            expiration_date = COALESCE($3, expiration_date),
+            status = COALESCE($4, status),
+            updated_at = CURRENT_TIMESTAMP
                  WHERE pilot_id = $5 AND country_id = $6
-                 RETURNING *`,
+                 RETURNING * `,
                 [licenseNumber, authority, expirationDate, status || 'PENDING', id, countryId]
             );
         } else {
             // Insert
             result = await db.query(
-                `INSERT INTO pilot_country_authorizations 
-                 (pilot_id, country_id, license_number, authority, expiration_date, status)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 RETURNING *`,
+                `INSERT INTO pilot_country_authorizations
+            (pilot_id, country_id, license_number, authority, expiration_date, status)
+                 VALUES($1, $2, $3, $4, $5, $6)
+                 RETURNING * `,
                 [id, countryId, licenseNumber, authority, expirationDate, status || 'PENDING']
             );
         }
@@ -533,8 +566,9 @@ export const getPersonnelBanking = async (req, res) => {
                 id: row.id,
                 pilotId: row.pilot_id,
                 bankName: row.bank_name,
-                accountNumber: row.account_number, // TODO: Decrypt if encrypted
+                accountNumber: row.account_number,
                 routingNumber: row.routing_number,
+                swiftCode: row.swift_code,
                 accountType: row.account_type,
                 currency: row.currency,
                 countryId: row.country_id,
@@ -557,13 +591,27 @@ export const getPersonnelBanking = async (req, res) => {
 export const updatePersonnelBanking = async (req, res) => {
     try {
         const { id } = req.params;
-        const { bankName, accountNumber, routingNumber, accountType, currency, countryId } = req.body;
+        const { bankName, accountNumber, routingNumber, swiftCode, accountType, currency, countryId } = req.body;
 
-        if (req.user.role !== 'ADMIN' && req.user.role !== 'FINANCE') {
+        const cleanRouting = routingNumber ? String(routingNumber).replace(/\D/g, '') : undefined;
+        const cleanAccount = accountNumber ? String(accountNumber).replace(/\D/g, '') : undefined;
+        const cleanSwift = swiftCode ? String(swiftCode).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : undefined;
+
+        const allowedRoles = ['ADMIN', 'FINANCE', 'SENIOR_INSPECTOR', 'OPERATIONS'];
+        if (!allowedRoles.includes(req.user.role)) {
             return res.status(403).json({
                 success: false,
                 message: 'Not authorized to update banking information'
             });
+        }
+
+        // Resolve countryId if it's an ISO2 code (like 'US')
+        let resolvedCountryId = countryId;
+        if (countryId && countryId.length === 2) {
+            const countryRes = await db.query('SELECT id FROM countries WHERE iso_code = $1', [countryId]);
+            if (countryRes.rows.length > 0) {
+                resolvedCountryId = countryRes.rows[0].id;
+            }
         }
 
         // Check if exists
@@ -578,24 +626,25 @@ export const updatePersonnelBanking = async (req, res) => {
             result = await db.query(
                 `UPDATE pilot_banking_info 
                  SET bank_name = COALESCE($1, bank_name),
-                     account_number = COALESCE($2, account_number),
-                     routing_number = COALESCE($3, routing_number),
-                     account_type = COALESCE($4, account_type),
-                     currency = COALESCE($5, currency),
-                     country_id = COALESCE($6, country_id),
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE pilot_id = $7
-                 RETURNING *`,
-                [bankName, accountNumber, routingNumber, accountType, currency, countryId, id]
+            account_number = COALESCE($2, account_number),
+            routing_number = COALESCE($3, routing_number),
+            swift_code = COALESCE($4, swift_code),
+            account_type = COALESCE($5, account_type),
+            currency = COALESCE($6, currency),
+            country_id = COALESCE($7, country_id),
+            updated_at = CURRENT_TIMESTAMP
+                 WHERE pilot_id = $8
+                 RETURNING * `,
+                [bankName, cleanAccount, cleanRouting, cleanSwift, accountType, currency, resolvedCountryId, id]
             );
         } else {
             // Insert
             result = await db.query(
-                `INSERT INTO pilot_banking_info 
-                 (pilot_id, bank_name, account_number, routing_number, account_type, currency, country_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 RETURNING *`,
-                [id, bankName, accountNumber, routingNumber, accountType || 'Checking', currency, countryId]
+                `INSERT INTO pilot_banking_info
+            (pilot_id, bank_name, account_number, routing_number, swift_code, account_type, currency, country_id)
+                 VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+                 RETURNING * `,
+                [id, bankName, cleanAccount, cleanRouting, cleanSwift, accountType || 'Checking', currency, resolvedCountryId]
             );
         }
 
@@ -608,6 +657,7 @@ export const updatePersonnelBanking = async (req, res) => {
                 bankName: row.bank_name,
                 accountNumber: row.account_number,
                 routingNumber: row.routing_number,
+                swiftCode: row.swift_code,
                 accountType: row.account_type,
                 currency: row.currency,
                 countryId: row.country_id,
@@ -626,9 +676,64 @@ export const updatePersonnelBanking = async (req, res) => {
 };
 
 /**
- * Upload personnel document
+ * Get personnel documents
  */
-import { GoogleGenerativeAI } from '@google/generative-ai';
+export const getPersonnelDocuments = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Check Access
+        if (req.user.role !== 'ADMIN' && req.user.role !== 'FINANCE' && req.user.id !== id) {
+            return res.status(403).json({ success: false, message: 'Not authorized to view documents for this user' });
+        }
+
+        // Try personnel_id first (new schema), fall back to pilot_id (old schema)
+        let docResult;
+        try {
+            docResult = await db.query(
+                `SELECT 
+                    id,
+                personnel_id as pilot_id,
+                category as document_type,
+                url as file_url,
+                'VALID' as validation_status,
+                created_at as uploaded_at,
+                updated_at,
+                expiration_date
+                 FROM pilot_documents
+                 WHERE personnel_id = $1
+                 ORDER BY created_at DESC`,
+                [id]
+            );
+        } catch (schemaErr) {
+            // Fall back to old schema with pilot_id
+            docResult = await db.query(
+                `SELECT 
+                    id,
+                pilot_id,
+                document_type,
+                file_url,
+                validation_status,
+                uploaded_at,
+                updated_at
+                 FROM pilot_documents
+                 WHERE pilot_id = $1
+                 ORDER BY uploaded_at DESC`,
+                [id]
+            );
+        }
+        const result = docResult;
+
+        res.status(200).json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error('Error fetching personnel documents:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch documents' });
+    }
+};
 
 /**
  * Upload personnel document
@@ -636,7 +741,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 export const uploadPersonnelDocument = async (req, res) => {
     try {
         const { id } = req.params;
-        const { documentType, countryId, missionId } = req.body; // Removed expirationDate
+        const { documentType, countryId, missionId, expirationDate } = req.body;
         const file = req.file;
 
         // Check Access
@@ -691,31 +796,43 @@ export const uploadPersonnelDocument = async (req, res) => {
             });
         }
 
-        // 2. Save Document Record to DB
-        const docResult = await db.query(
-            `INSERT INTO pilot_documents (pilot_id, country_id, document_type, file_url, validation_status)
-             VALUES ($1, $2, $3, $4, 'PENDING')
-             RETURNING *`,
-            [id, countryId || null, documentType, webViewLink]
-        );
+        // 2. Save Document Record to DB - try new schema first, fall back to old
+        let docResult;
+        try {
+            docResult = await db.query(
+                `INSERT INTO pilot_documents(personnel_id, category, name, url, expiration_date)
+                VALUES($1, $2, $3, $4, $5)
+                RETURNING *, category as document_type, url as file_url, created_at as uploaded_at, 'VALID' as validation_status`,
+                [id, documentType, documentType, webViewLink, expirationDate || null]
+            );
+        } catch (schemaErr) {
+            // Fall back to old schema
+            docResult = await db.query(
+                `INSERT INTO pilot_documents(pilot_id, document_type, file_url, validation_status, expiration_date)
+                VALUES($1, $2, $3, 'PENDING', $4)
+                RETURNING *`,
+                [id, documentType, webViewLink, expirationDate || null]
+            );
+        }
 
         // 3. AI Extraction (Gemini)
         let extractedData = {};
 
         if (process.env.GEMINI_API_KEY) {
             try {
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY);
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
                 const prompt = `
                     Analyze this document image. Extract the following information in JSON format:
-                    - For Banking: bankName, routingNumber, accountNumber, accountType (Checking/Savings).
-                    - For Address: fullAddress, street, city, state, zipCode.
-                    - For License: licenseNumber, expirationDate.
+                    - Banking: bankName, routingNumber, accountNumber, accountType (Checking / Savings).
+                    - Address: fullAddress (as homeAddress), street, city, state, zipCode.
+                    - License: licenseNumber, expirationDate (YYYY-MM-DD).
+                    - Profile: name, email, phone.
                     
-                    Return ONLY the JSON object. access nested fields directly.
+                    Return ONLY the JSON object. Access nested fields directly.
                     If value is not found, return null. 
-                    Format the keys exactly as: bankName, routingNumber, accountNumber, accountType, homeAddress, licenseNumber.
+                    Format the keys exactly as: bankName, routingNumber, accountNumber, accountType, homeAddress, licenseNumber, name, email, phone.
                 `;
 
                 const image = {
@@ -729,11 +846,24 @@ export const uploadPersonnelDocument = async (req, res) => {
                 const response = await result.response;
                 const text = response.text();
 
-                // Clean markdown code blocks if present
-                const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-                extractedData = JSON.parse(jsonStr);
+                // Debug logging to file (Relative path for container compatibility)
+                const logPath = 'ai_debug.log';
+                fs.appendFileSync(logPath, `[${new Date().toISOString()}] (Upload) RAW RESPONSE: ${text}\n`);
 
-                console.log('🤖 Gemini Extracted:', extractedData);
+                // Clean markdown code blocks if present
+                const jsonStr = text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
+                try {
+                    extractedData = JSON.parse(jsonStr);
+                } catch (parseErr) {
+                    console.error('JSON Parse Error:', parseErr);
+                    const match = text.match(/\{[\s\S]*\}/);
+                    if (match) {
+                        extractedData = JSON.parse(match[0]);
+                    }
+                }
+
+                console.log('🤖 Gemini 1.5 Extracted:', extractedData);
+                fs.appendFileSync(logPath, `[${new Date().toISOString()}] (Upload) PARSED DATA: ${JSON.stringify(extractedData)}\n`);
 
                 // Debug tracking
                 analysisDebug = {
@@ -795,11 +925,28 @@ export const uploadPersonnelDocument = async (req, res) => {
             console.warn('⚠️ GEMINI_API_KEY is missing. Skipping AI analysis.');
         }
 
+        // 5. Fetch Final State to return to FE
+        const updatedPersonnel = await db.query('SELECT * FROM personnel WHERE id = $1', [id]);
+        const updatedBanking = await db.query('SELECT * FROM pilot_banking_info WHERE pilot_id = $1', [id]);
+
         res.status(200).json({
             success: true,
             message: 'Document uploaded successfully',
             document: docResult.rows[0],
-            extractedData: extractedData
+            extractedData: extractedData,
+            updatedPersonnel: mapPersonnelRow(updatedPersonnel.rows[0]),
+            updatedBanking: updatedBanking.rows[0] ? {
+                id: updatedBanking.rows[0].id,
+                pilotId: updatedBanking.rows[0].pilot_id,
+                bankName: updatedBanking.rows[0].bank_name,
+                accountNumber: updatedBanking.rows[0].account_number,
+                routingNumber: updatedBanking.rows[0].routing_number,
+                swiftCode: updatedBanking.rows[0].swift_code,
+                accountType: updatedBanking.rows[0].account_type,
+                currency: updatedBanking.rows[0].currency,
+                countryId: updatedBanking.rows[0].country_id,
+                updatedAt: updatedBanking.rows[0].updated_at
+            } : null
         });
 
     } catch (error) {
@@ -831,7 +978,7 @@ export const uploadPersonnelPhoto = async (req, res) => {
             // Update Personnel DB
             const result = await db.query(
                 `UPDATE personnel 
-                 SET profile_picture_url = $1, updated_at = CURRENT_TIMESTAMP
+                 SET photo_url = $1, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $2
                  RETURNING *`,
                 [webViewLink, id]
@@ -856,3 +1003,258 @@ export const uploadPersonnelPhoto = async (req, res) => {
         res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
     }
 };
+
+
+/**
+ * Analyze personnel document — Vertex AI primary, AI Studio fallback
+ */
+export const analyzePersonnelDocument = async (req, res) => {
+    const file = req.file;
+    console.log(`[analyzePersonnelDocument] File: ${file?.originalname}, type: ${file?.mimetype}`);
+
+    if (!file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    const prompt = `Analyze this document (image or PDF). Extract professional and banking information for a personnel record.
+Return ONLY a valid JSON object. Do not include markdown formatting or extra text.
+
+Fields to extract:
+- name: Full name of the individual
+- email: Email address
+- phone: Phone number
+- businessName: Company or business name (if applicable)
+- homeAddress: Street address
+- city, state, zipCode, country: Structured address components
+- documentType: One of ["Direct Deposit", "W9", "Driver License", "FAA License", "Insurance", "Passport", "Other"]
+- bankName: Financial institution name
+- routingNumber: 9-digit routing number
+- accountNumber: Bank account number
+- swiftCode: SWIFT/BIC code
+- accountType: "Checking" or "Savings"
+- licenseNumber: Certification or license ID
+- expirationDate: Expiration date in YYYY-MM-DD format
+- taxClassification: "Individual", "C Corp", "S Corp", "LLC", or "Other"
+
+If a field is not found, set it to null.`;
+
+    const fileBase64 = file.buffer.toString('base64');
+    const mimeType = file.mimetype;
+
+    const parseAIText = (text) => {
+        const jsonStr = text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
+        try {
+            return JSON.parse(jsonStr);
+        } catch (_) {
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) return JSON.parse(match[0]);
+            throw new Error('Could not parse AI response as JSON');
+        }
+    };
+
+    // ── Strategy 1: Vertex AI (uses Cloud project billing — high quota) ──────
+    try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'axis-platform-484701';
+        const location = 'us-central1';
+
+        const ai = new GoogleGenAI({ vertexai: true, project: projectId, location });
+        console.log('[AI] Trying Vertex AI (gemini-2.0-flash)...');
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [{
+                role: 'user',
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType, data: fileBase64 } }
+                ]
+            }]
+        });
+
+        const text = response.text;
+        const extractedData = parseAIText(text);
+        console.log('[AI] Vertex AI extraction succeeded');
+        return res.json({ success: true, data: extractedData });
+
+    } catch (vertexErr) {
+        console.warn('[AI] Vertex AI failed:', vertexErr?.message?.slice(0, 120));
+        // Fall through to AI Studio key
+    }
+
+    // ── Strategy 2: AI Studio key (free tier — may be rate limited) ──────────
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+        return res.status(500).json({ success: false, message: 'No AI credentials available' });
+    }
+
+    const is429 = (err) =>
+        err?.status === 429 ||
+        String(err?.message).includes('429') ||
+        String(err?.message).includes('Too Many Requests');
+
+    const isDailyQuota = (err) =>
+        String(err?.message).includes('PerDay') ||
+        (err?.errorDetails || []).some(d =>
+            (d.violations || []).some(v => v?.quotaId?.includes('PerDay'))
+        );
+
+    const getRetryDelaySecs = (err) => {
+        try {
+            for (const d of (err?.errorDetails || [])) {
+                if (d['@type']?.includes('RetryInfo') && d.retryDelay) {
+                    return Math.min(parseInt(d.retryDelay.replace(/\D/g, ''), 10) || 15, 30);
+                }
+            }
+        } catch (_) { }
+        return 15;
+    };
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const studioModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    let lastError = null;
+
+    for (let i = 0; i < studioModels.length; i++) {
+        const modelName = studioModels[i];
+        try {
+            if (i > 0 && lastError) {
+                // Only wait+retry if it's a per-minute limit, not a daily limit
+                if (isDailyQuota(lastError)) {
+                    console.warn(`[AI] Daily quota exhausted on ${studioModels[i - 1]}, skipping to next model`);
+                } else {
+                    const delaySecs = getRetryDelaySecs(lastError);
+                    console.log(`[AI] Waiting ${delaySecs}s then retrying with ${modelName}...`);
+                    await new Promise(r => setTimeout(r, delaySecs * 1000));
+                }
+            }
+
+            console.log(`[AI] AI Studio attempt with ${modelName}`);
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const result = await model.generateContent([
+                prompt,
+                { inlineData: { data: fileBase64, mimeType } }
+            ]);
+            const text = result.response.text();
+            const extractedData = parseAIText(text);
+            console.log(`[AI] AI Studio success with ${modelName}`);
+            return res.json({ success: true, data: extractedData });
+
+        } catch (err) {
+            lastError = err;
+            if (is429(err) && i < studioModels.length - 1) {
+                console.warn(`[AI] 429 on ${modelName}, trying next`);
+                continue;
+            }
+            break;
+        }
+    }
+
+    // All strategies failed
+    console.error('[AI] All strategies failed:', lastError?.message?.slice(0, 200));
+
+    if (is429(lastError) && isDailyQuota(lastError)) {
+        return res.status(503).json({
+            success: false,
+            message: 'AI quota reached for today. Please enter details manually or try again tomorrow.',
+        });
+    }
+    if (is429(lastError)) {
+        return res.status(429).json({
+            success: false,
+            message: 'AI service is busy. Please wait a moment and try again.',
+            retryAfter: getRetryDelaySecs(lastError)
+        });
+    }
+    return res.status(500).json({ success: false, message: 'Analysis failed', error: lastError?.message });
+};
+/**
+ * Get detailed pilot performance metrics and insights
+ */
+export const getPilotPerformance = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user?.id; // From auth middleware
+
+        const performanceRes = await db.query(`
+            SELECT 
+                lifetime_score, 
+                rolling_30_day_score, 
+                tier_level, 
+                reliability_flag
+            FROM personnel 
+            WHERE id = $1
+        `, [id]);
+
+        if (performanceRes.rows.length === 0) {
+            return res.status(404).json({ message: 'Pilot not found' });
+        }
+
+        const stats = performanceRes.rows[0];
+
+        // Fetch detailed breakdown from scoring service
+        const { calculateIndividualScores } = await import('../services/scoringService.js');
+        const { generatePilotInsights } = await import('../services/aiInsightsService.js');
+
+        const breakdown = await calculateIndividualScores(id, false);
+        const rollingBreakdown = await calculateIndividualScores(id, true);
+        const insights = await generatePilotInsights(id, userId);
+
+        res.json({
+            lifetimeScore: stats.lifetime_score,
+            rollingScore: stats.rolling_30_day_score,
+            tierLevel: stats.tier_level,
+            reliabilityFlag: stats.reliability_flag,
+            breakdown,
+            rollingBreakdown,
+            insights
+        });
+    } catch (error) {
+        console.error('Error fetching pilot performance:', error);
+        res.status(500).json({ message: 'Error fetching performance metrics' });
+    }
+};
+
+/**
+ * Update performance configuration (Admin only)
+ */
+export const updatePerformanceConfig = async (req, res) => {
+    try {
+        const {
+            acceptance_enabled, completion_enabled, qa_enabled, rating_enabled, reliability_enabled,
+            acceptance_weight, completion_weight, qa_weight, rating_weight, reliability_weight
+        } = req.body;
+
+        await db.query(`
+            UPDATE performance_config 
+            SET acceptance_enabled = $1, completion_enabled = $2, qa_enabled = $3, 
+                rating_enabled = $4, reliability_enabled = $5,
+                acceptance_weight = $6, completion_weight = $7, qa_weight = $8, 
+                rating_weight = $9, reliability_weight = $10,
+                updated_at = NOW()
+            WHERE is_active = TRUE
+        `, [
+            acceptance_enabled, completion_enabled, qa_enabled, rating_enabled, reliability_enabled,
+            acceptance_weight, completion_weight, qa_weight, rating_weight, reliability_weight
+        ]);
+
+        res.json({ message: 'Performance configuration updated successfully' });
+    } catch (error) {
+        console.error('Error updating performance config:', error);
+        res.status(500).json({ message: 'Error updating configuration' });
+    }
+};
+
+/**
+ * Get current performance configuration
+ */
+export const getPerformanceConfig = async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM performance_config WHERE is_active = TRUE LIMIT 1');
+        res.json(result.rows[0] || {});
+    } catch (error) {
+        console.error('Error fetching performance config:', error);
+        res.status(500).json({ message: 'Error fetching configuration' });
+    }
+};
+
