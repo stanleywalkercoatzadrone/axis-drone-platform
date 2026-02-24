@@ -64,7 +64,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 const AppContent: React.FC = () => {
   const { user, login, logout, updateUser, isLoading } = useAuth();
-  const { tLabel } = useIndustry();
+  const { currentIndustry, availableIndustries, tLabel } = useIndustry();
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'ai-engine' | 'view' | 'ai-reports' | 'settings' | 'personnel' | 'analytics' | 'missions' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'upload' | 'assets' | 'weather'>('dashboard');
@@ -136,7 +136,7 @@ const AppContent: React.FC = () => {
         activeTab === 'dashboard' ? 'Mission Control' :
           activeTab === 'upload' ? 'Enterprise Upload' :
             activeTab === 'analytics' ? 'Analytics Suite' :
-              activeTab === 'ai-engine' ? `New ${tLabel('mission')}` :
+              activeTab === 'ai-engine' ? `New ${currentIndustry ? availableIndustries.find(i => i.key === currentIndustry)?.name : 'Platform'} AI Extraction` :
                 activeTab === 'ai-reports' ? `${tLabel('report')} Archive` :
                   activeTab === 'missions' ? `${tLabel('mission')} Terminal` :
                     activeTab === 'personnel' ? `${tLabel('stakeholder')}s` :

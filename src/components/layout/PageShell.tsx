@@ -245,7 +245,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                                 }`}
                                         >
                                             <BrainCircuit size={13} className={`mr-2 transition-colors ${isAIActive ? industry.colorClass : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>{industry.emoji} AI Generator</span>
+                                            <span>{industry.emoji} {industry.label} AI</span>
                                             {isAIActive && <div className={`ml-auto w-1 h-1 rounded-full ${industry.dotClass} animate-pulse`} />}
                                         </button>
 
