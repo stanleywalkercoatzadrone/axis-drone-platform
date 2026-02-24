@@ -7,7 +7,7 @@ import { useAuth } from '../src/context/AuthContext';
 
 interface ClientFormProps {
     onClose: () => void;
-    onSuccess: () => void;
+    onSuccess: (client?: any) => void;
 }
 
 const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
@@ -28,13 +28,13 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
         setError(null);
 
         try {
-            await apiClient.post('/clients', {
+            const response = await apiClient.post('/clients', {
                 name,
                 email,
                 industryKey, // Backend resolves this to UUID
                 address
             });
-            onSuccess();
+            onSuccess(response.data.data || response.data);
         } catch (err: any) {
             console.error('Error creating client:', err);
             setError(err.response?.data?.message || 'Failed to create client');

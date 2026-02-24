@@ -15,7 +15,11 @@ const ReportCreator: React.FC<ReportCreatorProps> = ({ initialIndustry, viewingR
   };
 
   return (
-    <ReportWizard onBack={handleBack} />
+    <ReportWizard
+      onBack={handleBack}
+      initialIndustry={initialIndustry}
+      viewingReport={viewingReport}
+    />
   );
 };
 

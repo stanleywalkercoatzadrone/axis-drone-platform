@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import apiClient from '../src/services/apiClient';
 import ClientForm from './ClientForm';
 import { useIndustry } from '../src/context/IndustryContext';
-import { Plus, Search, Building2, MapPin, ChevronRight, LayoutGrid, List as ListIcon } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, ChevronRight, LayoutGrid, List as ListIcon, Trash2 } from 'lucide-react';
 import { useAuth } from '../src/context/AuthContext';
 import { isAdmin } from '../src/utils/roleUtils';
 
@@ -50,12 +50,25 @@ const ClientList: React.FC<{ onSelectClient: (id: string) => void }> = ({ onSele
         c.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const handleDeleteClient = async (e: React.MouseEvent, clientId: string, clientName: string) => {
+        e.stopPropagation();
+        if (!window.confirm(`Are you sure you want to delete ${clientName}?`)) return;
+
+        try {
+            await apiClient.delete(`/clients/${clientId}`);
+            fetchClients();
+        } catch (error) {
+            console.error('Error deleting client:', error);
+            alert('Failed to delete client');
+        }
+    };
+
     return (
         <div className="p-6 max-w-7xl mx-auto">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">{tLabel('client')}s</h1>
-                    <p className="text-slate-500 text-sm mt-1">Manage your {tLabel('client').toLowerCase()} portfolio and organizational details</p>
+                    <p className="text-slate-700 font-medium text-sm mt-1">Manage your {tLabel('client').toLowerCase()} portfolio and organizational details</p>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -70,13 +83,13 @@ const ClientList: React.FC<{ onSelectClient: (id: string) => void }> = ({ onSele
                         />
                     </div>
                     {isAdmin(user) && (
-                        <button
-                            onClick={() => setIsCreating(true)}
+                        <a
+                            href="/clients/new/start"
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium"
                         >
                             <Plus className="w-4 h-4" />
                             New {tLabel('client')}
-                        </button>
+                        </a>
                     )}
                 </div>
             </div>
@@ -108,13 +121,22 @@ const ClientList: React.FC<{ onSelectClient: (id: string) => void }> = ({ onSele
                                 <div className="flex items-center gap-2 text-xs font-medium text-slate-500 bg-slate-50 px-2 py-1 rounded-md">
                                     {client.industry_name || 'General'}
                                 </div>
+                                {isAdmin(user) && (
+                                    <button
+                                        onClick={(e) => handleDeleteClient(e, client.id, client.name)}
+                                        className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-all ml-2"
+                                        title="Delete Client"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
 
                             <h3 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">{client.name}</h3>
 
                             <div className="space-y-2 mt-4">
-                                <div className="flex items-center gap-2 text-sm text-slate-500">
-                                    <LayoutGrid className="w-4 h-4 text-slate-400" />
+                                <div className="flex items-center gap-2 text-sm text-slate-700 font-medium">
+                                    <LayoutGrid className="w-4 h-4 text-slate-500" />
                                     <span>{client.project_count || 0} {tLabel('project')}s</span>
                                 </div>
                                 {client.address?.city && (

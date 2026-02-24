@@ -4,10 +4,16 @@ import ReportConfiguration from './steps/ReportConfiguration';
 import DataIngest from './steps/DataIngest';
 import AIAnalysis from './steps/AIAnalysis';
 import ReportReview from './steps/ReportReview';
+import { Industry, InspectionReport } from '../../types';
 import { Check, ChevronRight, LayoutTemplate, X } from 'lucide-react';
+
+import { Heading, Text } from '../../src/stitch/components/Typography';
+import { Button } from '../../src/stitch/components/Button';
 
 interface ReportWizardProps {
     onBack: () => void;
+    initialIndustry?: Industry | null;
+    viewingReport?: InspectionReport | null;
 }
 
 const WizardContent: React.FC<ReportWizardProps> = ({ onBack }) => {
@@ -15,46 +21,53 @@ const WizardContent: React.FC<ReportWizardProps> = ({ onBack }) => {
 
     const steps = [
         { num: 1, label: 'Configuration', component: <ReportConfiguration /> },
-        { num: 2, label: 'Data Ingest', component: <DataIngest /> },
+        { num: 2, label: 'Images', component: <DataIngest /> },
         { num: 3, label: 'AI Analysis', component: <AIAnalysis /> },
-        { num: 4, label: 'Review & Finalize', component: <ReportReview onBack={onBack} /> }
+        { num: 4, label: 'Edit & Finalize', component: <ReportReview onBack={onBack} /> }
     ];
+
 
     const currentStep = steps.find(s => s.num === step);
 
     return (
-        <div className="max-w-7xl mx-auto pb-20 animate-in fade-in duration-500 font-sans">
+        <div className="max-w-7xl mx-auto pb-16">
             {/* Wizard Header */}
-            <div className="flex items-center justify-between mb-8 border-b border-slate-200 pb-4 pt-6">
+            <div className="flex items-center justify-between mb-8 pt-6 border-b border-slate-100 pb-6">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900">{title || 'New Inspection Report'}</h1>
-                    <p className="text-slate-500 text-sm">Step {step} of {steps.length}: {currentStep?.label}</p>
+                    <h2 className="text-lg font-bold text-slate-900">{title || 'New Inspection Report'}</h2>
+                    <p className="text-sm text-slate-400 mt-0.5">Step {step} of {steps.length} — {currentStep?.label}</p>
                 </div>
 
-                <div className="flex items-center gap-8">
-                    {/* Progress Indicators */}
-                    <div className="flex items-center gap-4">
-                        {steps.map(s => (
-                            <div key={s.num} className="flex items-center gap-2">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border transition-all 
-                    ${step === s.num ? 'border-blue-600 bg-blue-50 text-blue-600' :
-                                        step > s.num ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 text-slate-400'}`}>
-                                    {step > s.num ? <Check className="w-4 h-4" /> : s.num}
-                                </div>
-                                <span className={`text-sm font-medium ${step === s.num ? 'text-blue-700' : 'text-slate-500'}`}>{s.label}</span>
-                                {s.num < steps.length && <div className="w-8 h-px bg-slate-200" />}
-                            </div>
+                <div className="flex items-center gap-4">
+                    {/* Step indicators */}
+                    <div className="hidden md:flex items-center gap-1">
+                        {steps.map((s, idx) => (
+                            <React.Fragment key={s.num}>
+                                <button
+                                    onClick={() => step > s.num && setStep(s.num)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
+                                        ${step === s.num ? 'bg-slate-900 text-white' :
+                                            step > s.num ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 cursor-pointer' :
+                                                'text-slate-400 cursor-default'}`}
+                                >
+                                    {step > s.num ? <Check className="w-3 h-3" /> : <span>{s.num}</span>}
+                                    {s.label}
+                                </button>
+                                {idx < steps.length - 1 && (
+                                    <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                                )}
+                            </React.Fragment>
                         ))}
                     </div>
 
-                    <button onClick={onBack} className="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-full">
-                        <X className="w-5 h-5" />
+                    <button onClick={onBack} className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
+                        <X className="w-4 h-4" />
                     </button>
                 </div>
             </div>
 
             {/* Step Content */}
-            <div className="min-h-[600px]">
+            <div className="min-h-[500px]">
                 {currentStep?.component}
             </div>
         </div>
@@ -63,7 +76,7 @@ const WizardContent: React.FC<ReportWizardProps> = ({ onBack }) => {
 
 const ReportWizard: React.FC<ReportWizardProps> = (props) => {
     return (
-        <ReportProvider>
+        <ReportProvider initialReport={props.viewingReport} initialIndustry={props.initialIndustry}>
             <WizardContent {...props} />
         </ReportProvider>
     );

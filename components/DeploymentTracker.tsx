@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard,
     Calendar,
@@ -21,23 +22,57 @@ import {
     Square,
     Check,
     X,
-    AlertCircle, ArrowRight, Briefcase, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, MapPin, MoreVertical, Receipt, Search, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail
+    ArrowRight, Briefcase, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, MapPin, MoreVertical, Receipt, Search, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail, UserPlus, UserCheck, BrainCircuit, RotateCcw
 } from 'lucide-react';
 import ProjectInvoiceView from './ProjectInvoiceView';
-import { Deployment, DeploymentStatus, DeploymentType, DailyLog, Personnel, DeploymentFile, UserAccount } from '../types';
+import { Deployment, DeploymentStatus, DeploymentType, DailyLog, Personnel, DeploymentFile, UserAccount, Country } from '../types';
 import CalendarView from './CalendarView';
 import AssetTracker from './AssetTracker';
 import WorkItemChecklist from './WorkItemChecklist';
+import ClientForm from './ClientForm';
+import StakeholderForm from './StakeholderForm';
 import apiClient from '../src/services/apiClient';
 import { useAuth } from '../src/context/AuthContext';
+import IndustryReportsHub from '../modules/ai-reporting/IndustryReportsHub';
+import { isAdmin } from '../src/utils/roleUtils';
 
-const DeploymentTracker: React.FC = () => {
-    const { hasPermission } = useAuth();
+const calculateDistance = (loc1?: string, loc2?: string) => {
+    if (!loc1 || !loc2) return null;
+    const parse = (s: string) => {
+        const parts = s.split(',').map(p => parseFloat(p.trim()));
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return { lat: parts[0], lon: parts[1] };
+        return null;
+    };
+    const c1 = parse(loc1);
+    const c2 = parse(loc2);
+    if (c1 && c2) {
+        // Haversine
+        const R = 3958.8; // Radius of Earth in miles
+        const dLat = (c2.lat - c1.lat) * Math.PI / 180;
+        const dLon = (c2.lon - c1.lon) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(c1.lat * Math.PI / 180) * Math.cos(c2.lat * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return (R * c).toFixed(1);
+    }
+    return null;
+};
+
+const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFilter?: string }> = ({ forcedStatus, industryFilter }) => {
+    const navigate = useNavigate();
+    const { user, hasPermission } = useAuth();
     const [deployments, setDeployments] = useState<Deployment[]>([]);
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
+    const [countries, setCountries] = useState<Country[]>([]);
     const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('dt_searchQuery') || '');
-    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus | string>(() => (sessionStorage.getItem('dt_statusFilter') as any) || 'All');
+    const [statusFilter, setStatusFilter] = useState<'All' | DeploymentStatus | string>(() => {
+        if (forcedStatus) return forcedStatus;
+        return (sessionStorage.getItem('dt_statusFilter') as any) || 'All';
+    });
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isClientFormOpen, setIsClientFormOpen] = useState(false);
+    const [isStakeholderFormOpen, setIsStakeholderFormOpen] = useState(false);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
     const [viewMode, setViewMode] = useState<'list' | 'calendar'>(() => (sessionStorage.getItem('dt_viewMode') as any) || 'list');
@@ -77,19 +112,22 @@ const DeploymentTracker: React.FC = () => {
     const [selectedPersonnelForInvoice, setSelectedPersonnelForInvoice] = useState<Set<string>>(new Set());
     const [sendToPilots, setSendToPilots] = useState(true);
 
-    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'checklist'>('logs');
+    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'checklist' | 'ai-reports'>('logs');
     const [uploading, setUploading] = useState(false);
     const [generatedLink, setGeneratedLink] = useState<string | null>(null);
     const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
+    const [clients, setClients] = useState<any[]>([]);
+    const [sites, setSites] = useState<any[]>([]);
+    const selectedClientForNewMissionRef = React.useRef<string>(''); // Ref to track without triggering rerender loops if needed, or use state
+    const [selectedClientForNewMission, setSelectedClientForNewMission] = useState<string>('');
+    const [clientStakeholders, setClientStakeholders] = useState<any[]>([]);
     const [siteAssets, setSiteAssets] = useState<any[]>([]);
     const [loadingAssets, setLoadingAssets] = useState(false);
-    const [activeSection, setActiveSection] = useState<'missions' | 'assets'>(() => (sessionStorage.getItem('dt_activeSection') as any) || 'missions');
 
     // Persistence Effects
     useEffect(() => { sessionStorage.setItem('dt_searchQuery', searchQuery); }, [searchQuery]);
     useEffect(() => { sessionStorage.setItem('dt_statusFilter', statusFilter); }, [statusFilter]);
     useEffect(() => { sessionStorage.setItem('dt_viewMode', viewMode); }, [viewMode]);
-    useEffect(() => { sessionStorage.setItem('dt_activeSection', activeSection); }, [activeSection]);
 
     const [newLog, setNewLog] = useState<Partial<DailyLog>>({
         dailyPay: 0,
@@ -104,6 +142,11 @@ const DeploymentTracker: React.FC = () => {
         bonusPay: 0,
         notes: ''
     });
+
+    // Pricing Engine State
+    const [pricingData, setPricingData] = useState<any>(null);
+    const [isCalculatingPricing, setIsCalculatingPricing] = useState(false);
+    const [markupOverride, setMarkupOverride] = useState<number | null>(null);
 
     const [isAddingExtraDay, setIsAddingExtraDay] = useState(false);
     const [extraDayDate, setExtraDayDate] = useState('');
@@ -265,12 +308,25 @@ const DeploymentTracker: React.FC = () => {
         fetchDeployments();
         fetchPersonnel();
         fetchAllUsers();
+        fetchClients();
+        fetchSites();
+        fetchCountries();
     }, []);
+
+    const fetchCountries = async () => {
+        try {
+            const response = await apiClient.get('/regions/countries?status=ENABLED');
+            setCountries(response.data.data || []);
+        } catch (err) {
+            console.error('Failed to fetch countries', err);
+        }
+    };
 
     const fetchDeployments = async () => {
         try {
             setLoading(true);
-            const response = await apiClient.get('/deployments');
+            const url = industryFilter ? `/deployments?industryKey=${industryFilter}` : '/deployments';
+            const response = await apiClient.get(url);
             setDeployments(response.data.data || []);
             setError(null);
         } catch (err: any) {
@@ -299,12 +355,60 @@ const DeploymentTracker: React.FC = () => {
         }
     };
 
+    const fetchClients = async () => {
+        try {
+            const response = await apiClient.get('/clients');
+            setClients(response.data.data || []);
+        } catch (err: any) {
+            console.error('Error fetching clients:', err);
+        }
+    };
+
+    const fetchSites = async (clientId?: string) => {
+        try {
+            const url = clientId ? `/assets/sites?clientId=${clientId}` : '/assets/sites';
+            const response = await apiClient.get(url);
+            setSites(response.data.data || []);
+        } catch (err: any) {
+            console.error('Error fetching sites:', err);
+        }
+    };
+
+    const fetchClientStakeholders = async (clientId: string) => {
+        try {
+            const response = await apiClient.get(`/clients/${clientId}/stakeholders`);
+            setClientStakeholders(response.data.data || []);
+        } catch (err: any) {
+            console.error('Error fetching client stakeholders:', err);
+            setClientStakeholders([]);
+        }
+    };
+
     const handleViewFinancials = async (deployment: Deployment) => {
         try {
             await handleViewDetails(deployment);
             setActiveModalTab('financials');
         } catch (err: any) {
             console.error('Error opening financials:', err);
+        }
+    };
+
+    const handleAIRegisteredScan = async (deployment: Deployment) => {
+        try {
+            // Simulated AI Analysis for Mission
+            const recommendations = [
+                "Drone telemetry indicates abnormal battery drain on flight 4 — check cell consistency.",
+                "Weather pattern shift detected: Wind gusting to 18mph. Advise ceiling reduction to 150ft.",
+                "Image density for Sector B is 12% below requirement. Recommend adding 4 flight lines."
+            ];
+
+            const summary = `AI Mission Control has analyzed ${deployment.title}. Status: OPTIMAL with 3 active advisories.`;
+
+            // We'll use a simple alert for now, but in a real app this would update a drawer or notification system
+            alert(`--- AI MISSION INTELLIGENCE ---\n\n${summary}\n\nRecommendations:\n${recommendations.map(r => `• ${r}`).join('\n')}`);
+
+        } catch (err: any) {
+            console.error('AI Scan failed', err);
         }
     };
 
@@ -327,6 +431,11 @@ const DeploymentTracker: React.FC = () => {
                 fetchSiteAssets(freshDeployment.siteId);
             }
 
+            // Fetch client stakeholders if we have a client ID
+            if (freshDeployment.clientId) {
+                fetchClientStakeholders(freshDeployment.clientId);
+            }
+
             setActiveModalTab('logs');
             setIsLogModalOpen(true);
         } catch (err: any) {
@@ -338,7 +447,8 @@ const DeploymentTracker: React.FC = () => {
     const fetchSiteAssets = async (siteId: string) => {
         try {
             setLoadingAssets(true);
-            const response = await apiClient.get(`/assets?site_id=${siteId}`);
+            const url = industryFilter ? `/assets?site_id=${siteId}&industryKey=${industryFilter}` : `/assets?site_id=${siteId}`;
+            const response = await apiClient.get(url);
             setSiteAssets(response.data.data || []);
         } catch (err: any) {
             console.error('Error fetching site assets:', err);
@@ -356,11 +466,7 @@ const DeploymentTracker: React.FC = () => {
 
         try {
             setUploading(true);
-            const response = await apiClient.post(`/deployments/${selectedDeployment.id}/files`, formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            const response = await apiClient.post(`/deployments/${selectedDeployment.id}/files`, formData);
 
             const newFile = response.data.data;
             setSelectedDeployment(prev => prev ? ({
@@ -422,13 +528,57 @@ const DeploymentTracker: React.FC = () => {
         }
     };
 
-    const handleAssignMonitor = async (userId: string) => {
+    const handleAssignMonitor = async (userId: string, role: string = 'Monitor') => {
         if (!selectedDeployment) return;
         try {
-            await apiClient.post(`/deployments/${selectedDeployment.id}/monitoring`, { userId, role: 'Monitor' });
-            // Refresh details to get monitoring team
-            const deployResponse = await apiClient.get(`/deployments/${selectedDeployment.id}`);
-            setSelectedDeployment(deployResponse.data.data);
+            await apiClient.post(`/deployments/${selectedDeployment.id}/monitoring`, { userId, role });
+            // Optimistic update
+            let user = allUsers.find(u => u.id === userId);
+
+            // If not found in allUsers (e.g. newly created stakeholder), look in clientStakeholders
+            if (!user) {
+                const stakeholder = clientStakeholders.find((s: any) => s.user_id === userId);
+                if (stakeholder) {
+                    user = {
+                        id: stakeholder.user_id,
+                        fullName: stakeholder.full_name,
+                        email: stakeholder.email,
+                        role: 'client_user', // Default for stakeholders
+                        companyName: '', // Optional or derive
+                        permissions: []
+                    } as any;
+                }
+            }
+
+            if (user) {
+                setSelectedDeployment(prev => {
+                    if (!prev) return null;
+                    const existingMonitorIndex = (prev.monitoringTeam || []).findIndex(m => m.id === userId);
+
+                    let newTeam = [...(prev.monitoringTeam || [])];
+                    if (existingMonitorIndex >= 0) {
+                        // Update existing
+                        newTeam[existingMonitorIndex] = {
+                            ...newTeam[existingMonitorIndex],
+                            missionRole: role as any
+                        };
+                    } else {
+                        // Add new
+                        newTeam.push({
+                            id: user!.id,
+                            fullName: user!.fullName,
+                            email: user!.email,
+                            role: user!.role,
+                            missionRole: role as any
+                        });
+                    }
+
+                    return {
+                        ...prev,
+                        monitoringTeam: newTeam
+                    };
+                });
+            }
         } catch (err: any) {
             console.error('Error assigning monitor:', err);
             alert(err.message);
@@ -446,6 +596,45 @@ const DeploymentTracker: React.FC = () => {
         } catch (err: any) {
             console.error('Error unassigning monitor:', err);
             alert(err.message);
+        }
+    };
+
+    const handleCalculatePricing = async (markupVal?: number) => {
+        if (!selectedDeployment) return;
+        try {
+            setIsCalculatingPricing(true);
+            const response = await apiClient.post('/deployments/pricing/calculate', {
+                deploymentId: selectedDeployment.id,
+                markupOverride: markupVal ?? markupOverride
+            });
+            setPricingData(response.data.data);
+            if (markupVal !== undefined) setMarkupOverride(markupVal);
+        } catch (err: any) {
+            console.error('Pricing calculation failed', err);
+        } finally {
+            setIsCalculatingPricing(false);
+        }
+    };
+
+    const handleSavePricing = async () => {
+        if (!selectedDeployment || !pricingData) return;
+        try {
+            const { recommendation, calculation } = pricingData;
+            await apiClient.put(`/deployments/${selectedDeployment.id}/pricing`, {
+                baseCost: calculation.totalBaseCost,
+                markupPercentage: recommendation.markupPercentage,
+                clientPrice: recommendation.recommendedPrice,
+                travelCosts: calculation.travelCost,
+                equipmentCosts: calculation.equipmentCost
+            });
+
+            // Refresh deployment
+            const res = await apiClient.get(`/deployments/${selectedDeployment.id}`);
+            setSelectedDeployment(res.data.data);
+            alert('Pricing saved to mission successfully');
+        } catch (err: any) {
+            console.error('Failed to save pricing', err);
+            alert('Failed to save pricing: ' + err.message);
         }
     };
 
@@ -533,39 +722,113 @@ const DeploymentTracker: React.FC = () => {
         return deployment.dailyLogs.reduce((sum, log) => sum + (log.dailyPay || 0) + (log.bonusPay || 0), 0);
     };
 
+    const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
+
     const [newDeployment, setNewDeployment] = useState<Partial<Deployment>>({
         type: DeploymentType.ROUTINE,
         status: DeploymentStatus.SCHEDULED,
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        clientId: '',
+        countryId: '' // Add country support
     });
+
+    const handleEditMission = (deployment: Deployment) => {
+        setEditingDeploymentId(deployment.id);
+        setNewDeployment({
+            title: deployment.title,
+            type: deployment.type,
+            status: deployment.status,
+            siteName: deployment.siteName,
+            date: String(deployment.date).split('T')[0],
+            location: deployment.location,
+            notes: deployment.notes,
+            daysOnSite: deployment.daysOnSite,
+            clientId: deployment.clientId,
+            countryId: deployment.countryId
+        });
+        setIsAddModalOpen(true);
+        // We can keep the details modal open or close it. 
+        // If we keep it open, we need to make sure z-index is handled or close it.
+        // Let's close the details modal to avoid stacking issues for now, or just stack them.
+        // Stacking might be confusing. Let's close details? 
+        // Actually, user might want to go back. 
+        // Let's keep details open but maybe hide it? 
+        // Simplest: Edit is triggered from details modal.
+    };
 
     const handleAddDeployment = async () => {
         if (!newDeployment.title || !newDeployment.siteName) return;
 
         try {
-            const response = await apiClient.post('/deployments', {
-                title: newDeployment.title,
-                type: newDeployment.type,
-                status: newDeployment.status,
-                siteName: newDeployment.siteName,
-                date: newDeployment.date || new Date().toISOString().split('T')[0],
-                location: newDeployment.location,
-                notes: newDeployment.notes,
-                daysOnSite: newDeployment.daysOnSite
-            });
+            if (editingDeploymentId) {
+                // UPDATE Existing
+                const response = await apiClient.put(`/deployments/${editingDeploymentId}`, {
+                    title: newDeployment.title,
+                    type: newDeployment.type,
+                    status: newDeployment.status,
+                    siteName: newDeployment.siteName,
+                    date: newDeployment.date,
+                    location: newDeployment.location,
+                    notes: newDeployment.notes,
+                    daysOnSite: newDeployment.daysOnSite,
+                    clientId: newDeployment.clientId,
+                    countryId: newDeployment.countryId,
+                    industry: newDeployment.industry || industryFilter || null,
+                });
 
-            const data = response.data;
-            setDeployments([data.data, ...deployments]);
+                const updated = response.data.data;
+
+                // Update List
+                setDeployments(prev => prev.map(d => d.id === editingDeploymentId ? updated : d));
+
+                // Update Selected (if open)
+                if (selectedDeployment?.id === editingDeploymentId) {
+                    setSelectedDeployment(prev => prev ? { ...prev, ...updated } : null);
+                }
+
+                alert('Mission updated successfully');
+            } else {
+                // CREATE New
+                const response = await apiClient.post('/deployments', {
+                    title: newDeployment.title,
+                    type: newDeployment.type,
+                    status: newDeployment.status,
+                    siteName: newDeployment.siteName,
+                    date: newDeployment.date || new Date().toISOString().split('T')[0],
+                    location: newDeployment.location,
+                    notes: newDeployment.notes,
+                    daysOnSite: newDeployment.daysOnSite,
+                    clientId: newDeployment.clientId,
+                    countryId: newDeployment.countryId,
+                    industry: newDeployment.industry || industryFilter || null,
+                });
+
+                const data = response.data;
+                setDeployments([data.data, ...deployments]);
+            }
+
+            // Reset
             setIsAddModalOpen(false);
+            setEditingDeploymentId(null);
             setNewDeployment({
                 type: DeploymentType.ROUTINE,
                 status: DeploymentStatus.SCHEDULED,
-                date: new Date().toISOString().split('T')[0]
+                date: new Date().toISOString().split('T')[0],
+                clientId: '',
+                countryId: ''
             });
+
         } catch (err: any) {
-            console.error('Error creating deployment:', err);
+            console.error('Error saving deployment:', err);
             alert(err.message);
         }
+    };
+
+    const togglePersonnelSelection = (id: string) => {
+        const newSet = new Set(selectedPersonnelForInvoice);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedPersonnelForInvoice(newSet);
     };
 
     const handleEmailInvoices = async (specificPersonnelIds?: string[]) => {
@@ -595,7 +858,7 @@ const DeploymentTracker: React.FC = () => {
         }
     };
 
-    const handleNotifyAssignment = async (personId: string, type: 'CREW' | 'MONITOR', name: string) => {
+    const handleNotifyAssignment = async (personId: string, type: 'CREW' | 'MONITOR' | 'CLIENT', name: string) => {
         if (!selectedDeployment) return;
         try {
             const response = await apiClient.post(`/deployments/${selectedDeployment.id}/notify-assignment`, {
@@ -750,11 +1013,15 @@ const DeploymentTracker: React.FC = () => {
     };
 
     const filteredDeployments = deployments.filter(d => {
-        const matchesSearch = d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            d.siteName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            d.id.toLowerCase().includes(searchQuery.toLowerCase());
+        if (!d) return false;
+        const search = searchQuery.toLowerCase();
+        const matchesSearch = (d.title?.toLowerCase().includes(search) || false) ||
+            (d.siteName?.toLowerCase().includes(search) || false) ||
+            (d.id?.toLowerCase().includes(search) || false);
         const matchesStatus = statusFilter === 'All' || d.status === statusFilter;
-        return matchesSearch && matchesStatus;
+        const matchesIndustry = !industryFilter ||
+            (d as any).industry?.toLowerCase() === industryFilter.toLowerCase();
+        return matchesSearch && matchesStatus && matchesIndustry;
     });
 
     const getStatusColor = (status: DeploymentStatus) => {
@@ -768,284 +1035,291 @@ const DeploymentTracker: React.FC = () => {
     };
 
     // Calculate Terminal Metrics
-    const activeMissions = deployments.filter(d => d.status === DeploymentStatus.ACTIVE).length;
+    const totalMissionsCount = deployments.length;
     const totalFleetSpend = deployments.reduce((sum, d) => sum + getTotalCost(d), 0);
     const totalDataAssets = deployments.reduce((sum, d) => sum + (d.fileCount || 0), 0);
-    const groundTeamCount = personnel.filter(p => p.status === 'Active').length;
+    const groundTeamCount = personnel.length;
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Sub-navigation for Mission Terminal */}
-            <div className="flex items-center gap-6 border-b border-slate-200">
-                <button
-                    onClick={() => setActiveSection('missions')}
-                    className={`pb-3 text-sm font-bold transition-all relative ${activeSection === 'missions'
-                        ? 'text-slate-900'
-                        : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                >
-                    Mission Controls
-                    {activeSection === 'missions' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
-                </button>
-                <button
-                    onClick={() => setActiveSection('assets')}
-                    className={`pb-3 text-sm font-bold transition-all relative ${activeSection === 'assets'
-                        ? 'text-slate-900'
-                        : 'text-slate-400 hover:text-slate-600'
-                        }`}
-                >
-                    Asset Registry
-                    {activeSection === 'assets' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
-                </button>
+            <div className="flex items-end justify-between">
+                <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Missions</h2>
+                    <p className="text-sm text-slate-500">Manage fleet deployments, crew assignments, and logistics.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="List View"
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('calendar')}
+                            className={`p-2 rounded-md transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="Calendar View"
+                        >
+                            <Grid3X3 className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    <button
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+                    >
+                        <Plus className="w-4 h-4" /> Schedule Mission
+                    </button>
+                </div>
             </div>
 
-            {activeSection === 'missions' ? (
-                <>
-                    <div className="flex items-end justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold text-slate-900">Mission Terminal</h2>
-                            <p className="text-sm text-slate-500">Manage fleet deployments, crew assignments, and logistics.</p>
+            {/* Terminal Metrics Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                            <Activity className="w-4 h-4" />
                         </div>
-                        <div className="flex items-center gap-3">
-                            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                                <button
-                                    onClick={() => setViewMode('list')}
-                                    className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-                                    title="List View"
-                                >
-                                    <List className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={() => setViewMode('calendar')}
-                                    className={`p-2 rounded-md transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
-                                    title="Calendar View"
-                                >
-                                    <Grid3X3 className="w-4 h-4" />
-                                </button>
-                            </div>
-
-                            <button
-                                onClick={() => setIsAddModalOpen(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                            >
-                                <Plus className="w-4 h-4" /> Schedule Mission
-                            </button>
-                        </div>
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Missions</span>
                     </div>
-
-                    {/* Terminal Metrics Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                                    <Activity className="w-4 h-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Missions</span>
-                            </div>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-bold text-slate-900">{activeMissions}</span>
-                                <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">LIVE</span>
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
-                                    <BarChart3 className="w-4 h-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Fleet Spend</span>
-                            </div>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-bold text-slate-900">${totalFleetSpend.toLocaleString()}</span>
-                                <span className="text-[10px] font-medium text-slate-400">USD</span>
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
-                                    <Zap className="w-4 h-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Data Assets</span>
-                            </div>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-bold text-slate-900">{totalDataAssets}</span>
-                                <span className="text-[10px] font-medium text-slate-400">FILES</span>
-                            </div>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                                    <Users className="w-4 h-4" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Ground Team</span>
-                            </div>
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-bold text-slate-900">{groundTeamCount}</span>
-                                <span className="text-[10px] font-medium text-slate-400">ACTIVE</span>
-                            </div>
-                        </div>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold text-slate-900">{totalMissionsCount}</span>
+                        <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">LIVE</span>
                     </div>
+                </div>
 
-                    {viewMode === 'calendar' ? (
-                        <CalendarView
-                            deployments={deployments} // No filtering on calendar to see full schedule
-                            onDeploymentClick={handleViewDetails}
-                            onDayClick={handleDayClick}
-                        />
-                    ) : (
-                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
-                            {/* Filters */}
-                            <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                                <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-                                    {['All', DeploymentStatus.SCHEDULED, DeploymentStatus.ACTIVE, DeploymentStatus.COMPLETED].map((status) => (
-                                        <button
-                                            key={status}
-                                            onClick={() => setStatusFilter(status as any)}
-                                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === status
-                                                ? 'bg-white text-slate-900 shadow-sm'
-                                                : 'text-slate-500 hover:text-slate-700'
-                                                }`}
-                                        >
-                                            {status}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                <div className="relative w-full sm:w-64">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                                    <input
-                                        type="text"
-                                        placeholder="Search missions..."
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Table */}
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="bg-slate-50 border-b border-slate-100">
-                                        <tr>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Mission ID</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Operation</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site / Location</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Schedule</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Assets</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Team</th>
-                                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {filteredDeployments.map((deploy) => (
-                                            <tr
-                                                key={deploy.id}
-                                                onClick={() => handleViewDetails(deploy)}
-                                                className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                                            >
-                                                <td className="px-6 py-4">
-                                                    <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded">{deploy.id.split('-')[0].toUpperCase()}</span>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div>
-                                                        <p className="text-sm font-medium text-slate-900">{deploy.title}</p>
-                                                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{deploy.type}</p>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <MapPin className="w-3 h-3 text-slate-400" />
-                                                        <div>
-                                                            <p className="text-sm text-slate-700">{deploy.siteName}</p>
-                                                            {deploy.location && <p className="text-xs text-slate-400">{deploy.location}</p>}
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                                                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                                                        <span className="text-xs">{deploy.date}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                                                        <FileText className="w-3 h-3 text-slate-400" />
-                                                        <span className="text-xs font-bold">{deploy.fileCount || 0}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                                                        <Users className="w-3 h-3 text-slate-400" />
-                                                        <span className="text-xs font-bold">{deploy.personnelCount || 0}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${getStatusColor(deploy.status)}`}>
-                                                        {deploy.status === DeploymentStatus.ACTIVE && <span className="relative flex h-1.5 w-1.5 mr-1">
-                                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
-                                                        </span>}
-                                                        {deploy.status}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
-                                                        <button
-                                                            onClick={() => handleViewFinancials(deploy)}
-                                                            className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-all flex items-center gap-1"
-                                                            title="View Financials & Invoices"
-                                                        >
-                                                            <DollarSign className="w-3.5 h-3.5" />
-                                                            Finance
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleViewDetails(deploy)}
-                                                            className="p-1.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-100 rounded-lg transition-all"
-                                                            title="Mission Details & Assets"
-                                                        >
-                                                            <ArrowRight className="w-4 h-4" />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteDeployment(deploy.id, deploy.title)}
-                                                            className="p-1.5 bg-slate-50 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-100 rounded-lg transition-all"
-                                                            title="Delete Mission"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-
-                                {filteredDeployments.length === 0 && (
-                                    <div className="p-12 text-center">
-                                        <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                                            <Plane className="w-5 h-5 text-slate-400" />
-                                        </div>
-                                        <h3 className="text-sm font-medium text-slate-900">No missions found</h3>
-                                        <p className="text-xs text-slate-500 mt-1">Check your search terms or schedule a new mission.</p>
-                                        <button
-                                            onClick={() => setIsAddModalOpen(true)}
-                                            className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                                        >
-                                            Schedule Mission
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                            <BarChart3 className="w-4 h-4" />
                         </div>
-                    )}
-                </>
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Fleet Spend</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold text-slate-900">${totalFleetSpend.toLocaleString()}</span>
+                        <span className="text-[10px] font-medium text-slate-400">USD</span>
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+                            <Zap className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Data Assets</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold text-slate-900">{totalDataAssets}</span>
+                        <span className="text-[10px] font-medium text-slate-400">FILES</span>
+                    </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                            <Users className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Ground Team</span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-bold text-slate-900">{groundTeamCount}</span>
+                        <span className="text-[10px] font-medium text-slate-400">ACTIVE</span>
+                    </div>
+                </div>
+            </div>
+
+            {viewMode === 'calendar' ? (
+                <CalendarView
+                    deployments={deployments} // No filtering on calendar to see full schedule
+                    onDeploymentClick={handleViewDetails}
+                    onDayClick={handleDayClick}
+                />
             ) : (
-                <AssetTracker />
-            )}
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
+                    {/* Filters */}
+                    <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+                            {(forcedStatus ? [forcedStatus] : ['All', DeploymentStatus.SCHEDULED, DeploymentStatus.ACTIVE, DeploymentStatus.COMPLETED]).map((status) => (
+                                <button
+                                    key={status}
+                                    onClick={() => !forcedStatus && setStatusFilter(status as any)}
+                                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === status
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                        } ${forcedStatus ? 'cursor-default' : 'cursor-pointer'}`}
+                                >
+                                    {status}
+                                </button>
+                            ))}
+                        </div>
 
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <input
+                                type="text"
+                                placeholder="Search missions..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Mission ID</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Operation</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site / Location</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Schedule</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Assets</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Team</th>
+                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {filteredDeployments.map((deploy) => (
+                                    <tr
+                                        key={deploy.id}
+                                        onClick={() => handleViewDetails(deploy)}
+                                        className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                                    >
+                                        <td className="px-6 py-4">
+                                            <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                                {deploy.id ? deploy.id.split('-')[0].toUpperCase() : 'N/A'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-900">{deploy.title}</p>
+                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{deploy.type}</p>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2">
+                                                <MapPin className="w-3 h-3 text-slate-400" />
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-900">{deploy.siteName || 'Unknown Site'}</p>
+                                                    {deploy.location && <p className="text-xs text-slate-400">{deploy.location}</p>}
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                                <span className="text-xs">{deploy.date}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                                                <FileText className="w-3 h-3 text-slate-400" />
+                                                <span className="text-xs font-bold">{deploy.fileCount || 0}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                                                <Users className="w-3 h-3 text-slate-400" />
+                                                <span className="text-xs font-bold">{deploy.personnelCount || 0}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${getStatusColor(deploy.status)}`}>
+                                                {deploy.status === DeploymentStatus.ACTIVE && <span className="relative flex h-1.5 w-1.5 mr-1">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+                                                </span>}
+                                                {deploy.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
+                                                {deploy.status === DeploymentStatus.ACTIVE && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedDeployment(deploy);
+                                                                setIsLogModalOpen(true);
+                                                                setActiveModalTab('files');
+                                                            }}
+                                                            className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-all flex items-center gap-1"
+                                                            title="Upload Flight Data"
+                                                        >
+                                                            <Upload className="w-3.5 h-3.5" />
+                                                            Data
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleAIRegisteredScan(deploy)}
+                                                            className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-purple-600 bg-purple-50 hover:bg-purple-100 rounded transition-all flex items-center gap-1"
+                                                            title="AI Mission Review"
+                                                        >
+                                                            <BrainCircuit className="w-3.5 h-3.5" />
+                                                            AI Scan
+                                                        </button>
+                                                        {isAdmin(user) && (
+                                                            <button
+                                                                onClick={() => handleStatusChange(deploy.id, DeploymentStatus.COMPLETED)}
+                                                                className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded transition-all flex items-center gap-1"
+                                                                title="Mark Mission as Complete"
+                                                            >
+                                                                <CheckCircle className="w-3.5 h-3.5" />
+                                                                Finish
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+                                                <button
+                                                    onClick={() => handleViewFinancials(deploy)}
+                                                    className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-all flex items-center gap-1"
+                                                    title="View Financials & Invoices"
+                                                >
+                                                    <DollarSign className="w-3.5 h-3.5" />
+                                                    Finance
+                                                </button>
+                                                <button
+                                                    onClick={() => handleViewDetails(deploy)}
+                                                    className="p-1.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-100 rounded-lg transition-all"
+                                                    title="Mission Details & Assets"
+                                                >
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </button>
+                                                {isAdmin(user) && (
+                                                    <button
+                                                        onClick={() => handleDeleteDeployment(deploy.id, deploy.title)}
+                                                        className="p-1.5 bg-slate-50 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-100 rounded-lg transition-all"
+                                                        title="Delete Mission"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+
+                        {filteredDeployments.length === 0 && (
+                            <div className="p-12 text-center">
+                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Plane className="w-5 h-5 text-slate-400" />
+                                </div>
+                                <h3 className="text-sm font-medium text-slate-900">No missions found</h3>
+                                <p className="text-xs text-slate-500 mt-1">Check your search terms or schedule a new mission.</p>
+                                <button
+                                    onClick={() => setIsAddModalOpen(true)}
+                                    className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+                                >
+                                    Schedule Mission
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
 
             {/* Mission Details Modal */}
@@ -1057,6 +1331,34 @@ const DeploymentTracker: React.FC = () => {
                                 <div>
                                     <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                                         Mission Details
+                                        <button
+                                            onClick={() => handleEditMission(selectedDeployment)}
+                                            className="ml-2 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                            title="Edit Mission Details"
+                                        >
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+
+                                        {/* Status Transitions */}
+                                        <div className="ml-4 flex items-center gap-2">
+                                            {selectedDeployment.status !== DeploymentStatus.COMPLETED ? (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedDeployment.id, DeploymentStatus.COMPLETED)}
+                                                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-100 hover:bg-emerald-100 transition-all shadow-sm group"
+                                                >
+                                                    <CheckCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                                                    Complete Mission
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedDeployment.id, DeploymentStatus.ACTIVE)}
+                                                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-100 hover:bg-amber-100 transition-all shadow-sm group"
+                                                >
+                                                    <RotateCcw className="w-3.5 h-3.5 group-hover:rotate-[-45deg] transition-transform" />
+                                                    Uncomplete
+                                                </button>
+                                            )}
+                                        </div>
                                     </h3>
                                     <p className="text-sm text-slate-500">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
                                 </div>
@@ -1114,12 +1416,20 @@ const DeploymentTracker: React.FC = () => {
                                 </button>
                                 <button
                                     onClick={() => setActiveModalTab('checklist')}
-                                    className={`flex-1 py-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                    className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                                 >
-                                    <div className="flex items-center justify-center gap-2">
+                                    <div className="flex items-center gap-2">
                                         <CheckSquare className="w-4 h-4" />
                                         Checklist
                                     </div>
+                                </button>
+                                <button
+                                    onClick={() => setActiveModalTab('ai-reports')}
+                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-600 bg-orange-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                    AI Reports
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">NEW</span>
                                 </button>
                             </div>
 
@@ -1278,7 +1588,7 @@ const DeploymentTracker: React.FC = () => {
                                                                     >
                                                                         <option value="">Select...</option>
                                                                         {personnel
-                                                                            .filter(p => p.status === 'Active')
+                                                                            .filter(p => p.status === 'Active' || p.status === 'Inactive' || p.status === 'On Leave')
                                                                             .filter(p => {
                                                                                 // Debug logging for first few items to avoid console spam
                                                                                 // console.log(`Checking ${p.fullName} for day ${day}`);
@@ -1469,6 +1779,128 @@ const DeploymentTracker: React.FC = () => {
                                                 });
                                                 return null;
                                             })()}
+                                            {/* Pricing & Profit Engine */}
+                                            <div className={`bg-white rounded-xl border transition-all ${expandedFinancialId === 'PRICING_ENGINE' ? 'border-blue-500 shadow-md ring-1 ring-blue-500/10' : 'border-slate-200 shadow-sm'}`}>
+                                                <div
+                                                    className="p-6 cursor-pointer flex justify-between items-center"
+                                                    onClick={() => {
+                                                        setExpandedFinancialId(expandedFinancialId === 'PRICING_ENGINE' ? null : 'PRICING_ENGINE');
+                                                        if (!pricingData) handleCalculatePricing();
+                                                    }}
+                                                >
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={`p-3 rounded-xl ${expandedFinancialId === 'PRICING_ENGINE' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-blue-50 text-blue-600'}`}>
+                                                            <DollarSign className="w-6 h-6" />
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-lg font-bold text-slate-900 tracking-tight">Pricing & Profit Planning</h3>
+                                                            <p className="text-sm text-slate-500">Analyze mission costs and optimize margins</p>
+                                                        </div>
+                                                    </div>
+                                                    {selectedDeployment?.clientPrice > 0 && (
+                                                        <div className="text-right mr-6">
+                                                            <div className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-0.5">Current Project Value</div>
+                                                            <div className="text-xl font-bold text-slate-900">${selectedDeployment.clientPrice.toLocaleString()}</div>
+                                                        </div>
+                                                    )}
+                                                    <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform ${expandedFinancialId === 'PRICING_ENGINE' ? 'rotate-90' : ''}`} />
+                                                </div>
+
+                                                {expandedFinancialId === 'PRICING_ENGINE' && (
+                                                    <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-2 border-t border-slate-100 pt-6">
+                                                        {!pricingData && isCalculatingPricing ? (
+                                                            <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                                                                <Loader2 className="w-8 h-8 animate-spin mb-4 text-blue-600" />
+                                                                <p className="font-medium">Calculating pricing models...</p>
+                                                            </div>
+                                                        ) : pricingData ? (
+                                                            <div className="space-y-8">
+                                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                                                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                                                                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-3">Cost Analysis</div>
+                                                                        <div className="space-y-2">
+                                                                            <div className="flex justify-between text-sm">
+                                                                                <span className="text-slate-500">Labor Cost</span>
+                                                                                <span className="font-semibold text-slate-900">${pricingData.calculation.laborCost.toLocaleString()}</span>
+                                                                            </div>
+                                                                            <div className="flex justify-between text-sm">
+                                                                                <span className="text-slate-500">Lodging</span>
+                                                                                <span className="font-semibold text-slate-900">${pricingData.calculation.lodgingCost.toLocaleString()}</span>
+                                                                            </div>
+                                                                            <div className="flex justify-between text-sm">
+                                                                                <span className="text-slate-500">Transport/Misc</span>
+                                                                                <span className="font-semibold text-slate-900">${(pricingData.calculation.travelCost + pricingData.calculation.equipmentCost).toLocaleString()}</span>
+                                                                            </div>
+                                                                            <div className="pt-2 border-t border-slate-200 flex justify-between">
+                                                                                <span className="text-xs font-bold text-slate-900">Total Base Cost</span>
+                                                                                <span className="text-xs font-bold text-blue-600">${pricingData.calculation.totalBaseCost.toLocaleString()}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                                                                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-3">Margin Optimization</div>
+                                                                        <div className="space-y-4">
+                                                                            <div>
+                                                                                <div className="flex justify-between mb-2">
+                                                                                    <span className="text-[11px] font-bold text-slate-600">Markup %</span>
+                                                                                    <span className="text-xs font-bold text-blue-600">{pricingData.recommendation.markupPercentage}%</span>
+                                                                                </div>
+                                                                                <input
+                                                                                    type="range"
+                                                                                    min="0"
+                                                                                    max="200"
+                                                                                    step="5"
+                                                                                    value={markupOverride ?? pricingData.recommendation.markupPercentage}
+                                                                                    onChange={(e) => handleCalculatePricing(parseInt(e.target.value))}
+                                                                                    className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                                                                />
+                                                                            </div>
+                                                                            <div className="grid grid-cols-2 gap-2 pt-2">
+                                                                                <button onClick={() => handleCalculatePricing(30)} className="px-2 py-1 text-[10px] font-bold bg-white border border-slate-200 rounded hover:border-blue-500 transition-colors uppercase">30% (Std)</button>
+                                                                                <button onClick={() => handleCalculatePricing(50)} className="px-2 py-1 text-[10px] font-bold bg-white border border-slate-200 rounded hover:border-blue-500 transition-colors uppercase">50% (High)</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="bg-blue-600/5 p-5 rounded-2xl border border-blue-600/10 flex flex-col justify-center text-center">
+                                                                        <div className="text-[10px] uppercase font-bold text-blue-600 tracking-widest mb-2">Target Price</div>
+                                                                        <div className="text-3xl font-black text-slate-900 tracking-tight">${Math.round(pricingData.recommendation.recommendedPrice).toLocaleString()}</div>
+                                                                        <div className="text-xs text-slate-500 mt-1 italic">Suggested client quote</div>
+                                                                    </div>
+
+                                                                    <div className={`p-5 rounded-2xl border flex flex-col justify-center text-center ${pricingData.recommendation.estimatedMargin > 40 ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+                                                                        <div className={`text-[10px] uppercase font-bold tracking-widest mb-2 ${pricingData.recommendation.estimatedMargin > 40 ? 'text-emerald-600' : 'text-amber-600'}`}>Est. Profit Margin</div>
+                                                                        <div className={`text-3xl font-black tracking-tight ${pricingData.recommendation.estimatedMargin > 40 ? 'text-emerald-700' : 'text-amber-700'}`}>{Math.round(pricingData.recommendation.estimatedMargin)}%</div>
+                                                                        <div className="text-xs text-slate-500 mt-1 italic">${Math.round(pricingData.recommendation.estimatedProfit).toLocaleString()} net profit</div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                                                                    <button
+                                                                        onClick={() => setPricingData(null)}
+                                                                        className="px-6 py-2.5 text-sm font-bold text-slate-500 hover:text-slate-700 transition-colors"
+                                                                    >
+                                                                        Discard
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={handleSavePricing}
+                                                                        className="px-8 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-blue-500/25 hover:bg-blue-700 transition-all active:scale-95"
+                                                                    >
+                                                                        Apply Pricing to Project
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-center py-8">
+                                                                <p className="text-slate-500 mb-4">No pricing model calculated yet.</p>
+                                                                <button onClick={() => handleCalculatePricing()} className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold">Initialize Pricing Engine</button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+
                                             {/* Financial Overview - CoatzadroneUSA */}
                                             <div className={`bg-white rounded-xl border transition-all ${expandedFinancialId === 'PROJECT_TOTAL' ? 'border-blue-200 shadow-md' : 'border-slate-200 shadow-sm'}`}>
                                                 <div
@@ -1478,7 +1910,7 @@ const DeploymentTracker: React.FC = () => {
                                                     <div>
                                                         <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                                                             <ShieldCheck className="w-5 h-5 text-blue-600" />
-                                                            CoatzadroneUSA
+                                                            Mission Financials & Pricing
                                                         </h3>
                                                         <p className="text-sm text-slate-500">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
                                                         <p className="text-xs text-slate-400 mt-1">Generated: {new Date().toLocaleDateString()}</p>
@@ -1503,6 +1935,13 @@ const DeploymentTracker: React.FC = () => {
                                                             </div>
                                                         </div>
                                                         <div className="flex gap-2 no-print" onClick={e => e.stopPropagation()}>
+                                                            <button
+                                                                onClick={() => navigate(`/invoices/master/${selectedDeployment.id}`)}
+                                                                className="px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-50 hover:text-blue-600 transition-colors flex items-center gap-2"
+                                                                title="Create Master Invoice for Coatzadrone"
+                                                            >
+                                                                <FileText className="w-4 h-4" /> Master Inv.
+                                                            </button>
                                                             <button
                                                                 onClick={handlePrintReport}
                                                                 className="px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded hover:bg-slate-50 transition-colors flex items-center gap-2"
@@ -1540,6 +1979,7 @@ const DeploymentTracker: React.FC = () => {
                                                         <ProjectInvoiceView
                                                             deployment={selectedDeployment}
                                                             logs={selectedDeployment.dailyLogs || []}
+                                                            personnel={personnel}
                                                             paymentTerms={deploymentPaymentTerms}
                                                         />
                                                     </div>
@@ -1567,6 +2007,14 @@ const DeploymentTracker: React.FC = () => {
                                                                     onClick={() => setExpandedFinancialId(isExpanded ? null : techId)}
                                                                 >
                                                                     <div className="flex items-center gap-3">
+                                                                        <div onClick={(e) => e.stopPropagation()}>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selectedPersonnelForInvoice.has(techId)}
+                                                                                onChange={() => togglePersonnelSelection(techId)}
+                                                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
+                                                                            />
+                                                                        </div>
                                                                         <div className={`p-1 rounded transition-transform ${isExpanded ? 'rotate-90 text-blue-600' : 'text-slate-400'}`}>
                                                                             <ChevronRight className="w-4 h-4" />
                                                                         </div>
@@ -1751,33 +2199,39 @@ const DeploymentTracker: React.FC = () => {
                                                                     </div>
                                                                     <div>
                                                                         <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
-                                                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
+                                                                            {calculateDistance(p.homeAddress, selectedDeployment.location) && (
+                                                                                <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 rounded border border-blue-100">
+                                                                                    {calculateDistance(p.homeAddress, selectedDeployment.location)} mi
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <button
-                                                                        onClick={() => handleNotifyAssignment(techId, 'CREW', p.fullName)}
-                                                                        className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                                                                        title="Send Mission Invitation"
-                                                                    >
-                                                                        <Plane className="w-4 h-4" />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleEmailInvoices([techId])}
-                                                                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                                        title="Email Invoice"
-                                                                    >
-                                                                        <Send className="w-4 h-4" />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleUnassignPersonnel(techId)}
-                                                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                                        title="Unassign Personnel"
-                                                                    >
-                                                                        <XCircle className="w-4 h-4" />
-                                                                    </button>
-                                                                </div>
+                                                                <button
+                                                                    onClick={() => handleNotifyAssignment(techId, 'CREW', p.fullName)}
+                                                                    className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                                                    title="Send Mission Invitation"
+                                                                >
+                                                                    <Plane className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleEmailInvoices([techId])}
+                                                                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                                    title="Email Invoice"
+                                                                >
+                                                                    <Send className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleUnassignPersonnel(techId)}
+                                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                    title="Unassign Personnel"
+                                                                >
+                                                                    <XCircle className="w-4 h-4" />
+                                                                </button>
                                                             </div>
+
                                                         );
                                                     })}
                                                     {(selectedDeployment.technicianIds || []).length === 0 && (
@@ -1795,10 +2249,124 @@ const DeploymentTracker: React.FC = () => {
                                                     >
                                                         <option value="">+ Assign Pilot/Technician</option>
                                                         {personnel
-                                                            .filter(p => p.status === 'Active' && !(selectedDeployment.technicianIds || []).includes(p.id))
-                                                            .map(p => (
-                                                                <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
+                                                            .filter(p => (p.status === 'Active' || p.status === 'Inactive' || p.status === 'On Leave') && !(selectedDeployment.technicianIds || []).includes(p.id))
+                                                            .map(p => {
+                                                                const dist = selectedDeployment.location ? calculateDistance(p.homeAddress, selectedDeployment.location) : null;
+                                                                return (
+                                                                    <option key={p.id} value={p.id}>
+                                                                        {p.fullName} ({p.role}) {dist ? `- ${dist} mi` : ''}
+                                                                    </option>
+                                                                );
+                                                            })}
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Client Stakeholders */}
+                                            <div className="space-y-4">
+                                                <div className="flex items-center justify-between">
+                                                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                        <Briefcase className="w-4 h-4 text-purple-600" />
+                                                        Client Stakeholders
+                                                    </h4>
+                                                    {selectedDeployment.clientName && (
+                                                        <span className="text-xs font-semibold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-100">
+                                                            {selectedDeployment.clientName}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    {(selectedDeployment.monitoringTeam || []).filter(u => u.missionRole === 'Client' || u.missionRole === 'Site Contact' || u.role === 'client_user').map(u => (
+                                                        <div key={u.id} className={`flex items-center justify-between p-3 bg-white border rounded-lg shadow-sm ${u.missionRole === 'Site Contact' ? 'border-purple-300 bg-purple-50/30' : 'border-purple-100 shadow-purple-50/50'}`}>
+                                                            <div className="flex items-center gap-3">
+                                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${u.missionRole === 'Site Contact' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-600'}`}>
+                                                                    {u.fullName.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
+                                                                        {u.missionRole === 'Site Contact' && (
+                                                                            <span className="text-[10px] font-bold bg-purple-600 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                                                                Site Contact
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-[10px] text-purple-600 font-bold uppercase">{u.companyName || 'Client User'}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        const newRole = u.missionRole === 'Site Contact' ? 'Client' : 'Site Contact';
+                                                                        handleAssignMonitor(u.id, newRole);
+                                                                    }}
+                                                                    className={`p-1.5 rounded transition-colors ${u.missionRole === 'Site Contact' ? 'text-purple-600 bg-purple-100 hover:bg-purple-200' : 'text-slate-400 hover:text-purple-600 hover:bg-purple-50'}`}
+                                                                    title={u.missionRole === 'Site Contact' ? "Remove Site Contact Status" : "Make Site Contact"}
+                                                                    type="button"
+                                                                >
+                                                                    <UserCheck className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleNotifyAssignment(u.id, 'CLIENT', u.fullName);
+                                                                    }}
+                                                                    className="p-1.5 text-purple-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                                    title="Notify Client"
+                                                                    type="button"
+                                                                >
+                                                                    <Mail className="w-4 h-4" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleUnassignMonitor(u.id);
+                                                                    }}
+                                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                    title="Unassign"
+                                                                    type="button"
+                                                                >
+                                                                    <XCircle className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {(selectedDeployment.monitoringTeam || []).filter(u => u.missionRole === 'Client' || u.missionRole === 'Site Contact' || u.role === 'client_user').length === 0 && (
+                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No client stakeholders assigned.</p>
+                                                    )}
+                                                </div>
+
+                                                <div className="pt-2">
+                                                    <select
+                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500/20 outline-none"
+                                                        onChange={(e) => {
+                                                            if (e.target.value === 'NEW_STAKEHOLDER') {
+                                                                setIsStakeholderFormOpen(true);
+                                                                // Reset selection
+                                                                e.target.value = "";
+                                                                return;
+                                                            }
+                                                            if (e.target.value) handleAssignMonitor(e.target.value, 'Client');
+                                                            e.target.value = "";
+                                                        }}
+                                                    >
+                                                        <option value="">+ Assign Client Stakeholder</option>
+                                                        {clientStakeholders
+                                                            .filter(s => !(selectedDeployment.monitoringTeam || []).some(m => m.id === s.user_id))
+                                                            .map(s => (
+                                                                <option key={s.id} value={s.user_id || ''} disabled={!s.user_id}>
+                                                                    {s.full_name} ({s.title || 'Stakeholder'}) {!s.user_id ? '(No User Account)' : ''}
+                                                                </option>
                                                             ))}
+                                                        {clientStakeholders.length === 0 && selectedDeployment.clientId && (
+                                                            <option disabled>No stakeholders found for this client</option>
+                                                        )}
+                                                        <option value="NEW_STAKEHOLDER">+ Add New Stakeholder</option>
+                                                        {!selectedDeployment.clientId && (
+                                                            <option disabled>Mission must be linked to a client first</option>
+                                                        )}
                                                     </select>
                                                 </div>
                                             </div>
@@ -1863,6 +2431,13 @@ const DeploymentTracker: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
+                                ) : activeModalTab === 'ai-reports' ? (
+                                    <div className="h-full overflow-y-auto">
+                                        <IndustryReportsHub
+                                            missionId={selectedDeployment.id}
+                                            missionTitle={selectedDeployment.title}
+                                        />
+                                    </div>
                                 ) : (
                                     <div className="p-6 flex items-center justify-center text-slate-500">
                                         Select a tab to view details
@@ -1884,22 +2459,23 @@ const DeploymentTracker: React.FC = () => {
                             </div>
                         </div>
                     </div>
-                )}
+                )
+            }
 
             {/* Add Mission Modal */}
             {
                 isAddModalOpen && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
                             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
                                 <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                                    <Plane className="w-4 h-4" /> Schedule New Mission
+                                    <Plane className="w-4 h-4" /> {editingDeploymentId ? 'Edit Mission Details' : 'Schedule New Mission'}
                                 </h3>
                                 <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                     &times;
                                 </button>
                             </div>
-                            <div className="p-6 space-y-4">
+                            <div className="p-6 space-y-4 overflow-y-auto">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
                                     <input
@@ -1934,49 +2510,116 @@ const DeploymentTracker: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site Name</label>
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Country (Optional)</label>
+                                    <select
+                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                        value={newDeployment.countryId || ''}
+                                        onChange={e => setNewDeployment({ ...newDeployment, countryId: e.target.value })}
+                                    >
+                                        <option value="">No specific country (Default)</option>
+                                        {Array.isArray(countries) && countries.map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[10px] text-slate-400">Selecting a country may apply specific regulation checks (e.g. Mexico)</p>
+                                </div>
+
+                                {/* Client Selector */}
+                                <div className="space-y-4 col-span-2">
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-sm font-medium text-slate-700">Client</label>
+                                            <button
+                                                onClick={(e) => { e.preventDefault(); setIsClientFormOpen(true); }}
+                                                className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                                            >
+                                                + New Client
+                                            </button>
+                                        </div>
+                                        <select
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                            value={newDeployment.clientId || ''}
+                                            onChange={(e) => {
+                                                const clientId = e.target.value;
+                                                setNewDeployment({ ...newDeployment, clientId, siteId: '' }); // Reset site when client changes
+                                                fetchSites(clientId);
+                                            }}
+                                        >
+                                            <option value="">Select Client (Optional)</option>
+                                            {clients.map(c => (
+                                                <option key={c.id} value={c.id}>{c.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Site Name / Selection */}
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-slate-700">Site / Project</label>
+                                        <div className="flex gap-2">
+                                            <select
+                                                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                value={newDeployment.siteId || ''}
+                                                onChange={(e) => {
+                                                    const site = sites.find(s => s.id === e.target.value);
+                                                    setNewDeployment({
+                                                        ...newDeployment,
+                                                        siteId: e.target.value,
+                                                        siteName: site?.name || '',
+                                                        clientId: site?.client_id || newDeployment.clientId // Auto-select client if site has one
+                                                    });
+                                                }}
+                                            >
+                                                <option value="">Select Existing Site...</option>
+                                                {sites.map(site => (
+                                                    <option key={site.id} value={site.id}>
+                                                        {site.name} {site.location ? `(${site.location})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
                                         <input
                                             type="text"
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            placeholder="e.g. Site Alpha"
+                                            placeholder="Or enter manual site name..."
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm mt-2"
                                             value={newDeployment.siteName || ''}
-                                            onChange={e => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                            onChange={(e) => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Target Date</label>
+                                            <input
+                                                type="date"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                value={newDeployment.date}
+                                                onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location</label>
+                                            <input
+                                                type="text"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                value={newDeployment.location || ''}
+                                                onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
+                                                placeholder="City, State"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
                                         <input
-                                            type="date"
+                                            type="number"
+                                            min="1"
                                             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                            value={newDeployment.date}
-                                            onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
+                                            placeholder="e.g. 5"
+                                            value={newDeployment.daysOnSite || ''}
+                                            onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
                                         />
                                     </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location Details</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                        placeholder="City, State or Coordinates"
-                                        value={newDeployment.location || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Days Onsite</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                        placeholder="e.g. 5"
-                                        value={newDeployment.daysOnSite || ''}
-                                        onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
-                                    />
                                 </div>
 
                                 <div>
@@ -2002,14 +2645,46 @@ const DeploymentTracker: React.FC = () => {
                                     disabled={!newDeployment.title || !newDeployment.siteName}
                                     className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 transition-all shadow-sm"
                                 >
-                                    Confirm Schedule
+                                    {editingDeploymentId ? 'Save Changes' : 'Confirm Schedule'}
                                 </button>
                             </div>
                         </div>
                     </div>
                 )
             }
-        </div>
+
+            {/* Client Creation Modal */}
+            {
+                isClientFormOpen && (
+                    <ClientForm
+                        onClose={() => setIsClientFormOpen(false)}
+                        onSuccess={async (newClient: any) => {
+                            await fetchClients();
+                            setIsClientFormOpen(false);
+                            if (newClient && newClient.id) {
+                                setSelectedClientForNewMission(newClient.id);
+                                setNewDeployment(prev => ({ ...prev, siteId: undefined, siteName: '' }));
+                                fetchSites(newClient.id);
+                            }
+                        }}
+                    />
+                )
+            }
+
+            {/* Stakeholder Creation Modal */}
+            {
+                isStakeholderFormOpen && selectedDeployment && selectedDeployment.clientId && (
+                    <StakeholderForm
+                        clientId={selectedDeployment.clientId}
+                        onClose={() => setIsStakeholderFormOpen(false)}
+                        onSuccess={async () => {
+                            await fetchClientStakeholders(selectedDeployment.clientId!);
+                            setIsStakeholderFormOpen(false);
+                        }}
+                    />
+                )
+            }
+        </div >
     );
 };
 

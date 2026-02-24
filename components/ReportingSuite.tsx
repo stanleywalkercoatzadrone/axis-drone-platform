@@ -98,7 +98,7 @@ const ReportingSuite: React.FC = () => {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <h3 className="text-sm font-semibold text-slate-500 mb-4">Portfolio Health</h3>
+                    <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">Portfolio Health</h3>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -121,7 +121,7 @@ const ReportingSuite: React.FC = () => {
                     </div>
                     <div className="flex justify-center gap-4 mt-4">
                         {assetHealthData.map(item => (
-                            <div key={item.name} className="flex items-center gap-1.5 text-xs text-slate-600">
+                            <div key={item.name} className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
                                 {item.name}
                             </div>
@@ -131,7 +131,7 @@ const ReportingSuite: React.FC = () => {
 
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm md:col-span-2">
                     <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-sm font-semibold text-slate-500">Projected Repair Costs by Sector</h3>
+                        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Projected Repair Costs by Sector</h3>
                         <button className="text-xs text-blue-600 font-medium hover:underline">Download Report</button>
                     </div>
                     <div className="h-64">
@@ -149,7 +149,7 @@ const ReportingSuite: React.FC = () => {
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-500 mb-6">Inspection Activity vs. Issue Discovery</h3>
+                <h3 className="text-sm font-bold text-slate-700 mb-6 uppercase tracking-wider">Inspection Activity vs. Issue Discovery</h3>
                 <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={displayTrends}>
@@ -183,8 +183,8 @@ const ReportingSuite: React.FC = () => {
                         </div>
                         <div className="mt-2">
                             <h4 className="text-2xl font-bold text-slate-900">{stat.value}</h4>
-                            <p className="text-xs text-slate-500 font-medium">{stat.label}</p>
-                            <p className="text-[10px] text-slate-400 mt-1">{stat.sub}</p>
+                            <p className="text-xs text-slate-700 font-bold uppercase tracking-wider">{stat.label}</p>
+                            <p className="text-[10px] text-slate-500 mt-1 font-medium">{stat.sub}</p>
                         </div>
                     </div>
                 ))}

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle } from 'lucide-react';
-import { Deployment, DailyLog } from '../types';
+import { Deployment, DailyLog, Personnel } from '../types';
 import apiClient from '../src/services/apiClient';
 
 interface ProjectInvoiceViewProps {
     deployment: Deployment;
     logs: DailyLog[];
+    personnel: Personnel[];
     paymentTerms?: number;
 }
 
-const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, logs, paymentTerms }) => {
+const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, logs, personnel, paymentTerms }) => {
     const [paymentDays, setPaymentDays] = useState(paymentTerms || 30);
 
     useEffect(() => {
@@ -143,17 +144,30 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                             // It iterates `deployment.dailyLogs`.
                             // Let's look at `types.ts` or just safe check.
 
-                            const techName = (techLogs[0] as any).technician?.full_name || (techLogs[0] as any).technician?.fullName || 'Unknown Pilot';
+                            const techName = (techLogs[0] as any).technician?.full_name ||
+                                (techLogs[0] as any).technician?.fullName ||
+                                personnel.find(p => p.id === techId)?.fullName ||
+                                'Pilot';
                             const techTotal = techLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
 
                             return (
                                 <tr key={techId} className="group">
                                     <td className="py-4 text-slate-400">{index + 1}.</td>
-                                    <td className="py-4 px-4 font-bold text-slate-900 whitespace-nowrap">
-                                        {techName}
+                                    <td className="py-4 px-4 font-bold text-slate-900">
+                                        <div>{techName}</div>
+                                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 uppercase">
+                                            {personnel.find(p => p.id === techId)?.bankName || 'Bank on file'}
+                                            <br />
+                                            R: {personnel.find(p => p.id === techId)?.routingNumber ? String(personnel.find(p => p.id === techId)?.routingNumber).replace(/\D/g, '') : '••••'} • A: {personnel.find(p => p.id === techId)?.accountNumber ? String(personnel.find(p => p.id === techId)?.accountNumber).replace(/\D/g, '') : '••••'}
+                                        </div>
                                     </td>
                                     <td className="py-4 text-slate-500">
                                         Drone Inspection Services
+                                        {personnel.find(p => p.id === techId)?.swiftCode && (
+                                            <div className="text-[10px] text-slate-400 font-mono mt-0.5 uppercase italic">
+                                                SWIFT: {String(personnel.find(p => p.id === techId)?.swiftCode).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="py-4 text-center text-slate-700 font-medium">{techLogs.length}</td>
                                     <td className="py-4 text-right font-bold text-slate-900">
@@ -176,8 +190,41 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                 </div>
             </div>
 
-            <div className="text-right">
-                <p className="text-slate-400 text-xs">Generated automatically by Axis Platform</p>
+            {/* Ways to pay */}
+            <div className="border-t border-slate-100 pt-12 flex flex-col md:flex-row justify-between items-end gap-8">
+                <div className="max-w-md w-full">
+                    <h4 className="text-xl font-bold text-[#0376b1] mb-6">Ways to pay</h4>
+                    <div className="flex gap-4 mb-8">
+                        {[
+                            { label: 'VISA', color: 'text-blue-800' },
+                            { label: 'MC', color: 'text-red-600' },
+                            { label: 'AMEX', color: 'text-blue-500' },
+                            { label: 'VENMO', color: 'text-[#3d95ce]' },
+                            { label: 'PAYPAL', color: 'text-blue-900' }
+                        ].map((badge) => (
+                            <div key={badge.label} className="border border-slate-200 px-3 py-1 bg-white rounded-md shadow-sm">
+                                <span className={`text-[10px] font-black italic tracking-tighter ${badge.color}`}>{badge.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100">
+                        <p className="font-black text-slate-900 mb-3 tracking-tight">CoatzadroneUSA Project Account</p>
+                        <div className="space-y-2 text-slate-600 text-sm">
+                            <p className="flex justify-between border-b border-slate-200 pb-2">
+                                <span>Reference:</span>
+                                <span className="font-bold text-slate-900">{deployment.title}</span>
+                            </p>
+                            <p className="flex justify-between border-b border-slate-200 pb-2">
+                                <span>Payment Portal:</span>
+                                <span className="font-bold text-[#0376b1]">finance.coatzadroneusa.com</span>
+                            </p>
+                            <p className="text-slate-400 text-xs mt-4 italic">Individual pilot payouts are processed separately via Axis Direct Deposit.</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <p className="text-slate-400 text-xs">Generated automatically by Axis Platform</p>
+                </div>
             </div>
         </div>
     );

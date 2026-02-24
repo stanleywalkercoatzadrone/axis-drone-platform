@@ -54,27 +54,17 @@ const OnboardingPortal: React.FC = () => {
         }
     }, [token]);
 
-    const handleFileUpload = async (documentId: string, file: File) => {
-        if (!file) return;
-
-        // Validate file type
-        if (file.type !== 'application/pdf') {
-            alert('Please upload a valid PDF file.');
-            return;
-        }
-
-        // Validate file size (10MB max)
-        if (file.size > 10 * 1024 * 1024) {
-            alert('File size exceeds the 10MB limit.');
-            return;
-        }
+    const handleFileUpload = async (documentId: string, files: FileList) => {
+        if (!files || files.length === 0) return;
 
         try {
             setUploadingDocId(documentId);
 
             const formData = new FormData();
             formData.append('documentId', documentId);
-            formData.append('document', file);
+            Array.from(files).forEach(file => {
+                formData.append('files', file); // Use 'files' to match backend bulk
+            });
 
             await apiClient.post(`/onboarding/portal/${token}/upload`, formData, {
                 headers: {
@@ -82,7 +72,7 @@ const OnboardingPortal: React.FC = () => {
                 },
             });
 
-            // Update local state
+            // Update local state (mark as completed if at least one uploaded successfully)
             if (data) {
                 setData({
                     ...data,
@@ -94,8 +84,8 @@ const OnboardingPortal: React.FC = () => {
                 });
             }
         } catch (err: any) {
-            console.error('Error uploading document:', err);
-            alert(err.response?.data?.message || 'Failed to upload document.');
+            console.error('Error uploading documents:', err);
+            alert(err.response?.data?.message || 'Failed to upload documents.');
         } finally {
             setUploadingDocId(null);
         }
@@ -208,10 +198,10 @@ const OnboardingPortal: React.FC = () => {
                                                     type="file"
                                                     id={`upload-${doc.id}`}
                                                     className="hidden"
-                                                    accept=".pdf"
+                                                    multiple
                                                     onChange={(e) => {
-                                                        const file = e.target.files?.[0];
-                                                        if (file) handleFileUpload(doc.id, file);
+                                                        const files = e.target.files;
+                                                        if (files && files.length > 0) handleFileUpload(doc.id, files);
                                                     }}
                                                     disabled={!!uploadingDocId}
                                                 />

@@ -6,12 +6,14 @@ import { useParams } from 'react-router-dom';
 import apiClient from '../../src/services/apiClient';
 import { GridAsset } from '../../types';
 import AssetDrawer from './AssetDrawer';
+import { useIndustry } from '../../src/context/IndustryContext';
 
 interface AssetGridProps {
     siteIdOverride?: string;
 }
 
 const AssetGrid: React.FC<AssetGridProps> = ({ siteIdOverride }) => {
+    const { currentIndustry } = useIndustry();
     const { siteId: paramSiteId } = useParams<{ siteId: string }>();
     const siteId = siteIdOverride || paramSiteId;
     const [assets, setAssets] = useState<GridAsset[]>([]);
@@ -33,7 +35,8 @@ const AssetGrid: React.FC<AssetGridProps> = ({ siteIdOverride }) => {
     const fetchAssets = async () => {
         try {
             setLoading(true);
-            const response = await apiClient.get(`/assets/sites/${siteId}/assets`);
+            const url = currentIndustry ? `/assets/sites/${siteId}/assets?industryKey=${currentIndustry}` : `/assets/sites/${siteId}/assets`;
+            const response = await apiClient.get(url);
             setAssets(response.data.data || []);
         } catch (error) {
             console.error('Error fetching assets:', error);
@@ -153,15 +156,13 @@ const AssetGrid: React.FC<AssetGridProps> = ({ siteIdOverride }) => {
                                     ${selectedAsset?.id === asset.id ? 'border-indigo-500 ring-1 ring-indigo-500/20' : ''}
                                 `}
                             >
-                                <div className="flex justify-between items-start mb-3">
-                                    <div className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wider border ${getStatusColor(asset.status)}`}>
-                                        {asset.status.replace('_', ' ')}
-                                    </div>
-                                    <button className="text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <MoreHorizontal className="w-4 h-4" />
-                                    </button>
+                                <div className="absolute top-3 right-3">
+                                    {asset.status && (
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getStatusColor(asset.status)}`}>
+                                            {asset.status.replace(/_/g, ' ')}
+                                        </span>
+                                    )}
                                 </div>
-
                                 <h3 className="text-slate-100 font-medium truncate mb-1">{asset.assetKey}</h3>
                                 <p className="text-xs text-slate-500 mb-4 line-clamp-2 min-h-[2.5em]">
                                     {asset.description || 'No description provided'}
@@ -206,7 +207,7 @@ const AssetGrid: React.FC<AssetGridProps> = ({ siteIdOverride }) => {
                 asset={selectedAsset}
                 onUpdate={handleUpdate}
             />
-        </div>
+        </div >
     );
 };
 

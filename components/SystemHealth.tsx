@@ -54,7 +54,7 @@ const SystemHealth: React.FC = () => {
                         <Activity className="w-7 h-7 text-green-600" />
                         System Health
                     </h1>
-                    <p className="text-slate-500 mt-1">Real-time infrastructure monitoring</p>
+                    <p className="text-slate-700 font-medium mt-1">Real-time infrastructure monitoring</p>
                 </div>
                 <button
                     onClick={checkHealth}
@@ -71,7 +71,7 @@ const SystemHealth: React.FC = () => {
                 <div className="bg-white border border-slate-200 rounded-xl p-6">
                     <div className="flex items-start justify-between mb-4">
                         <div>
-                            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Overall Status</p>
+                            <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Overall Status</p>
                             <h3 className="text-2xl font-bold text-slate-900 mt-1">
                                 {health?.status === 'ok' ? 'Operational' : 'Issues Detected'}
                             </h3>
@@ -89,7 +89,7 @@ const SystemHealth: React.FC = () => {
                 <div className="bg-white border border-slate-200 rounded-xl p-6">
                     <div className="flex items-start justify-between mb-4">
                         <div>
-                            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">Database</p>
+                            <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">Database</p>
                             <h3 className="text-lg font-bold text-slate-900 mt-1">Supabase PostgreSQL</h3>
                         </div>
                         <div className={`p-3 rounded-full bg-blue-50 text-blue-600`}>
@@ -105,7 +105,7 @@ const SystemHealth: React.FC = () => {
                 <div className="bg-white border border-slate-200 rounded-xl p-6">
                     <div className="flex items-start justify-between mb-4">
                         <div>
-                            <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">AI Inference</p>
+                            <p className="text-sm font-bold text-slate-700 uppercase tracking-wider">AI Inference</p>
                             <h3 className="text-lg font-bold text-slate-900 mt-1">Gemini Pro 1.5</h3>
                         </div>
                         <div className={`p-3 rounded-full bg-purple-50 text-purple-600`}>

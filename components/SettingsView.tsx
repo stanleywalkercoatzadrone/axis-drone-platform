@@ -18,6 +18,10 @@ import {
   Zap,
   Wifi,
   Loader2,
+  BarChart3,
+  UserCheck,
+  Globe,
+  Database,
   AlertTriangle,
   RefreshCw,
   ShieldCheck,
@@ -36,15 +40,17 @@ import {
   CheckCircle,
   Upload,
   FileText,
-  BrainCircuit
+  BrainCircuit,
+  Edit2
 } from 'lucide-react';
 
-import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry } from '../types';
+import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry, Region, Country } from '../types';
 import { testAIConnection } from '../geminiService';
 import { googleAuthService } from '../src/services/googleAuthService';
 import apiClient from '../src/services/apiClient';
-import PersonnelTracker from './PersonnelTracker';
+
 import SystemAIView from './SystemAIView';
+import { PerformanceConfigPanel } from '../src/components/admin/PerformanceConfigPanel';
 import { useAuth } from '../src/context/AuthContext';
 
 interface SettingsViewProps {
@@ -70,6 +76,32 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserForm, setNewUserForm] = useState({ fullName: '', email: '', password: '', role: UserRole.FIELD_OPERATOR, title: '' });
   const [resetPasswordValues, setResetPasswordValues] = useState<{ userId: string | null, new: string }>({ userId: null, new: '' });
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+
+  const handleUpdateUser = async () => {
+    if (!editingUser) return;
+    try {
+      const { id, fullName, email, companyName, title, role } = editingUser;
+      await apiClient.put(`/users/${id}`, {
+        fullName,
+        email,
+        companyName,
+        title,
+        role
+      });
+
+      // Update local list
+      setTeamUsers((prev: UserAccount[]) => prev.map(u => u.id === id ? { ...u, fullName, email, companyName, title, role } : u));
+      setShowEditUserModal(false);
+      setEditingUser(null);
+      // Optional: Show success toast
+      alert('User updated successfully');
+    } catch (error) {
+      console.error('Failed to update user:', error);
+      alert('Failed to update user details');
+    }
+  };
 
   // Bulk Import State
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -82,6 +114,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   // System State
   const [systemHealth, setSystemHealth] = useState<{ node: string, model: string, database: string, uptime: number, version: string } | null>(null);
   const [invoiceSettings, setInvoiceSettings] = useState<{ adminEmail: string, ccEmails: string[], paymentTermsDays: number }>({ adminEmail: '', ccEmails: [], paymentTermsDays: 30 });
+
+  // Regions & Countries State
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
+  const [loadingLocations, setLoadingLocations] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: currentUser.fullName,
@@ -138,7 +175,52 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         if (res.data.success) setSystemHealth(res.data.data);
       }).catch(err => console.error(err));
     }
+    if (activeSection === 'locations' && isAdmin(currentUser)) {
+      fetchLocations();
+    }
   }, [activeSection, formData.role]);
+
+  const fetchLocations = async () => {
+    setLoadingLocations(true);
+    try {
+      const [regionsRes, countriesRes] = await Promise.all([
+        apiClient.get('/regions'),
+        apiClient.get('/regions/countries')
+      ]);
+
+      // Sort regions: North -> Central -> South
+      const regionOrder: Record<string, number> = {
+        'North America': 1,
+        'Central America': 2,
+        'South America': 3
+      };
+
+      const fetchedRegions = regionsRes.data.data || [];
+      const sortedRegions = [...fetchedRegions].sort((a: any, b: any) =>
+        (regionOrder[a.name] || 99) - (regionOrder[b.name] || 99)
+      );
+
+      setRegions(sortedRegions);
+      setCountries(countriesRes.data.data || []);
+    } catch (error) {
+      console.error('Failed to fetch locations:', error);
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
+  const handleToggleCountryStatus = async (countryId: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+
+    try {
+      await apiClient.patch(`/regions/countries/${countryId}/status`, { status: newStatus });
+      // Refresh
+      fetchLocations();
+    } catch (error) {
+      console.error('Failed to update country status', error);
+      alert('Failed to update status');
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -169,9 +251,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
         setNewUserForm({
           fullName: '',
           email: '',
-          password: '',
           role: UserRole.FIELD_OPERATOR,
-          title: ''
+          title: '',
+          password: ''
         });
       }
     } catch (error: any) {
@@ -430,7 +512,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
               {currentUser.role}
             </span>
           </h2>
-          <p className="text-slate-500 mt-1">Manage your identity, team access, and integrations.</p>
+          <p className="text-slate-700 font-medium mt-1">Manage your identity, team access, and integrations.</p>
         </div>
         <button
           onClick={handleSave}
@@ -447,11 +529,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'profile', label: 'My Profile', icon: User },
             { id: 'security', label: 'Security', icon: Lock },
             { id: 'integrations', label: 'Integrations', icon: Layers },
-            { id: 'personnel', label: 'Personnel Registry', icon: Users, admin: true },
+            { id: 'locations', label: 'Regions & Countries', icon: Cloud, admin: true },
             { id: 'ai', label: 'AI Intelligence', icon: BrainCircuit, admin: true },
             { id: 'invoicing', label: 'Invoicing Setup', icon: Receipt, admin: true },
             { id: 'system', label: 'System Check', icon: Server, admin: true },
-            { id: 'team', label: 'User Management', icon: Users, admin: true }
+            { id: 'team', label: 'User Management', icon: Users, admin: true },
+            { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true }
           ].map(item => (
             (!item.admin || isAdmin(currentUser)) && (
               <button
@@ -480,10 +563,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                   {currentUser.googlePicture ? <img src={currentUser.googlePicture} className="w-full h-full object-cover" /> : <User className="w-8 h-8 text-slate-400" />}
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">{formData.fullName}</h3>
-                  <p className="text-slate-500">{formData.email}</p>
+                  <h3 className="text-lg font-bold text-slate-950">{formData.fullName}</h3>
+                  <p className="text-slate-700 font-medium">{formData.email}</p>
                   <div className="mt-2 flex gap-2">
-                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs font-bold rounded uppercase tracking-wider">{formData.role}</span>
+                    <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-xs font-black rounded uppercase tracking-wider">{formData.role}</span>
                   </div>
                 </div>
               </div>
@@ -531,10 +614,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           {activeSection === 'security' && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
               <div>
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Lock className="w-5 h-5 text-slate-400" /> Password & Security
+                <h3 className="text-lg font-bold text-slate-950 flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-slate-500" /> Password & Security
                 </h3>
-                <p className="text-slate-500 text-sm mt-1">Manage your password and security settings.</p>
+                <p className="text-slate-700 font-medium text-sm mt-1">Manage your password and security settings.</p>
               </div>
 
               <div className="max-w-md space-y-4">
@@ -587,10 +670,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-950 flex items-center gap-2">
                     <Cloud className="w-5 h-5 text-blue-600" /> Google Drive
                   </h3>
-                  <p className="text-slate-500 text-sm mt-1">Sync reports and assets directly to your enterprise workspace.</p>
+                  <p className="text-slate-700 font-medium text-sm mt-1">Sync reports and assets directly to your enterprise workspace.</p>
                 </div>
                 {currentUser.driveLinked ? (
                   <button onClick={disconnectDrive} className="text-red-600 text-sm font-medium hover:underline">Unlink Account</button>
@@ -610,7 +693,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                   </div>
 
                   <div className="space-y-4">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Target Directory</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">Target Directory</label>
                     <div className="flex gap-4">
                       <div className="relative flex-1">
                         <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -644,29 +727,29 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
                 <div className="grid grid-cols-2 gap-6 mb-8">
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">API Node</div>
-                    <div className="font-mono text-lg font-bold text-slate-700">{systemHealth?.node || 'CONNECTING...'}</div>
+                    <div className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">API Node</div>
+                    <div className="font-mono text-lg font-bold text-slate-900">{systemHealth?.node || 'CONNECTING...'}</div>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">AI Model</div>
-                    <div className="font-mono text-lg font-bold text-slate-700">{systemHealth?.model || 'GEMINI-PRO'}</div>
+                    <div className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">AI Model</div>
+                    <div className="font-mono text-lg font-bold text-slate-900">{systemHealth?.model || 'GEMINI-PRO'}</div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 mb-8">
                   <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Database</div>
-                    <div className={`text-sm font-bold ${systemHealth?.database === 'CONNECTED' ? 'text-green-600' : 'text-amber-600'}`}>
+                    <div className="text-[10px] font-bold text-slate-600 uppercase mb-1">Database</div>
+                    <div className={`text-sm font-bold ${systemHealth?.database === 'CONNECTED' ? 'text-green-600' : 'text-amber-700'}`}>
                       {systemHealth?.database || 'CHECKING...'}
                     </div>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Uptime</div>
-                    <div className="text-sm font-bold text-slate-700">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '--'}</div>
+                    <div className="text-[10px] font-bold text-slate-600 uppercase mb-1">Uptime</div>
+                    <div className="text-sm font-bold text-slate-900">{systemHealth ? `${Math.floor(systemHealth.uptime / 3600)}h ${Math.floor((systemHealth.uptime % 3600) / 60)}m` : '--'}</div>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Version</div>
-                    <div className="text-sm font-bold text-slate-700">{systemHealth?.version || '1.2.0-AXIS'}</div>
+                    <div className="text-[10px] font-bold text-slate-600 uppercase mb-1">Version</div>
+                    <div className="text-sm font-bold text-slate-900">{systemHealth?.version || '1.2.0-AXIS'}</div>
                   </div>
                 </div>
 
@@ -765,6 +848,57 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
+          {activeSection === 'locations' && isAdmin(currentUser) && (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-blue-600" /> Geographic Coverage
+                </h3>
+                <p className="text-slate-500 text-sm mt-1">Manage supported regions and activate/deactivate countries.</p>
+              </div>
+
+              {loadingLocations ? (
+                <div className="flex justify-center p-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  {regions.map(region => (
+                    <div key={region.id} className="space-y-4">
+                      <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">{region.name}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {countries.filter(c => c.region_id === region.id).map(country => (
+                          <div key={country.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${country.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                                {country.iso_code}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900 text-sm">{country.name}</p>
+                                <p className="text-xs text-slate-500">{country.currency} • {country.units_of_measurement}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${country.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                                {country.status}
+                              </span>
+                              <button
+                                onClick={() => handleToggleCountryStatus(country.id, country.status)}
+                                className={`text-xs font-medium px-3 py-1.5 rounded transition-colors ${country.status === 'ENABLED' ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                              >
+                                {country.status === 'ENABLED' ? 'Disable' : 'Enable'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeSection === 'team' && (isAdmin(currentUser)) && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-6">
               <div className="flex items-center justify-between mb-6">
@@ -792,11 +926,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                         {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <User className="w-5 h-5 text-slate-500" />}
                       </div>
                       <div>
-                        <p className="font-bold text-slate-900 text-sm">{user.fullName}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-slate-900 text-sm">{user.fullName}</p>
+                          <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 rounded uppercase font-bold">{user.role}</span>
+                        </div>
                         <p className="text-slate-500 text-xs">{user.email}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingUser(user);
+                          setShowEditUserModal(true);
+                        }}
+                        className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-600"
+                        title="Edit User"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
                       <button onClick={() => setResetPasswordValues({ userId: user.id || null, new: '' })} className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-600" title="Reset Password">
                         <Lock className="w-4 h-4" />
                       </button>
@@ -871,21 +1018,74 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                 </div>
               )}
 
-              {resetPasswordValues.userId && (
+              {showEditUserModal && editingUser && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in">
-                  <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl animate-in zoom-in">
-                    <h3 className="text-lg font-bold text-slate-900 mb-4">Reset User Password</h3>
-                    <input type="password" placeholder="Enter new password" className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm mb-4" value={resetPasswordValues.new} onChange={e => setResetPasswordValues(prev => ({ ...prev, new: e.target.value }))} autoFocus />
-                    <div className="flex gap-2">
-                      <button onClick={() => setResetPasswordValues({ userId: null, new: '' })} className="flex-1 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
-                      <button onClick={async () => {
-                        if (resetPasswordValues.new.length < 6) return alert('Password too short');
-                        try {
-                          await apiClient.post(`/users/${resetPasswordValues.userId}/reset-password`, { newPassword: resetPasswordValues.new });
-                          alert('Password reset successfully');
-                          setResetPasswordValues({ userId: null, new: '' });
-                        } catch (e: any) { alert(e.response?.data?.message || 'Error resetting password'); }
-                      }} className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800">Reset</button>
+                  <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl animate-in zoom-in">
+                    <h3 className="text-lg font-bold text-slate-900 mb-6">Edit User</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Full Name</label>
+                        <input
+                          type="text"
+                          value={editingUser.fullName}
+                          onChange={e => setEditingUser({ ...editingUser, fullName: e.target.value })}
+                          className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                        <input
+                          type="email"
+                          value={editingUser.email}
+                          onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
+                          className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Role</label>
+                        <select
+                          value={editingUser.role}
+                          onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}
+                          className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        >
+                          {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Job Title</label>
+                        <input
+                          type="text"
+                          value={editingUser.title || ''}
+                          onChange={e => setEditingUser({ ...editingUser, title: e.target.value })}
+                          className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Company</label>
+                        <input
+                          type="text"
+                          value={editingUser.companyName || ''}
+                          onChange={e => setEditingUser({ ...editingUser, companyName: e.target.value })}
+                          className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-6">
+                      <button
+                        onClick={() => {
+                          setShowEditUserModal(false);
+                          setEditingUser(null);
+                        }}
+                        className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleUpdateUser}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                      >
+                        Save Changes
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -893,11 +1093,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             </div>
           )}
 
-          {activeSection === 'personnel' && (isAdmin(currentUser)) && (
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-              <PersonnelTracker />
-            </div>
-          )}
+
 
           {activeSection === 'ai' && (isAdmin(currentUser)) && (
             <SystemAIView
@@ -905,8 +1101,50 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
               onSensitivityChange={(val) => setFormData(prev => ({ ...prev, aiSensitivity: val }))}
             />
           )}
+
+          {activeSection === 'performance' && (isAdmin(currentUser)) && (
+            <PerformanceConfigPanel />
+          )}
         </div>
       </div>
+
+      {/* Global Modals */}
+      {resetPasswordValues.userId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl animate-in zoom-in">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Reset User Password</h3>
+            <input
+              type="password"
+              placeholder="Enter new password"
+              className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm mb-4 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+              value={resetPasswordValues.new}
+              onChange={e => setResetPasswordValues(prev => ({ ...prev, new: e.target.value }))}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setResetPasswordValues({ userId: null, new: '' })}
+                className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (resetPasswordValues.new.length < 6) return alert('Password too short');
+                  try {
+                    await apiClient.post(`/users/${resetPasswordValues.userId}/reset-password`, { newPassword: resetPasswordValues.new });
+                    alert('Password reset successfully');
+                    setResetPasswordValues({ userId: null, new: '' });
+                  } catch (e: any) { alert(e.response?.data?.message || 'Error resetting password'); }
+                }}
+                className="flex-1 bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-800"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
