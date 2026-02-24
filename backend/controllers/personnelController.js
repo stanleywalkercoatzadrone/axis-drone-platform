@@ -102,6 +102,7 @@ const geocodeAddress = async (address) => {
  */
 export const getAllPersonnel = async (req, res) => {
     try {
+        const { role, status } = req.query || {};
         const tenantId = req.user.tenantId || null;
         let query = `
             SELECT p.*, 'pending' as compliance_status

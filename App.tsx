@@ -67,7 +67,7 @@ const AppContent: React.FC = () => {
   const { tLabel } = useIndustry();
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'create' | 'view' | 'archives' | 'settings' | 'personnel' | 'analytics' | 'deployments' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'ingestion' | 'assets'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'ai-engine' | 'view' | 'ai-reports' | 'settings' | 'personnel' | 'analytics' | 'missions' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'upload' | 'assets' | 'weather'>('dashboard');
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [activeReport, setActiveReport] = useState<InspectionReport | null>(null);
 
@@ -109,7 +109,7 @@ const AppContent: React.FC = () => {
   const startNewReport = (industry: Industry) => {
     setSelectedIndustry(industry);
     setActiveReport(null);
-    setActiveTab('create');
+    setActiveTab('ai-engine');
   };
 
   const onViewReport = (report: InspectionReport) => {
@@ -134,18 +134,19 @@ const AppContent: React.FC = () => {
       }}
       title={
         activeTab === 'dashboard' ? 'Mission Control' :
-          activeTab === 'ingestion' ? 'Enterprise Upload' :
+          activeTab === 'upload' ? 'Enterprise Upload' :
             activeTab === 'analytics' ? 'Analytics Suite' :
-              activeTab === 'create' ? `New ${tLabel('mission')}` :
-                activeTab === 'archives' ? `${tLabel('report')}s` :
-                  activeTab === 'deployments' ? `${tLabel('mission')} Terminal` :
+              activeTab === 'ai-engine' ? `New ${tLabel('mission')}` :
+                activeTab === 'ai-reports' ? `${tLabel('report')} Archive` :
+                  activeTab === 'missions' ? `${tLabel('mission')} Terminal` :
                     activeTab === 'personnel' ? `${tLabel('stakeholder')}s` :
                       activeTab === 'users' ? 'User Management' :
                         activeTab === 'checklists' ? `${tLabel('workItem')}s` :
                           activeTab === 'clients' ? `${tLabel('client')} Management` :
                             activeTab === 'my-tasks' ? `My ${tLabel('workItem')}s` :
                               activeTab === 'assets' ? 'Asset Grid' :
-                                activeTab === 'settings' ? 'Configuration' : 'Viewer'
+                                activeTab === 'weather' ? 'Weather & Skies' :
+                                  activeTab === 'settings' ? 'Configuration' : 'Viewer'
       }
     >
       <div className="animate-in fade-in duration-500 slide-in-from-bottom-2">
@@ -153,13 +154,13 @@ const AppContent: React.FC = () => {
         {(activeTab === 'dashboard') && (
           <MissionControl />
         )}
-        {activeTab === 'archives' && (
+        {activeTab === 'ai-reports' && (
           <Dashboard onNewReport={startNewReport} onViewReport={onViewReport} isArchiveView={true} />
         )}
-        {activeTab === 'ingestion' && (
+        {activeTab === 'upload' && (
           <UploadCenter />
         )}
-        {activeTab === 'create' && (
+        {activeTab === 'ai-engine' && (
           <ReportCreator initialIndustry={selectedIndustry} />
         )}
         {activeTab === 'view' && activeReport && (
@@ -169,7 +170,12 @@ const AppContent: React.FC = () => {
           <SettingsView currentUser={user} onUpdateUser={updateUser} onLogout={handleLogout} />
         )}
         {activeTab === 'analytics' && <ReportingSuite />}
-        {activeTab === 'deployments' && <DeploymentTracker />}
+        {activeTab === 'weather' && (
+          <div className="p-20 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl mx-20 mt-10">
+            Weather & Forecasting (Integration Coming Soon)
+          </div>
+        )}
+        {activeTab === 'missions' && <DeploymentTracker />}
         {activeTab === 'clients' && (
           selectedClient ? (
             <ClientDetail clientId={selectedClient} onBack={() => setSelectedClient(null)} />

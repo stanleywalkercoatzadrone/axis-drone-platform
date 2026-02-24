@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCountry } from '../../context/CountryContext';
+import { useIndustry } from '../../context/IndustryContext';
 import { KPIBar } from '../widgets/KPIBar';
 import { NeedsAttentionWidget } from '../widgets/NeedsAttentionWidget';
 import { UploadBatchesWidget } from '../widgets/UploadBatchesWidget';
@@ -8,17 +9,53 @@ import { ArrowRight, AlertTriangle, Activity, Clock } from 'lucide-react';
 import GeographicCoverage from '../../../components/GeographicCoverage';
 import { WeatherWidget } from '../widgets/WeatherWidget';
 
-const SITES_DATA = [
-    { name: 'West Field Solar Array', status: 'Active', health: 98, progress: 85, issues: 2, pilots: 3 },
-    { name: 'North Tower Cluster', status: 'Active', health: 92, progress: 40, issues: 5, pilots: 2 },
-    { name: 'Downtown Commercial', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 4 },
-    { name: 'Grid Station Alpha', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 1 },
-];
-
 export const MissionControl: React.FC = () => {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [drawerContent, setDrawerContent] = useState<string>('');
     const { activeCountryId } = useCountry();
+    const { currentIndustry, tLabel, availableIndustries } = useIndustry();
+
+    const getIndustrySites = () => {
+        const key = currentIndustry || 'solar';
+        if (key === 'solar') {
+            return [
+                { name: 'West Field Solar Array', status: 'Active', health: 98, progress: 85, issues: 2, pilots: 3 },
+                { name: 'Desert Sun PV Plant', status: 'Active', health: 92, progress: 40, issues: 5, pilots: 2 },
+                { name: 'North Array Substation', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 4 },
+                { name: 'Grid Station Alpha', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 1 },
+            ];
+        } else if (key === 'insurance') {
+            return [
+                { name: 'Residential Roof Claim 81A', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 1 },
+                { name: 'Commercial Property 402', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 1 },
+                { name: 'Multi-Family Complex 11', status: 'Active', health: 90, progress: 25, issues: 1, pilots: 2 },
+                { name: 'Hail Damage Inspection 99', status: 'Active', health: 98, progress: 75, issues: 2, pilots: 1 }
+            ];
+        } else if (key === 'telecom') {
+            return [
+                { name: 'Cell Tower North', status: 'Active', health: 95, progress: 80, issues: 1, pilots: 2 },
+                { name: 'Metro Antenna Array', status: 'Active', health: 88, progress: 60, issues: 3, pilots: 1 },
+                { name: 'Rural Node 42', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 2 },
+                { name: 'Suburban Relay Station', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 4 }
+            ];
+        } else if (key === 'construction') {
+            return [
+                { name: 'Downtown Highrise Ext', status: 'Active', health: 99, progress: 45, issues: 0, pilots: 2 },
+                { name: 'Bridge Span 4', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 1 },
+                { name: 'Stadium Renovation', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 4 },
+                { name: 'Hospital Extension', status: 'Active', health: 92, progress: 30, issues: 0, pilots: 2 }
+            ];
+        } else {
+            return [
+                { name: 'Generic Site 1', status: 'Active', health: 98, progress: 85, issues: 2, pilots: 3 },
+                { name: 'Generic Site 2', status: 'Planned', health: 100, progress: 0, issues: 0, pilots: 1 },
+                { name: 'Generic Site 3', status: 'Active', health: 100, progress: 95, issues: 0, pilots: 4 },
+                { name: 'Generic Site 4', status: 'Active', health: 92, progress: 40, issues: 1, pilots: 2 }
+            ];
+        }
+    };
+
+    const sites = getIndustrySites();
 
     const handleItemClick = (title: string) => {
         setDrawerContent(title);
@@ -34,7 +71,7 @@ export const MissionControl: React.FC = () => {
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
                 <div className="xl:col-span-3 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {SITES_DATA.map((site, idx) => (
+                        {sites.map((site, idx) => (
                             <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-all group relative overflow-hidden">
                                 <div className="absolute top-0 right-0 p-3">
                                     <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${site.status === 'Active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'
@@ -63,7 +100,7 @@ export const MissionControl: React.FC = () => {
 
                                     <div className="mt-6">
                                         <div className="flex justify-between items-center mb-1.5">
-                                            <span className="text-[10px] text-slate-500 font-bold uppercase">Mission Progress</span>
+                                            <span className="text-[10px] text-slate-500 font-bold uppercase">{tLabel('mission')} Progress</span>
                                             <span className="text-[10px] text-slate-300 font-bold">{site.progress}%</span>
                                         </div>
                                         <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -82,10 +119,10 @@ export const MissionControl: React.FC = () => {
                         <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                             <h3 className="font-semibold text-slate-100 flex items-center gap-2">
                                 <Activity className="w-4 h-4 text-cyan-400" />
-                                Live Deployment Monitoring
+                                {currentIndustry ? `${availableIndustries.find(i => i.key === currentIndustry)?.name || 'Platform'} Data Collection` : 'Live Deployment Monitoring'}
                             </h3>
                             <button className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors">
-                                Open Mission Terminal <ArrowRight className="w-3 h-3" />
+                                Open {tLabel('mission')} Terminal <ArrowRight className="w-3 h-3" />
                             </button>
                         </div>
                         <div className="p-8">
