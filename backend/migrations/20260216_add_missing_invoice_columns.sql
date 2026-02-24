@@ -1,0 +1,1 @@
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS daily_pay_rate NUMERIC(10, 2);
