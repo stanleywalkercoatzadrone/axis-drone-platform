@@ -102,14 +102,18 @@ const geocodeAddress = async (address) => {
  */
 export const getAllPersonnel = async (req, res) => {
     try {
-        const { role, status } = req.query;
-
+        const tenantId = req.user.tenantId || null;
         let query = `
             SELECT p.*, 'pending' as compliance_status
             FROM personnel p
-            WHERE ($1::text IS NULL OR p.tenant_id = $1)
+            WHERE 1=1
         `;
-        const params = [req.user.tenantId || null];
+        const params = [];
+
+        if (tenantId) {
+            params.push(tenantId);
+            query += ` AND p.tenant_id = $${params.length}`;
+        }
 
         if (role) {
             params.push(role);
@@ -146,10 +150,15 @@ export const getPersonnelById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const result = await db.query(
-            'SELECT * FROM personnel WHERE id = $1 AND ($2::text IS NULL OR tenant_id = $2)',
-            [id, req.user.tenantId || null]
-        );
+        const tenantId = req.user.tenantId || null;
+        let byIdQuery = 'SELECT * FROM personnel WHERE id = $1';
+        const byIdParams = [id];
+        if (tenantId) {
+            byIdParams.push(tenantId);
+            byIdQuery += ` AND tenant_id = $${byIdParams.length}`;
+        }
+
+        const result = await db.query(byIdQuery, byIdParams);
 
         if (result.rows.length === 0) {
             return res.status(404).json({
