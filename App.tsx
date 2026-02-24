@@ -51,6 +51,9 @@ import OnboardingStep2 from './components/onboarding/OnboardingStep2';
 import { Industry, InspectionReport, UserAccount, UserRole } from './types';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { IndustryProvider, useIndustry } from './src/context/IndustryContext';
+import { MissionProvider } from './src/context/MissionContext';
+import { GlobalProvider } from './src/context/GlobalContext';
+import { CountryProvider } from './src/context/CountryContext';
 import IndustrySwitcher from './components/IndustrySwitcher';
 import { isAdmin, isPilot } from './src/utils/roleUtils';
 
@@ -193,39 +196,45 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <IndustryProvider>
-          <Routes>
-            {/* Specific route for secure guest view of invoices */}
-            <Route path="/invoice/:token" element={<InvoiceView />} />
+        <CountryProvider>
+          <IndustryProvider>
+            <MissionProvider>
+              <GlobalProvider>
+                <Routes>
+                  {/* Specific route for secure guest view of invoices */}
+                  <Route path="/invoice/:token" element={<InvoiceView />} />
 
-            {/* Onboarding Portal Route */}
-            <Route path="/onboarding/:token" element={<OnboardingPortal />} />
+                  {/* Onboarding Portal Route */}
+                  <Route path="/onboarding/:token" element={<OnboardingPortal />} />
 
-            {/* User Invitation / Password Set Route */}
-            <Route path="/set-password/:token" element={<SetPassword />} />
+                  {/* User Invitation / Password Set Route */}
+                  <Route path="/set-password/:token" element={<SetPassword />} />
 
-            {/* Asset Grid Direct Route */}
-            <Route path="/sites/:siteId/assets" element={
-              <PageShell activeTab="assets" title="Asset Grid">
-                <AssetGrid />
-              </PageShell>
-            } />
+                  {/* Asset Grid Direct Route */}
+                  <Route path="/sites/:siteId/assets" element={
+                    <PageShell activeTab="assets" title="Asset Grid">
+                      <AssetGrid />
+                    </PageShell>
+                  } />
 
-            {/* Client Onboarding Wizard */}
-            <Route path="/clients/new/start" element={<PageShell activeTab="clients" title="Client Onboarding"><OnboardingStart /></PageShell>} />
-            <Route path="/clients/new/setup" element={<PageShell activeTab="clients" title="Onboarding Setup"><OnboardingSetup /></PageShell>} />
-            <Route path="/clients/new/step-1" element={<PageShell activeTab="clients" title="Client Onboarding — Step 1"><OnboardingStep1 /></PageShell>} />
-            <Route path="/clients/new/step-2" element={<PageShell activeTab="clients" title="Client Onboarding — Step 2"><OnboardingStep2 /></PageShell>} />
-            <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Client Onboarding — Step 3"><div className="p-20 text-center text-slate-500">Step 3: Stakeholders & Permissions (Coming Soon)</div></PageShell>} />
+                  {/* Client Onboarding Wizard */}
+                  <Route path="/clients/new/start" element={<PageShell activeTab="clients" title="Client Onboarding"><OnboardingStart /></PageShell>} />
+                  <Route path="/clients/new/setup" element={<PageShell activeTab="clients" title="Onboarding Setup"><OnboardingSetup /></PageShell>} />
+                  <Route path="/clients/new/step-1" element={<PageShell activeTab="clients" title="Client Onboarding — Step 1"><OnboardingStep1 /></PageShell>} />
+                  <Route path="/clients/new/step-2" element={<PageShell activeTab="clients" title="Client Onboarding — Step 2"><OnboardingStep2 /></PageShell>} />
+                  <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Client Onboarding — Step 3"><div className="p-20 text-center text-slate-500">Step 3: Stakeholders & Permissions (Coming Soon)</div></PageShell>} />
 
-            <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Step 3"><div className="p-20 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl mx-20 mt-10">Step 3: Stakeholders & Permissions (Coming Next)</div></PageShell>} />
-            {/* Main platform routes */}
-            <Route path="/*" element={<AppContent />} />
+                  <Route path="/clients/new/step-3" element={<PageShell activeTab="clients" title="Step 3"><div className="p-20 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl mx-20 mt-10">Step 3: Stakeholders & Permissions (Coming Next)</div></PageShell>} />
+                  {/* Main platform routes */}
+                  <Route path="/*" element={<AppContent />} />
 
-            {/* Generic catch-all */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </IndustryProvider>
+                  {/* Generic catch-all */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </GlobalProvider>
+            </MissionProvider>
+          </IndustryProvider>
+        </CountryProvider>
       </AuthProvider>
     </BrowserRouter>
   );
