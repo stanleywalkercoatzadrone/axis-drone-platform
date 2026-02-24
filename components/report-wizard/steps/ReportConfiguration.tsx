@@ -1,111 +1,130 @@
 import React from 'react';
 import { useReport } from '../ReportContext';
-import { Industry, INDUSTRY_TEMPLATES, ReportTheme } from '../../../types';
-import { Sun, Zap, LayoutTemplate, BrainCircuit, FileText, ChevronRight, Sparkles } from 'lucide-react';
+import { Industry, INDUSTRY_TEMPLATES, IndustryTemplate } from '../../../types';
+import { Sun, Zap, LayoutTemplate, BrainCircuit, FileText, ChevronRight, Check } from 'lucide-react';
+
+import { Card } from '../../../src/stitch/components/Card';
+import { Input } from '../../../src/stitch/components/Input';
+import { Button } from '../../../src/stitch/components/Button';
+
+const INDUSTRY_ICONS: Record<Industry, React.ReactNode> = {
+    [Industry.SOLAR]: <Sun className="w-4 h-4" />,
+    [Industry.UTILITIES]: <Zap className="w-4 h-4" />,
+    [Industry.TELECOM]: <LayoutTemplate className="w-4 h-4" />,
+    [Industry.CONSTRUCTION]: <BrainCircuit className="w-4 h-4" />,
+    [Industry.INSURANCE]: <FileText className="w-4 h-4" />,
+};
 
 const ReportConfiguration: React.FC = () => {
     const {
         title, setTitle,
         client, setClient,
         industry, setIndustry,
-        theme, setTheme,
-        branding, setBranding,
-        selectedTemplate,
-        step, setStep
+        selectedTemplate, setSelectedTemplate,
+        setStep
     } = useReport();
 
     const handleNext = () => {
         if (title && client) setStep(2);
     };
 
+    const handleTemplateSelect = (t: IndustryTemplate) => {
+        setSelectedTemplate(t);
+    };
+
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-            {/* Left Column: Inputs */}
-            <div className="lg:col-span-7 space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Column */}
+            <div className="lg:col-span-7 space-y-6">
 
                 {/* Basic Info */}
-                <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                        <span className="w-1 h-6 bg-blue-600 rounded-full block"></span>
-                        Project Details
-                    </h3>
-
-                    <div className="space-y-6">
+                <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">Report Details</h3>
+                    <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Report Title</label>
-                            <input
-                                type="text"
+                            <label className="block text-xs font-semibold text-slate-500 mb-1.5">Inspection Title</label>
+                            <Input
                                 value={title}
                                 onChange={e => setTitle(e.target.value)}
                                 placeholder="e.g. Q1 Solar Array Audit - Sector 7"
-                                className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
+                                className="h-11"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Client / Stakeholder</label>
-                            <input
-                                type="text"
+                            <label className="block text-xs font-semibold text-slate-500 mb-1.5">Client</label>
+                            <Input
                                 value={client}
                                 onChange={e => setClient(e.target.value)}
                                 placeholder="e.g. Acme Energy Corp"
-                                className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
+                                className="h-11"
                             />
                         </div>
                     </div>
-                </section>
+                </Card>
 
                 {/* Industry Selection */}
-                <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
-                        <span className="w-1 h-6 bg-purple-600 rounded-full block"></span>
-                        Industry Sector
-                    </h3>
-                    <div className="grid grid-cols-3 gap-3">
+                <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">Industry</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                         {Object.values(Industry).map(ind => (
                             <button
                                 key={ind}
                                 onClick={() => setIndustry(ind)}
-                                className={`px-4 py-4 rounded-xl border text-sm font-medium transition-all text-left flex flex-col gap-2 
-                  ${industry === ind
-                                        ? 'border-purple-500 bg-purple-50 text-purple-900 ring-1 ring-purple-500'
-                                        : 'border-slate-200 hover:border-purple-300 hover:bg-slate-50 text-slate-600'}`}
+                                className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all
+                                    ${industry === ind
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
                             >
-                                {ind === Industry.SOLAR ? <Sun className="w-5 h-5 mb-1" /> : <Zap className="w-5 h-5 mb-1" />}
-                                {ind}
+                                <span className={`shrink-0 ${industry === ind ? 'text-blue-600' : 'text-slate-400'}`}>
+                                    {INDUSTRY_ICONS[ind]}
+                                </span>
+                                <span className="font-medium text-sm">{ind}</span>
+                                {industry === ind && <Check className="w-3.5 h-3.5 ml-auto text-blue-600 shrink-0" />}
                             </button>
                         ))}
                     </div>
-                </section>
+                </Card>
             </div>
 
-            {/* Right Column: Templates & Config */}
-            <div className="lg:col-span-5 space-y-8">
-                <section className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                    <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                        <LayoutTemplate className="w-5 h-5 text-slate-500" /> Protocol Template
-                    </h3>
-                    <div className="space-y-3">
+            {/* Right Column: Templates & Actions */}
+            <div className="lg:col-span-5 space-y-6">
+                <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">Report Template</h3>
+                    <div className="space-y-2">
                         {INDUSTRY_TEMPLATES[industry].map(t => (
-                            <div
+                            <button
                                 key={t.id}
-                                className={`p-4 rounded-xl border transition-all cursor-pointer ${selectedTemplate.id === t.id ? 'bg-white border-blue-500 shadow-md ring-1 ring-blue-500' : 'bg-white/50 border-slate-200 hover:bg-white'}`}
-                            // onClick={() => setSelectedTemplate(t)} // Context needs to support this if we want specific template selection
+                                onClick={() => handleTemplateSelect(t)}
+                                className={`w-full text-left p-4 rounded-lg border-2 transition-all
+                                    ${selectedTemplate.id === t.id
+                                        ? 'bg-white border-blue-500 shadow-sm'
+                                        : 'bg-white/60 border-transparent hover:bg-white hover:border-slate-200'}`}
                             >
-                                <div className="font-bold text-slate-900 text-sm">{t.name}</div>
-                                <div className="text-xs text-slate-500 mt-1 leading-relaxed">{t.description}</div>
-                            </div>
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className={`font-semibold text-sm ${selectedTemplate.id === t.id ? 'text-blue-700' : 'text-slate-700'}`}>
+                                        {t.name}
+                                    </span>
+                                    {selectedTemplate.id === t.id && (
+                                        <Check className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                                    )}
+                                </div>
+                                <p className={`text-xs leading-relaxed ${selectedTemplate.id === t.id ? 'text-slate-600' : 'text-slate-400'}`}>
+                                    {t.description}
+                                </p>
+                            </button>
                         ))}
                     </div>
-                </section>
+                </Card>
 
-                <div className="flex justify-end pt-4">
-                    <button
+                <div className="flex justify-end">
+                    <Button
+                        size="lg"
                         onClick={handleNext}
                         disabled={!title || !client}
-                        className="group flex items-center gap-2 bg-slate-900 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-slate-200 hover:shadow-2xl hover:-translate-y-1"
+                        className="h-11 px-8 rounded-lg gap-2"
                     >
-                        Start Ingest <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </button>
+                        Continue <ChevronRight className="w-4 h-4" />
+                    </Button>
                 </div>
             </div>
         </div>

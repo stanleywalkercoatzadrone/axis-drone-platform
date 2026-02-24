@@ -3,34 +3,25 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs/promises';
 import supabase from '../config/supabase.js';
-import { Storage } from '@google-cloud/storage';
+import { logger } from './logger.js';
+import { fileURLToPath } from 'url';
 
-// Configure AWS S3
-const s3 = new AWS.S3({
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION || 'us-east-1'
-});
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Configure Google Cloud Storage
-let gcs = null;
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME;
-
-if (process.env.STORAGE_PROVIDER === 'gcs' && GCS_BUCKET_NAME) {
-    try {
-        gcs = new Storage({
-            projectId: process.env.GCS_PROJECT_ID,
-            keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-        });
-        console.log(`✅ Google Cloud Storage initialized - Bucket: ${GCS_BUCKET_NAME}`);
-    } catch (error) {
-        console.error('❌ GCS initialization error:', error.message);
-    }
+// Configure AWS S3 (Lazy load or conditional?)
+// We keep the S3 config but wrap it to be safe
+let s3;
+if (process.env.AWS_ACCESS_KEY_ID) {
+    s3 = new AWS.S3({
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        region: process.env.AWS_REGION || 'us-east-1'
+    });
 }
 
 const BUCKET_NAME = process.env.S3_BUCKET_NAME || 'skylens-images';
 const SUPABASE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'drone-images';
-const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || 'local'; // 'local', 's3', 'supabase', or 'gcs'
+const STORAGE_PROVIDER = process.env.STORAGE_PROVIDER || 'local'; // 'local', 's3', 'supabase' ('gcs' deprecated)
 
 
 // ==================== SUPABASE STORAGE ====================
@@ -91,59 +82,11 @@ export const deleteFromSupabase = async (key) => {
     }
 };
 
-// ==================== GOOGLE CLOUD STORAGE ====================
-
-export const uploadToGCS = async (file, folder = 'images') => {
-    if (!gcs) {
-        throw new Error('Google Cloud Storage not initialized. Please configure GCS_BUCKET_NAME and GOOGLE_APPLICATION_CREDENTIALS');
-    }
-
-    const fileExtension = path.extname(file.originalname);
-    const fileName = `${folder}/${uuidv4()}${fileExtension}`;
-
-    try {
-        const bucket = gcs.bucket(GCS_BUCKET_NAME);
-        const blob = bucket.file(fileName);
-
-        // Upload file
-        await blob.save(file.buffer, {
-            contentType: file.mimetype,
-            metadata: {
-                cacheControl: 'public, max-age=31536000',
-            }
-        });
-
-        // Make file public (optional - remove if using private buckets)
-        await blob.makePublic();
-
-        // Get public URL
-        const publicUrl = `https://storage.googleapis.com/${GCS_BUCKET_NAME}/${fileName}`;
-
-        return {
-            url: publicUrl,
-            key: fileName
-        };
-    } catch (error) {
-        console.error('GCS upload error:', error);
-        throw new Error('Failed to upload file to Google Cloud Storage');
-    }
-};
-
-export const deleteFromGCS = async (key) => {
-    if (!gcs) return false;
-
-    try {
-        const bucket = gcs.bucket(GCS_BUCKET_NAME);
-        await bucket.file(key).delete();
-        return true;
-    } catch (error) {
-        console.error('GCS delete error:', error);
-        return false;
-    }
-};
-
+// ==================== S3 STORAGE ====================
 
 export const uploadToS3 = async (file, folder = 'images') => {
+    if (!s3) throw new Error('AWS S3 not configured');
+
     const fileExtension = path.extname(file.originalname);
     const fileName = `${folder}/${uuidv4()}${fileExtension}`;
 
@@ -168,6 +111,7 @@ export const uploadToS3 = async (file, folder = 'images') => {
 };
 
 export const deleteFromS3 = async (key) => {
+    if (!s3) return false;
     const params = {
         Bucket: BUCKET_NAME,
         Key: key
@@ -183,6 +127,7 @@ export const deleteFromS3 = async (key) => {
 };
 
 export const getSignedUrl = async (key, expiresIn = 3600) => {
+    if (!s3) throw new Error('AWS S3 not configured');
     const params = {
         Bucket: BUCKET_NAME,
         Key: key,
@@ -239,12 +184,18 @@ export const uploadFile = async (file, folder = 'images') => {
     console.log(`📁 Uploading file using ${STORAGE_PROVIDER} storage provider`);
 
     switch (STORAGE_PROVIDER) {
-        case 'gcs':
-            return uploadToGCS(file, folder);
         case 'supabase':
+            if (!supabase) {
+                console.warn('⚠️  Supabase not configured — falling back to local storage');
+                return uploadLocal(file, folder);
+            }
             return uploadToSupabase(file, folder);
         case 's3':
             return uploadToS3(file, folder);
+        case 'gcs': // Fallback for deprecated config
+            console.warn('GCS provider is deprecated. Falling back to Supabase or Local.');
+            if (supabase) return uploadToSupabase(file, folder);
+            return uploadLocal(file, folder);
         case 'local':
         default:
             return uploadLocal(file, folder);
@@ -253,8 +204,6 @@ export const uploadFile = async (file, folder = 'images') => {
 
 export const deleteFile = async (key) => {
     switch (STORAGE_PROVIDER) {
-        case 'gcs':
-            return deleteFromGCS(key);
         case 'supabase':
             return deleteFromSupabase(key);
         case 's3':
@@ -267,9 +216,7 @@ export const deleteFile = async (key) => {
 
 // Log storage configuration
 console.log(`📦 Storage provider: ${STORAGE_PROVIDER}`);
-if (STORAGE_PROVIDER === 'gcs') {
-    console.log(`   Google Cloud Storage bucket: ${GCS_BUCKET_NAME}`);
-} else if (STORAGE_PROVIDER === 'supabase') {
+if (STORAGE_PROVIDER === 'supabase') {
     console.log(`   Supabase bucket: ${SUPABASE_BUCKET}`);
 } else if (STORAGE_PROVIDER === 's3') {
     console.log(`   S3 bucket: ${BUCKET_NAME}`);

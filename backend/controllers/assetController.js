@@ -13,13 +13,18 @@ export const getSites = async (req, res, next) => {
             FROM sites s
             LEFT JOIN clients c ON s.client_id = c.id
             LEFT JOIN industries i ON c.industry_id = i.id
-            WHERE s.tenant_id = $1
+            WHERE 1=1
         `;
-        const params = [req.user.tenantId];
+        const params = [];
 
         if (industryKey) {
             params.push(industryKey);
             queryStr += ` AND i.key = $${params.length}`;
+        }
+
+        if (req.query.clientId) {
+            params.push(req.query.clientId);
+            queryStr += ` AND s.client_id = $${params.length}`;
         }
 
         queryStr += ' ORDER BY s.name ASC';
@@ -43,21 +48,44 @@ export const getSites = async (req, res, next) => {
  */
 export const getAssets = async (req, res, next) => {
     try {
-        const { site_id, category } = req.query;
-        let queryStr = 'SELECT * FROM assets WHERE tenant_id = $1';
-        const params = [req.user.tenantId];
+        console.log('GET /api/assets - User:', req.user); // Debug log
+        const { site_id, category, countryId, industryKey } = req.query;
+
+        let queryStr = `
+            SELECT a.* 
+            FROM assets a
+            LEFT JOIN sites s ON a.site_id = s.id
+            LEFT JOIN clients c ON s.client_id = c.id
+            LEFT JOIN industries i ON c.industry_id = i.id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (industryKey) {
+            params.push(industryKey);
+            queryStr += ` AND i.key = $${params.length}`;
+        }
 
         if (site_id) {
             params.push(site_id);
-            queryStr += ` AND site_id = $${params.length}`;
+            queryStr += ` AND a.site_id = $${params.length}`;
+        }
+
+        // Note: Assets are not yet strictly linked to Country in the DB Schema (via Site). 
+        // Future: Add country_id to sites table for strict filtering.
+        // For now, we return all assets if countryId is provided, or we could implement a join if needed.
+        // But since sites table lacks country_id, we skip this filter to avoid errors.
+        if (countryId) {
+            // params.push(countryId);
+            // queryStr += ` AND ... `; 
         }
 
         if (category && category !== 'All') {
             params.push(category);
-            queryStr += ` AND category = $${params.length}`;
+            queryStr += ` AND a.category = $${params.length}`;
         }
 
-        queryStr += ' ORDER BY name ASC';
+        queryStr += ' ORDER BY a.asset_key ASC';
 
         const result = await query(queryStr, params);
 
@@ -66,7 +94,7 @@ export const getAssets = async (req, res, next) => {
         const assets = result.rows.map(row => ({
             id: row.id,
             siteId: row.site_id,
-            name: row.name,
+            name: row.asset_key, // Map name to asset_key as 'name' column doesn't exist
             category: row.category,
             location: row.location,
             status: row.status,

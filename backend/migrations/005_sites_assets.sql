@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS sites (
 );
 
 -- Create Asset Category Enum (Mapping to Typescript enum)
--- Instead of a Postgres enum, we'll use a check constraint for flexibility
+-- COMMENDED OUT TO AVOID CONFLICT WITH NEW ASSET GRID
+/*
 CREATE TABLE IF NOT EXISTS assets (
     id VARCHAR(50) PRIMARY KEY, -- Using custom IDs like LBD-101
     site_id UUID REFERENCES sites(id) ON DELETE CASCADE,
@@ -26,14 +27,17 @@ CREATE TABLE IF NOT EXISTS assets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+*/
 
 -- Insert Sample Sites
 INSERT INTO sites (name, client, location, status) VALUES 
 ('West Field Solar Array', 'GreenEnergy Corp', 'Nevada, USA', 'Active'),
 ('North Tower Cluster', 'Telco Giant', 'Washington, USA', 'Active'),
-('Downtown Commercial Properties', 'Urban Real Estate', 'San Francisco, USA', 'Active');
+('Downtown Commercial Properties', 'Urban Real Estate', 'San Francisco, USA', 'Active')
+ON CONFLICT DO NOTHING;
 
 -- Insert Sample Assets (Referencing first site)
+/*
 DO $$
 DECLARE
     site_id_1 UUID;
@@ -51,3 +55,4 @@ BEGIN
     ('CT-902', site_id_2, 'Tower 492 Alpha', 'Cell Tower', 'Ridge Line', 'Active', '2025-04-20', '2025-07-20'),
     ('IP-551', site_id_3, 'Commercial Warehouse B', 'Insurance Property', 'Industrial Park', 'Active', '2025-05-01', NULL);
 END $$;
+*/

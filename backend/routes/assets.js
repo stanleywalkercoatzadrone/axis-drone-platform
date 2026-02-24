@@ -9,6 +9,12 @@ router.use(protect);
 
 router.get('/sites', getSites);
 router.get('/sites/:id', getSiteById);
+// Compatibility route for frontend requesting /sites/:id/assets
+router.get('/sites/:id/assets', (req, res, next) => {
+    req.query.site_id = req.params.id;
+    getAssets(req, res, next);
+});
+
 router.get('/', getAssets);
 
 export default router;

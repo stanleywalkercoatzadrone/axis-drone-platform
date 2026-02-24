@@ -1,17 +1,31 @@
 /**
  * Rate Limiting Middleware
  * Protects API endpoints from abuse and DoS attacks
- * Using in-memory store only (Redis store removed to prevent startup hang on Cloud Run)
+ * TEMPORARILY USING MEMORY STORE - Redis disabled for Cloud Run deployment
  */
 
 import rateLimit from 'express-rate-limit';
+import RedisStore from 'rate-limit-redis';
 import { logger } from '../services/logger.js';
+import { redisClient } from '../config/redis.js';
 
-// NOTE: rate-limit-redis was removed because importing RedisStore + redis.js at module
-// load time caused a blocking hang during app.js import on Cloud Run cold starts.
-// The redis module's connection attempt (even non-blocking) interacted with the
-// rate-limit-redis store initialization in a way that stalled the ESM module graph.
-// Memory store is sufficient for single-instance Cloud Run deployment.
+// Helper to create Redis Store (uses live binding to wait for connection)
+const createStore = () => {
+    // REDIS ENABLED - falls back to memory if redisClient is not connected
+    if (redisClient && redisClient.isOpen) {
+        return new RedisStore({
+            sendCommand: async (...args) => {
+                try {
+                    return await redisClient.sendCommand(args);
+                } catch (err) {
+                    console.error('Redis RateLimit Store Error:', err);
+                    return null;
+                }
+            },
+        });
+    }
+    return undefined; // Memory store fallback
+};
 
 /**
  * Standard rate limiter for general API endpoints
@@ -22,6 +36,7 @@ export const standardLimiter = rateLimit({
     max: 100, // Limit each IP to 100 requests per windowMs
     standardHeaders: true,
     legacyHeaders: false,
+    store: createStore(),
     message: {
         success: false,
         error: 'Too many requests, please try again later.'
@@ -52,11 +67,14 @@ export const authLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    store: createStore(),
+    // keyGenerator removed to prevent IPv6 ValidationError crash
+    // TODO: Re-implement credential stuffing protection with proper IPv6 handling
     message: {
         success: false,
         error: 'Too many authentication attempts, please try again later.'
     },
-    skipSuccessfulRequests: false,
+    skipSuccessfulRequests: false, // Do count successful attempts to prevent enumeration? keeping false is safer for brute force
     handler: (req, res) => {
         logger.logSecurityEvent('Auth rate limit exceeded', {
             ip: req.ip,
@@ -79,6 +97,7 @@ export const aiLimiter = rateLimit({
     max: 20,
     standardHeaders: true,
     legacyHeaders: false,
+    store: createStore(),
     message: {
         success: false,
         error: 'Too many AI requests, please try again later.'
@@ -105,6 +124,7 @@ export const sensitiveLimiter = rateLimit({
     max: 3,
     standardHeaders: true,
     legacyHeaders: false,
+    store: createStore(),
     message: {
         success: false,
         error: 'Too many sensitive operation attempts, please try again later.'

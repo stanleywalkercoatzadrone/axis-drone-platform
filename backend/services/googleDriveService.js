@@ -57,8 +57,10 @@ const getAuthenticatedClient = async (userId) => {
         [userId]
     );
 
-    if (result.rows.length === 0 || !result.rows[0].drive_access_token) {
-        throw new AppError('Google Drive not linked', 400);
+    if (result.rows.length === 0 || (!result.rows[0].drive_access_token && !result.rows[0].drive_refresh_token)) {
+        // Fallback or better error message:
+        console.warn(`User ${userId} does not have Google Drive linked.`);
+        throw new AppError('Google Drive not linked or token expired. Please reconnect Drive in Settings.', 401);
     }
 
     const { drive_access_token, drive_refresh_token } = result.rows[0];

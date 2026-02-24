@@ -1,14 +1,18 @@
 import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { normalizeRole } from '../utils/roleUtils.js';
 
 /**
  * Resolves a user's effective roles and permissions, including scoped and legacy roles.
  */
 export const resolveEffectivePermissions = async (userId, userRole) => {
+    const normalizedRole = normalizeRole(userRole);
+
     // 1. Map Legacy Roles
     const mappedRoles = [];
-    if (userRole === 'ADMIN') mappedRoles.push('internal_admin');
-    if (userRole === 'pilot_technician') mappedRoles.push('external_contributor');
+    if (normalizedRole === 'admin') mappedRoles.push('internal_admin');
+    if (normalizedRole === 'pilot_technician') mappedRoles.push('external_contributor');
+    if (normalizedRole === 'client_user') mappedRoles.push('external_stakeholder');
 
     // 2. Fetch Scoped Bindings
     const bindingsResult = await query(
@@ -50,8 +54,10 @@ export const resolveEffectivePermissions = async (userId, userRole) => {
  * Checks if a user has a specific permission in a given context.
  */
 export const can = async (user, permissionKey, context = {}) => {
+    const normalizedRole = normalizeRole(user.role);
+
     // Admin always has full access
-    if (user.role === 'ADMIN') return true;
+    if (normalizedRole === 'admin') return true;
 
     const { roles, bindings, permissions } = await resolveEffectivePermissions(user.id, user.role);
 
@@ -80,8 +86,8 @@ export const can = async (user, permissionKey, context = {}) => {
     }
 
     if (context.missionId) {
-        // Special case: pilot_technician can access assigned missions
-        if (user.role === 'pilot_technician') {
+        // Restricted roles must be explicitly assigned to the mission
+        if (['pilot_technician', 'client_user'].includes(normalizedRole)) {
             const isAssigned = await canAccessMission(user.id, context.missionId);
             if (!isAssigned) return false;
         }
@@ -96,7 +102,6 @@ export const can = async (user, permissionKey, context = {}) => {
  */
 export const canAccessMission = async (userId, missionId) => {
     // 1. Check if user is linked to personnel and assigned to deployment
-    // (Existing personnel table uses email to link occasionally, or shared IDs)
     const assignmentResult = await query(
         `SELECT 1 FROM deployment_personnel dp
          JOIN personnel p ON dp.personnel_id = p.id
@@ -107,9 +112,9 @@ export const canAccessMission = async (userId, missionId) => {
 
     if (assignmentResult.rows.length > 0) return true;
 
-    // 2. Check monitoring team
+    // 2. Check monitoring team (deployment_monitoring_users table)
     const monitoringResult = await query(
-        `SELECT 1 FROM monitoring_team
+        `SELECT 1 FROM deployment_monitoring_users
          WHERE user_id = $1 AND deployment_id = $2`,
         [userId, missionId]
     );
@@ -121,7 +126,7 @@ export const canAccessMission = async (userId, missionId) => {
  * Checks if a user can mutate a specific asset.
  */
 export const canMutateAsset = async (userId, userRole, assetId) => {
-    if (userRole === 'ADMIN') return true;
+    if (normalizeRole(userRole) === 'admin') return true;
 
     const assetResult = await query(
         `SELECT created_by_user_id FROM assets WHERE id = $1`,

@@ -16,6 +16,15 @@ router.get('/packages/:personnelId', protect, onboardingController.getPackageByP
 
 // Public routes (no authentication - accessed via secure token)
 router.get('/portal/:token', onboardingController.getOnboardingPortal);
-router.post('/portal/:token/upload', upload.single('document'), onboardingController.uploadDocument);
+router.post('/portal/:token/upload', upload.array('files', 10), onboardingController.uploadDocument);
+router.post('/portal/:token/complete', onboardingController.completeOnboardingPackage);
+
+// Client Onboarding Wizard Routes
+router.post('/configs', protect, onboardingController.createOnboardingConfig);
+router.get('/configs/:id', protect, onboardingController.getOnboardingConfig);
+router.put('/configs/:id', protect, onboardingController.updateOnboardingConfig);
+router.put('/:clientId/settings', protect, onboardingController.updateClientSettings);
+router.get('/:clientId/settings', protect, onboardingController.getClientSettings);
+router.put('/:id/step', protect, onboardingController.updateOnboardingStep);
 
 export default router;

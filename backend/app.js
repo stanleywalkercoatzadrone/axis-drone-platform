@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import { createServer } from 'http';
+import fs from 'fs';
 import './config/env.js';
 
 console.log('🔄 Loading App Logic (app.js)...');
@@ -28,8 +29,10 @@ import industryRoutes from './routes/industries.js';
 import uploadRoutes from './routes/uploads.js';
 import documentRoutes from './routes/documents.js';
 import aiRoutes from './routes/ai.js';
+import regionCountryRoutes from './routes/regionCountryRoutes.js';
 import v1Routes from './routes/v1/index.js';
 import migrationRoutes from './routes/migrations.js';
+import claimsReportRoutes from '../modules/ai-reporting/backend/claimsReportRoutes.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -47,13 +50,24 @@ import { Server } from 'socket.io';
 const app = express();
 const httpServer = createServer(app);
 
+// Set view engine
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
 // Enable trust proxy for Cloud Run/Load Balancers
 app.set('trust proxy', 1);
+
+// Allowed origins for CORS (dev: any localhost port; prod: FRONTEND_URL)
+const getAllowedOrigins = () => {
+    if (process.env.FRONTEND_URL) return [process.env.FRONTEND_URL];
+    // In development, allow any localhost port
+    return true; // allows all origins — tighten in production via FRONTEND_URL
+};
 
 // Initialize Socket.io
 const io = new Server(httpServer, {
     cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        origin: getAllowedOrigins(),
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -77,7 +91,7 @@ app.use(helmet({
             scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
             imgSrc: ["'self'", "data:", "https:", "blob:", "https://unpkg.com"],
-            connectSrc: ["'self'", "https://api.openai.com", "https://generativelanguage.googleapis.com"],
+            connectSrc: ["'self'", "https://api.openai.com", "https://generativelanguage.googleapis.com", "https://api.open-meteo.com", "https://nominatim.openstreetmap.org"],
             fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
             objectSrc: ["'none'"],
             mediaSrc: ["'self'"],
@@ -88,14 +102,38 @@ app.use(helmet({
 }));
 
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: getAllowedOrigins(),
     credentials: true
 }));
 
 app.use(compression());
 app.use(morgan('combined'));
+
+// DEBUG REQUEST LOGGER
+app.use((req, res, next) => {
+    const traceLog = 'api_trace.log';
+
+    // Using a more standard approach if fs is already available or just use console.log which goes to server.log
+    console.log(`📡 [DEBUG] ${req.method} ${req.url} - ${new Date().toISOString()}`);
+
+    // Also log to a dedicated file if it's a personnel request
+    if (req.url.includes('/personnel')) {
+        try {
+            const logEntry = `[${new Date().toISOString()}] ${req.method} ${req.url}\n`;
+            fs.appendFileSync(traceLog, logEntry);
+        } catch (e) {
+            console.error('Trace logging failed:', e.message);
+        }
+    }
+    next();
+});
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Serve static files
+const distPath = path.join(__dirname, '../dist');
+app.use(express.static(distPath));
 
 // Health check endpoint (ALSO in app.js for redundancy)
 app.get('/health', (req, res) => {
@@ -105,67 +143,6 @@ app.get('/health', (req, res) => {
         service: 'Axis Backend',
         version: '1.0.0'
     });
-});
-
-// Serve static files
-const distPath = path.join(__dirname, '../dist');
-app.use(express.static(distPath));
-
-// Debug endpoint for DB
-app.get('/api/debug-db', async (req, res) => {
-    try {
-        const { default: pool } = await import('./config/database.js');
-        const result = await pool.query('SELECT NOW(), current_database(), current_user');
-        res.json({
-            status: 'ok',
-            connection: 'success',
-            info: result.rows[0],
-            env_check: process.env.DATABASE_URL ? 'Set' : 'Missing'
-        });
-    } catch (error) {
-        res.status(500).json({
-            status: 'error',
-            message: error.message,
-            stack: error.stack,
-            env_check: process.env.DATABASE_URL ? 'Set' : 'Missing'
-        });
-    }
-});
-
-// Debug endpoint to check file existence in production
-app.get('/api/debug-files', async (req, res) => {
-    try {
-        const { readdir, stat } = await import('fs/promises');
-
-        const listDir = async (dirPath) => {
-            try {
-                const files = await readdir(dirPath);
-                const stats = await Promise.all(files.map(async file => {
-                    const filePath = path.join(dirPath, file);
-                    const fileStat = await stat(filePath);
-                    return {
-                        name: file,
-                        isDirectory: fileStat.isDirectory(),
-                        size: fileStat.size
-                    };
-                }));
-                return stats;
-            } catch (err) {
-                return { error: err.message, path: dirPath };
-            }
-        };
-
-        const distFiles = await listDir(distPath);
-        const assetsFiles = await listDir(path.join(distPath, 'assets'));
-
-        res.json({
-            distPath,
-            distFiles,
-            assetsFiles
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
 });
 
 // Apply rate limiting
@@ -191,12 +168,13 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/work-items', workItemRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/industries', industryRoutes);
+app.use('/api/regions', regionCountryRoutes);
+
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/migrations', migrationRoutes);
-
-// Error handling for API routes
+app.use('/api/claims-reports', claimsReportRoutes);
 app.use('/api/*', notFound);
 app.use(errorHandler);
 
@@ -216,9 +194,7 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// Export app as default (used by server.js single-server handoff)
-// Also export httpServer and io as named exports for backward compat
-export default app;
+// Export httpServer and io
 export { httpServer, app, io };
 
 console.log('✅ App Logic Loaded');

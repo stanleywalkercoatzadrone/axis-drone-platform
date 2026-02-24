@@ -1,22 +1,22 @@
-import { query } from './backend/config/database.js';
+import pool from './backend/config/database.js';
 
 async function checkSchema() {
     try {
-        console.log('Checking invoices table columns...');
-        const res = await query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'invoices'
-        `);
-        console.log('Columns in invoices table:', res.rows.map(r => r.column_name));
+        const personnel = await pool.query("SELECT asterisk FROM information_schema.columns WHERE table_name = 'personnel'".replace('asterisk', '*'));
+        console.log('--- PERSONNEL COLUMNS ---');
+        personnel.rows.forEach(row => console.log(row.column_name));
 
-        console.log('\nChecking system_settings...');
-        const settingsRes = await query("SELECT * FROM system_settings WHERE setting_key = 'invoice_payment_days'");
-        console.log('invoice_payment_days setting:', settingsRes.rows);
+        const banking = await pool.query("SELECT asterisk FROM information_schema.columns WHERE table_name = 'pilot_banking_info'".replace('asterisk', '*'));
+        console.log('\n--- PILOT_BANKING_INFO COLUMNS ---');
+        banking.rows.forEach(row => console.log(row.column_name));
+
+        const invoices = await pool.query("SELECT asterisk FROM information_schema.columns WHERE table_name = 'invoices'".replace('asterisk', '*'));
+        console.log('\n--- INVOICES COLUMNS ---');
+        invoices.rows.forEach(row => console.log(row.column_name));
 
         process.exit(0);
     } catch (err) {
-        console.error('Error checking schema:', err);
+        console.error(err);
         process.exit(1);
     }
 }

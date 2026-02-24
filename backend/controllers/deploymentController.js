@@ -6,10 +6,11 @@ import { sendMissionAssignmentEmail, isMockTransporter } from '../services/email
  */
 export const getAllDeployments = async (req, res) => {
     try {
-        const { status, startDate, endDate, industryKey } = req.query;
+        const { status, startDate, endDate, industryKey, clientId } = req.query;
 
         let query = `
             SELECT d.*,
+                   d.country_id,
                    (SELECT COUNT(*) FROM deployment_files df WHERE df.deployment_id = d.id) as file_count,
                    (SELECT COUNT(*) FROM deployment_personnel dp WHERE dp.deployment_id = d.id) as personnel_count,
                    COALESCE(
@@ -27,16 +28,12 @@ export const getAllDeployments = async (req, res) => {
                    ) as daily_logs
             FROM deployments d
             LEFT JOIN daily_logs dl ON d.id = dl.deployment_id
+            LEFT JOIN sites s ON d.site_id = s.id
+            LEFT JOIN clients c ON COALESCE(d.client_id, s.client_id) = c.id
+            LEFT JOIN industries i ON c.industry_id = i.id
         `;
 
-        // Dynamic Joins for filtering
-        if (industryKey) {
-            query += `
-            LEFT JOIN sites s ON d.site_id = s.id
-            LEFT JOIN clients c ON s.client_id = c.id
-            LEFT JOIN industries i ON c.industry_id = i.id
-            `;
-        }
+        // (industryKey join already done above)
 
         query += ` WHERE d.tenant_id = $1`;
         const params = [req.user.tenantId];
@@ -58,7 +55,17 @@ export const getAllDeployments = async (req, res) => {
 
         if (industryKey) {
             params.push(industryKey);
-            query += ` AND i.key = $${params.length}`;
+            query += ` AND (i.key = $${params.length})`;
+        }
+
+        if (clientId) {
+            params.push(clientId);
+            query += ` AND c.id = $${params.length}`;
+        }
+
+        if (req.query.countryId) {
+            params.push(req.query.countryId);
+            query += ` AND d.country_id = $${params.length}`;
         }
 
         query += ' GROUP BY d.id ORDER BY d.date DESC, d.created_at DESC';
@@ -71,6 +78,8 @@ export const getAllDeployments = async (req, res) => {
             title: row.title,
             type: row.type,
             status: row.status,
+            countryId: row.country_id,
+            industry: row.industry || null,
             siteName: row.site_name,
             siteId: row.site_id,
             date: new Date(row.date).toISOString().split('T')[0],
@@ -80,7 +89,7 @@ export const getAllDeployments = async (req, res) => {
             dailyLogs: row.daily_logs,
             fileCount: parseInt(row.file_count || 0),
             personnelCount: parseInt(row.personnel_count || 0),
-            technicianIds: [], // Placeholder
+            technicianIds: [],
             createdAt: row.created_at,
             updatedAt: row.updated_at
         }));
@@ -106,8 +115,16 @@ export const getDeploymentById = async (req, res) => {
     try {
         const { id } = req.params;
 
+        // Use COALESCE in the SELECT to return the effective client_id
+        // But we want to distinguish between direct and site-linked if needed?
+        // Let's select d.client_id explicitly to ensure it overrides any implicit collision if we want that,
+        // or rename the site one.
+        // Also removed s.client_id alias collision.
         const query = `
-            SELECT d.*,
+            SELECT d.*, 
+                   d.country_id,
+                   s.client_id as site_client_id, 
+                   c.name as client_name,
             (SELECT COUNT(*) FROM deployment_files df WHERE df.deployment_id = d.id) as file_count,
                 COALESCE(
                     (SELECT json_agg(personnel_id) FROM deployment_personnel WHERE deployment_id = d.id),
@@ -128,8 +145,10 @@ export const getDeploymentById = async (req, res) => {
     ) as daily_logs
             FROM deployments d
             LEFT JOIN daily_logs dl ON d.id = dl.deployment_id
+            LEFT JOIN sites s ON d.site_id = s.id
+            LEFT JOIN clients c ON COALESCE(d.client_id, s.client_id) = c.id
             WHERE d.id = $1 AND d.tenant_id = $2
-            GROUP BY d.id
+            GROUP BY d.id, s.client_id, c.name, d.client_id
         `;
 
         const result = await db.query(query, [id, req.user.tenantId]);
@@ -145,7 +164,7 @@ export const getDeploymentById = async (req, res) => {
 
         // Fetch monitoring users
         const monitoringResult = await db.query(
-            `SELECT u.id, u.full_name, u.email, u.role, dmu.role as mission_role
+            `SELECT u.id, u.full_name, u.email, u.role, u.company_name, dmu.role as mission_role
              FROM users u
              JOIN deployment_monitoring_users dmu ON u.id = dmu.user_id
              WHERE dmu.deployment_id = $1`,
@@ -157,6 +176,7 @@ export const getDeploymentById = async (req, res) => {
             title: row.title,
             type: row.type,
             status: row.status,
+            countryId: row.country_id,
             siteName: row.site_name,
             siteId: row.site_id,
             date: new Date(row.date).toISOString().split('T')[0],
@@ -165,16 +185,26 @@ export const getDeploymentById = async (req, res) => {
             daysOnSite: row.days_on_site,
             dailyLogs: row.daily_logs,
             fileCount: parseInt(row.file_count || 0),
+            // d.client_id takes precedence if set, otherwise site_client_id
+            clientId: row.client_id || row.site_client_id,
+            clientName: row.client_name,
             technicianIds: row.technician_ids,
             monitoringTeam: monitoringResult.rows.map(u => ({
                 id: u.id,
                 fullName: u.full_name,
                 email: u.email,
                 role: u.role,
-                missionRole: u.mission_role
+                missionRole: u.mission_role,
+                companyName: u.company_name
             })),
             createdAt: row.created_at,
-            updatedAt: row.updated_at
+            updatedAt: row.updated_at,
+            baseCost: parseFloat(row.base_cost || 0),
+            markupPercentage: parseFloat(row.markup_percentage || 0),
+            clientPrice: parseFloat(row.client_price || 0),
+            estimatedDurationDays: row.estimated_duration_days || 1,
+            travelCosts: parseFloat(row.travel_costs || 0),
+            equipmentCosts: parseFloat(row.equipment_costs || 0)
         };
 
         res.json({
@@ -205,7 +235,10 @@ export const createDeployment = async (req, res) => {
             date,
             location,
             notes,
-            daysOnSite
+            daysOnSite,
+            clientId,
+            countryId,
+            industry,
         } = req.body;
 
         // Validation
@@ -218,8 +251,8 @@ export const createDeployment = async (req, res) => {
 
         const result = await db.query(
             `INSERT INTO deployments
-    (title, type, status, site_name, site_id, date, location, notes, days_on_site, tenant_id)
-VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    (title, type, status, site_name, site_id, date, location, notes, days_on_site, tenant_id, client_id, country_id, industry)
+VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING * `,
             [
                 title,
@@ -231,7 +264,10 @@ RETURNING * `,
                 location || null,
                 notes || null,
                 daysOnSite || 1,
-                req.user.tenantId
+                req.user.tenantId,
+                clientId || null,
+                countryId || null,
+                industry || null,
             ]
         );
 
@@ -241,6 +277,8 @@ RETURNING * `,
             title: row.title,
             type: row.type,
             status: row.status,
+            countryId: row.country_id,
+            industry: row.industry || null,
             siteName: row.site_name,
             siteId: row.site_id,
             date: new Date(row.date).toISOString().split('T')[0],
@@ -281,7 +319,9 @@ export const updateDeployment = async (req, res) => {
             date,
             location,
             notes,
-            daysOnSite
+            daysOnSite,
+            clientId,
+            countryId
         } = req.body;
 
         // Check current status for transition validation
@@ -297,44 +337,97 @@ export const updateDeployment = async (req, res) => {
                 'Draft': ['Scheduled', 'Archived'],
                 'Scheduled': ['Active', 'Cancelled', 'Delayed', 'Draft'],
                 'Active': ['Review', 'Completed', 'Delayed', 'Cancelled'],
-                'Review': ['Completed', 'Active'], // Can go back to active if review fails
-                'Completed': ['Archived', 'Review'], // Reactivate for review?
-                'Archived': [] // Terminal
+                'Review': ['Completed', 'Active'],
+                'Completed': ['Archived', 'Review'],
+                'Archived': []
             };
 
-            // Bypass for simple "Draft" or if Logic not strictly defined for custom flow
-            // But enforce basic "Draft" -> "Active"
             if (allowed[currentStatus] && !allowed[currentStatus].includes(status)) {
-                // Determine if user is Admin/Ops? (Req object doesn't have user here usually, need middleware)
-                // For now, allow but LOG WARNING? Or strict?
-                // Strict:
-                // return res.status(400).json({ success: false, message: `Invalid status transition from ${ currentStatus } to ${ status } ` });
+                // Log warning or enforce strict mode
             }
         }
 
-        const result = await db.query(
-            `UPDATE deployments 
-            SET title = COALESCE($1, title),
-    type = COALESCE($2, type),
-    status = COALESCE($3, status),
-    site_name = COALESCE($4, site_name),
-    site_id = COALESCE($5, site_id),
-    date = COALESCE($6, date),
-    location = COALESCE($7, location),
-    notes = COALESCE($8, notes),
-    days_on_site = COALESCE($9, days_on_site),
-    updated_at = CURRENT_TIMESTAMP
-            WHERE id = $10 AND tenant_id = $11
-RETURNING * `,
-            [title, type, status, siteName, siteId, date, location, notes, daysOnSite, id, req.user.tenantId]
-        );
+        // Validate Country Change vs Assigned Personnel
+        if (countryId) {
+            const personnelRes = await db.query('SELECT personnel_id FROM deployment_personnel WHERE deployment_id = $1', [id]);
+            const personnelIds = personnelRes.rows.map(r => r.personnel_id);
+
+            if (personnelIds.length > 0) {
+                const validCountRes = await db.query(
+                    `SELECT count(*) FROM pilot_country_authorizations
+                      WHERE country_id = $1 AND status = 'APPROVED' AND pilot_id = ANY($2)`,
+                    [countryId, personnelIds]
+                );
+
+                if (parseInt(validCountRes.rows[0].count) !== personnelIds.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Cannot update Country: One or more assigned personnel are not authorized for this country.'
+                    });
+                }
+            }
+        }
+
+        // Dynamic Update Query Construction
+        const updates = [];
+        const values = [];
+        let paramCount = 0;
+
+        const addUpdate = (field, value) => {
+            // Treat empty strings as NULL for foreign keys and nullable fields if desired
+            // Or explicitly allow setting blank strings for text fields?
+            // For UUIDs, empty string MUST be null.
+            let safeValue = value;
+            if (field === 'client_id' || field === 'site_id' || field === 'country_id') {
+                if (value === '') safeValue = null;
+            }
+            // If value is undefined, do not update. If null, update to null.
+            if (value !== undefined) {
+                paramCount++;
+                updates.push(`${field} = $${paramCount}`);
+                values.push(safeValue);
+            }
+        };
+
+        addUpdate('title', title);
+        addUpdate('type', type);
+        addUpdate('status', status);
+        addUpdate('site_name', siteName);
+        addUpdate('site_id', siteId); // Can be null
+        addUpdate('date', date);
+        addUpdate('location', location);
+        addUpdate('notes', notes);
+        addUpdate('days_on_site', daysOnSite);
+        addUpdate('client_id', clientId); // Can be null
+        addUpdate('country_id', countryId); // Can be null
+
+        // If nothing to update
+        if (updates.length === 0) {
+            return res.json({ success: true, message: 'No changes provided' });
+        }
+
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+
+        // Where clause
+        paramCount++;
+        const whereClause = `WHERE id = $${paramCount} AND tenant_id = $${paramCount + 1}`;
+        values.push(id, req.user.tenantId);
+
+        const query = `
+            UPDATE deployments
+            SET ${updates.join(', ')}
+            ${whereClause}
+            RETURNING *
+        `;
+
+        const result = await db.query(query, values);
 
         // Audit Log
-        if (req.user) { // Ensure auth middleware populated user
+        if (req.user) {
             await db.query(
                 `INSERT INTO audit_logs(user_id, action, resource_type, resource_id, metadata)
 VALUES($1, $2, $3, $4, $5)`,
-                [req.user.id, 'DEPLOYMENT_UPDATED', 'deployment', id, JSON.stringify({ status_change: status ? `${currentStatus} -> ${status} ` : 'No status change' })]
+                [req.user.id, 'DEPLOYMENT_UPDATED', 'deployment', id, JSON.stringify({ status_change: status ? `${currentStatus} -> ${status} ` : 'No status change', updates: Object.keys(req.body) })]
             );
         }
 
@@ -356,7 +449,9 @@ VALUES($1, $2, $3, $4, $5)`,
             date: new Date(row.date).toISOString().split('T')[0],
             location: row.location,
             notes: row.notes,
-            daysOnSite: row.days_on_site
+            daysOnSite: row.days_on_site,
+            clientId: row.client_id, // Return actual DB value
+            countryId: row.country_id
         };
 
         res.json({
@@ -734,6 +829,31 @@ export const assignPersonnel = async (req, res) => {
             });
         }
 
+        // Check Deployment Country
+        const deployCheck = await db.query('SELECT country_id FROM deployments WHERE id = $1', [deploymentId]);
+        if (deployCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        }
+
+        const countryId = deployCheck.rows[0].country_id;
+
+        // If Deployment has a specific country, validate Pilot Authorization
+        if (countryId) {
+            // Check if personnel has APPROVED authorization for this country
+            const authCheck = await db.query(
+                `SELECT status FROM pilot_country_authorizations 
+                 WHERE pilot_id = $1 AND country_id = $2 AND status = 'APPROVED'`,
+                [personnelId, countryId]
+            );
+
+            if (authCheck.rows.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Personnel is not authorized to operate in the deployment country.'
+                });
+            }
+        }
+
         await db.query(
             'INSERT INTO deployment_personnel (deployment_id, personnel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [deploymentId, personnelId]
@@ -871,7 +991,7 @@ export const notifyAssignment = async (req, res) => {
             if (pResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Personnel not found' });
             person = { name: pResult.rows[0].full_name, email: pResult.rows[0].email };
             role = pResult.rows[0].role;
-        } else if (type === 'MONITOR') {
+        } else if (type === 'MONITOR' || type === 'CLIENT') {
             const uResult = await db.query(
                 `SELECT u.full_name, u.email, dmu.role 
                  FROM users u 
@@ -879,7 +999,7 @@ export const notifyAssignment = async (req, res) => {
                  WHERE u.id = $1 AND dmu.deployment_id = $2`,
                 [personId, deploymentId]
             );
-            if (uResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Monitoring user not found on this mission' });
+            if (uResult.rows.length === 0) return res.status(404).json({ success: false, message: 'User not found on this mission' });
             person = { name: uResult.rows[0].full_name, email: uResult.rows[0].email };
             role = uResult.rows[0].role;
         }
@@ -894,5 +1014,50 @@ export const notifyAssignment = async (req, res) => {
     } catch (error) {
         console.error('Error notifying assignment:', error);
         res.status(500).json({ success: false, message: 'Failed to send notification', error: error.message });
+    }
+};
+/**
+ * Link client to deployment
+ */
+export const linkClientToDeployment = async (req, res) => {
+    try {
+        const { id: deploymentId } = req.params;
+        const { clientId } = req.body;
+
+        if (!clientId) {
+            return res.status(400).json({ success: false, message: 'Client ID is required' });
+        }
+
+        // Verify deployment exists
+        const deployCheck = await db.query('SELECT id FROM deployments WHERE id = $1', [deploymentId]);
+        if (deployCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        }
+
+        // Verify client exists
+        const clientCheck = await db.query('SELECT id FROM clients WHERE id = $1', [clientId]);
+        if (clientCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Client not found' });
+        }
+
+        // Update deployment
+        await db.query(
+            'UPDATE deployments SET client_id = $1, updated_at = NOW() WHERE id = $2',
+            [clientId, deploymentId]
+        );
+
+        res.json({
+            success: true,
+            deploymentId,
+            clientId,
+            message: 'Client linked successfully'
+        });
+    } catch (error) {
+        console.error('Error linking client to deployment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to link client',
+            error: error.message
+        });
     }
 };

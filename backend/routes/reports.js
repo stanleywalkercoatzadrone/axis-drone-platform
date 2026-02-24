@@ -10,8 +10,8 @@ const jsonLarge = express.json({ limit: '100mb' });
 
 router.get('/', getReports);
 router.get('/:id', getReport);
-router.post('/', jsonLarge, authorizePerm('CREATE_REPORT'), createReport);
-router.put('/:id', jsonLarge, authorizePerm('EDIT_REPORT'), updateReport);
+router.post('/', jsonLarge, createReport);          // Any authenticated user can create a report
+router.put('/:id', jsonLarge, updateReport);        // Owner-scoped in controller
 router.post('/:id/finalize', authorizePerm('FINALIZE_REPORT'), finalizeReport);
 router.delete('/:id', authorizePerm('DELETE_REPORT'), deleteReport);
 

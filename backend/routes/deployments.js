@@ -16,13 +16,16 @@ import {
     unassignPersonnel,
     assignMonitoringUser,
     unassignMonitoringUser,
-    notifyAssignment
+    notifyAssignment,
+    linkClientToDeployment
 } from '../controllers/deploymentController.js';
+import { calculateMissionPricing, updateMissionPricing } from '../controllers/pricingController.js';
 import { sendDeploymentInvoices as sendInvoicesController } from '../controllers/invoiceController.js';
+
 
 import { protect, authorize, checkScopedPermission } from '../middleware/auth.js';
 import { preventPilotMissionMutation } from '../middleware/missionGuard.js';
-import { uploadSingle } from '../utils/fileUpload.js';
+import { uploadMultiple } from '../utils/fileUpload.js';
 
 const router = express.Router();
 
@@ -44,12 +47,16 @@ router.delete('/:id/daily-logs/:logId', checkScopedPermission('missions:update_s
 // Cost calculation
 router.get('/:id/cost', getDeploymentCost);
 
+// Pricing and Profit Engine
+router.post('/pricing/calculate', authorize('admin'), calculateMissionPricing);
+router.put('/:id/pricing', authorize('admin'), updateMissionPricing);
+
 // Invoicing
 router.post('/:id/invoices/send', authorize('ADMIN'), sendInvoicesController);
 
 
 // File routes
-router.post('/:id/files', uploadSingle, uploadDeploymentFile);
+router.post('/:id/files', uploadMultiple, uploadDeploymentFile);
 router.get('/:id/files', getDeploymentFiles);
 router.delete('/:id/files/:fileId', deleteDeploymentFile);
 
@@ -61,5 +68,8 @@ router.delete('/:id/personnel/:personnelId', authorize('admin'), preventPilotMis
 router.post('/:id/monitoring', authorize('admin'), preventPilotMissionMutation, assignMonitoringUser);
 router.delete('/:id/monitoring/:userId', authorize('admin'), preventPilotMissionMutation, unassignMonitoringUser);
 router.post('/:id/notify-assignment', authorize('admin'), preventPilotMissionMutation, notifyAssignment);
+
+// Client Linking
+router.post('/:id/link-client', checkScopedPermission('missions:update_status'), linkClientToDeployment);
 
 export default router;

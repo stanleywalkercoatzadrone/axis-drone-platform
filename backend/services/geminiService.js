@@ -22,7 +22,11 @@ const Type = {
 export async function testAIConnection() {
     const start = Date.now();
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+        if (!apiKey) {
+            return { status: 'error', message: 'Gemini API Key not configured', latency: 0 };
+        }
+        const ai = new GoogleGenAI({ apiKey });
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.0-flash-thinking-exp-01-21',
@@ -46,7 +50,11 @@ export async function testAIConnection() {
  * Enterprise Image Analysis using Gemini 2.0 Pro
  */
 export async function analyzeInspectionImage(imageData, industry, sensitivity = 50) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error('AI Analysis Unavailable: GEMINI_API_KEY is not configured on the server.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
 
     const isInsurance = industry === Industry.INSURANCE;
 
@@ -174,7 +182,11 @@ export async function analyzeInspectionImage(imageData, industry, sensitivity = 
  * Strategic Assessment using Gemini 2.0 Thinking Mode + Search Grounding
  */
 export async function generateStrategicAssessment(reportData) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error('Strategic Assessment Unavailable: GEMINI_API_KEY is not configured.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `
     ACT AS: Principal Infrastructure Consultant.
@@ -189,6 +201,8 @@ export async function generateStrategicAssessment(reportData) {
     5. For each major issue type, provide a step-by-step "Corrective Protocol".
   `;
 
+    // ... (rest of function omitted for brevity in thought, but included in tool call)
+
     try {
         const result = await ai.models.generateContent({
             model: 'gemini-2.0-flash-thinking-exp-01-21',
@@ -196,6 +210,7 @@ export async function generateStrategicAssessment(reportData) {
             config: {
                 tools: [{ googleSearchRetrieval: {} }],
                 responseMimeType: "application/json",
+                // ... schema
                 responseSchema: {
                     type: Type.OBJECT,
                     properties: {
@@ -245,7 +260,16 @@ export async function generateStrategicAssessment(reportData) {
  * Site Intelligence using Gemini 2.0 Flash + Search Grounding
  */
 export async function getSiteIntelligence(locationName, industry, lat, lng) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+        // Return fallback immediately if no key
+        return {
+            summary: "Environmental intelligence unavailable (AI Key missing). Local context cache being used.",
+            nearbyHazards: [],
+            sources: []
+        };
+    }
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `Analyze environmental and industrial context for a professional drone inspection at: ${locationName}. 
   Focus on ${industry} specific environmental hazards, local infrastructure history, and zoning regulations.`;
@@ -279,5 +303,59 @@ export async function getSiteIntelligence(locationName, industry, lat, lng) {
             nearbyHazards: [],
             sources: []
         };
+    }
+}
+/**
+ * AI-Powered Document Auto-Populate: Extract Bank Details
+ */
+export async function extractBankDetailsFromForm(fileBuffer) {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+    if (!apiKey) throw new Error('AI extraction requires GEMINI_API_KEY');
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `
+    ACT AS: Automated Document Processing Engine.
+    TASK: Extract Bank Information from the provided image/document.
+    
+    SYSTEM DIRECTIVES:
+    1. Identify the Bank Name, Routing Number (9 digits), and Account Number.
+    2. Respond strictly in JSON format.
+    3. If a field cannot be found, return null for that field.
+    `;
+
+    try {
+        const result = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [
+                {
+                    role: 'user', parts: [
+                        { text: prompt },
+                        {
+                            inlineData: {
+                                mimeType: 'image/jpeg',
+                                data: fileBuffer.toString('base64')
+                            }
+                        }
+                    ]
+                }
+            ],
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        bankName: { type: Type.STRING },
+                        routingNumber: { type: Type.STRING },
+                        accountNumber: { type: Type.STRING }
+                    },
+                    required: ['bankName', 'routingNumber', 'accountNumber']
+                }
+            }
+        });
+
+        return JSON.parse(result.text || '{}');
+    } catch (error) {
+        console.error("Bank Detail Extraction Error:", error);
+        throw error;
     }
 }

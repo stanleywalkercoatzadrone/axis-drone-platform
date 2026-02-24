@@ -6,7 +6,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const errorHandler = (err, req, res, next) => {
-    console.error('Error:', err);
+    // Log invalid/unhandled errors to console
+    console.error("🔥 UNHANDLED ERROR:", err);
 
     // Write crucial error details to a specific log file we can read
     const logPath = path.join(__dirname, '../../latest_error.log');
@@ -23,12 +24,24 @@ export const errorHandler = (err, req, res, next) => {
 
     const statusCode = err.statusCode || 500;
     const message = err.message || 'Internal Server Error';
+    const stack = process.env.NODE_ENV === 'development' ? err.stack : undefined;
 
-    res.status(statusCode).json({
-        success: false,
-        error: {
-            message
-        }
+    // If the request expects JSON (API) → send JSON
+    if (req.xhr || (req.headers.accept && req.headers.accept.indexOf('json') > -1) || req.path.startsWith('/api/')) {
+        return res.status(statusCode).json({
+            success: false,
+            message,
+            stack
+        });
+    }
+
+    // Otherwise render a friendly error page
+    res.status(statusCode).render('error', {
+        title: statusCode === 404 ? 'Page Not Found' : 'Something went wrong',
+        message,
+        stack,
+        tryAgainUrl: req.originalUrl,
+        homeUrl: '/'
     });
 };
 

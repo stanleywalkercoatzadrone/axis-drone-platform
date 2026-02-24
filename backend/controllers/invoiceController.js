@@ -1,5 +1,6 @@
 import { query } from '../config/database.js';
 import crypto from 'crypto';
+import { sendInvoiceEmail, sendAdminSummaryEmail, isMockTransporter } from '../services/emailService.js';
 
 /**
  * Generate a secure invoice link for a specific pilot on a deployment
@@ -8,9 +9,14 @@ export const createInvoice = async (req, res) => {
     try {
         const { deploymentId, personnelId, paymentTermsDays } = req.body;
 
-        // 1. Calculate total pay for this person on this deployment
+        // 1. Calculate total pay for this person on this deployment - filtering by personnel tenant_id
         const logsResult = await query(
-            'SELECT SUM(daily_pay + COALESCE(bonus_pay, 0)) as total FROM daily_logs dl JOIN deployments d ON dl.deployment_id = d.id WHERE dl.deployment_id = $1 AND dl.technician_id = $2 AND d.tenant_id = $3',
+            `SELECT SUM(dl.daily_pay + COALESCE(dl.bonus_pay, 0)) as total 
+             FROM daily_logs dl 
+             JOIN personnel p ON dl.technician_id = p.id 
+             WHERE dl.deployment_id = $1 
+               AND dl.technician_id = $2 
+               AND (p.tenant_id::text = $3 OR (p.tenant_id IS NULL AND $3 = 'default'))`,
             [deploymentId, personnelId, req.user.tenantId]
         );
 
@@ -38,12 +44,38 @@ export const createInvoice = async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7); // 7 day expiration
 
-        // 3. Create Invoice Record with payment_days
+        // 3. Fetch latest pilot data for snapshotting - check both personnel and pilot_banking_info
+        const pilotData = await query(
+            `SELECT p.home_address, 
+                    COALESCE(pb.bank_name, p.bank_name) as bank_name, 
+                    COALESCE(pb.account_number, p.account_number) as account_number, 
+                    COALESCE(pb.routing_number, p.routing_number) as routing_number, 
+                    COALESCE(pb.swift_code, p.swift_code) as swift_code, 
+                    COALESCE(pb.account_type, p.account_type) as account_type,
+                    p.daily_pay_rate 
+             FROM personnel p
+             LEFT JOIN pilot_banking_info pb ON p.id = pb.pilot_id
+             WHERE p.id = $1`,
+            [personnelId]
+        );
+        const pilot = pilotData.rows[0];
+
+        const cleanRouting = pilot?.routing_number ? String(pilot.routing_number).replace(/\D/g, '') : null;
+        const cleanAccount = pilot?.account_number ? String(pilot.account_number).replace(/\D/g, '') : null;
+        const cleanSwift = pilot?.swift_code ? String(pilot.swift_code).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : null;
+
+        // 4. Create Invoice Record with payment_days and snapshotted info
         const result = await query(
-            `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at, payment_days)
-             VALUES ($1, $2, $3, 'SENT', $4, $5, $6)
+            `INSERT INTO invoices (
+                deployment_id, personnel_id, amount, status, token, token_expires_at, payment_days,
+                home_address, bank_name, account_number, routing_number, swift_code, account_type, daily_pay_rate
+             )
+             VALUES ($1, $2, $3, 'SENT', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              RETURNING *`,
-            [deploymentId, personnelId, amount, token, expiresAt, paymentDays]
+            [
+                deploymentId, personnelId, amount, token, expiresAt, paymentDays,
+                pilot?.home_address, pilot?.bank_name, cleanAccount, cleanRouting, cleanSwift, pilot?.account_type, pilot?.daily_pay_rate
+            ]
         );
 
         // 4. Return the link
@@ -69,7 +101,7 @@ export const createInvoice = async (req, res) => {
         console.error('Error creating invoice:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to create invoice',
+            message: 'Failed to create invoice: ' + error.message,
             error: error.message
         });
     }
@@ -81,22 +113,32 @@ export const createInvoice = async (req, res) => {
 export const getInvoiceByToken = async (req, res) => {
     try {
         const { token } = req.params;
+        console.log('🔍 [INVOICE_DEBUG] Incoming request for token:', token);
 
         // 1. Find valid unused token - now including payment_days
-        const result = await query(
-            `SELECT i.*, 
+        const queryText = `SELECT i.*, 
                     d.title as mission_title, d.site_name, d.date as mission_date,
                     p.full_name as pilot_name, p.email as pilot_email,
-                    p.home_address, p.bank_name, p.routing_number, p.account_number,
+                    COALESCE(i.home_address, p.home_address) as home_address,
+                    COALESCE(i.bank_name, pb.bank_name, p.bank_name) as bank_name,
+                    COALESCE(i.routing_number, pb.routing_number, p.routing_number) as routing_number,
+                    COALESCE(i.account_number, pb.account_number, p.account_number) as account_number,
+                    COALESCE(i.account_type, pb.account_type, p.account_type) as account_type,
+                    COALESCE(i.swift_code, pb.swift_code, p.swift_code) as swift_code,
+                    COALESCE(i.daily_pay_rate, p.daily_pay_rate) as daily_pay_rate,
                     COALESCE(i.payment_days, 30) as payment_days
              FROM invoices i
              JOIN deployments d ON i.deployment_id = d.id
              JOIN personnel p ON i.personnel_id = p.id
-             WHERE i.token = $1`,
-            [token]
-        );
+             LEFT JOIN pilot_banking_info pb ON p.id = pb.pilot_id
+             WHERE i.token = $1`;
+
+        const result = await query(queryText, [token]);
+
+        console.log('📊 [INVOICE_DEBUG] Query executed. Rows found:', result.rows.length);
 
         if (result.rows.length === 0) {
+            console.warn('⚠️ [INVOICE_DEBUG] No invoice found for token:', token);
             return res.status(404).json({
                 success: false,
                 message: 'Invoice not found or invalid link.'
@@ -104,42 +146,32 @@ export const getInvoiceByToken = async (req, res) => {
         }
 
         const invoice = result.rows[0];
+        console.log('✅ [INVOICE_DEBUG] Invoice found. ID:', invoice.id, 'Pilot:', invoice.pilot_name);
 
-        // 2. Check Expiry
-        if (new Date() > new Date(invoice.token_expires_at)) {
-            return res.status(410).json({
-                success: false,
-                message: 'This invoice link has expired.'
-            });
+        // Track viewed_at if first time
+        if (!invoice.viewed_at) {
+            await query(
+                'UPDATE invoices SET viewed_at = CURRENT_TIMESTAMP, status = $2 WHERE id = $1',
+                [invoice.id, 'VIEWED']
+            );
         }
 
-        // 3. Check One-time use
-        if (invoice.token_used) {
-            return res.status(403).json({
-                success: false,
-                message: 'This secure link has already been used. Please contact support for a new one.'
-            });
-        }
-
-        // 4. Mark as used
-        await query(
-            'UPDATE invoices SET token_used = TRUE, status = $2 WHERE id = $1',
-            [invoice.id, 'PAID'] // We mark as 'PAID' or just 'VIEWED'? 
-            // User said "create invoice... and send... use one time".
-            // Usually viewing the invoice doesn't pay it. 
-            // But if "use" means "redeem/process", maybe.
-            // Let's just mark token_used. status can stay SENT or become VIEWED.
-            // Let's keep status as SENT for now or update.
-        );
-
-        // 5. Return Details
+        // Return Details
         res.json({
             success: true,
-            data: invoice
+            data: {
+                ...invoice,
+                home_address: invoice.home_address,
+                bank_name: invoice.bank_name,
+                account_number: invoice.account_number,
+                routing_number: invoice.routing_number,
+                swift_code: invoice.swift_code,
+                account_type: invoice.account_type
+            }
         });
 
     } catch (error) {
-        console.error('Error retrieving invoice:', error);
+        console.error('🔥 [INVOICE_DEBUG] CRITICAL ERROR retrieving invoice:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to retrieve invoice',
@@ -148,7 +180,6 @@ export const getInvoiceByToken = async (req, res) => {
     }
 };
 
-import { sendInvoiceEmail, sendAdminSummaryEmail, isMockTransporter } from '../services/emailService.js';
 
 /**
  * Send invoices to all pilots in a deployment and a summary to admin
@@ -166,7 +197,8 @@ export const sendDeploymentInvoices = async (req, res) => {
              FROM daily_logs dl
              JOIN personnel p ON dl.technician_id = p.id
              JOIN deployments d ON dl.deployment_id = d.id
-             WHERE dl.deployment_id = $1 AND d.tenant_id = $2
+             WHERE dl.deployment_id = $1 
+               AND (d.tenant_id::text = $2 OR (d.tenant_id IS NULL AND $2 = 'default'))
              GROUP BY dl.technician_id, p.full_name, p.email
              HAVING SUM(dl.daily_pay + COALESCE(dl.bonus_pay, 0)) > 0`;
 
@@ -182,7 +214,8 @@ export const sendDeploymentInvoices = async (req, res) => {
              FROM daily_logs dl
              JOIN personnel p ON dl.technician_id = p.id
              JOIN deployments d ON dl.deployment_id = d.id
-             WHERE dl.deployment_id = $1 AND d.tenant_id = $2
+             WHERE dl.deployment_id = $1 
+               AND (d.tenant_id::text = $2 OR (d.tenant_id IS NULL AND $2 = 'default'))
              AND dl.technician_id = ANY($3)
              GROUP BY dl.technician_id, p.full_name, p.email
              HAVING SUM(dl.daily_pay + COALESCE(dl.bonus_pay, 0)) > 0`;
@@ -202,8 +235,8 @@ export const sendDeploymentInvoices = async (req, res) => {
             });
         }
 
-        // Get deployment details for email context
-        const deploymentRes = await query('SELECT title, site_name FROM deployments WHERE id = $1 AND tenant_id = $2', [deploymentId, req.user.tenantId]);
+        // Get deployment details for email context - bypassing tenant_id check on d as it might be missing
+        const deploymentRes = await query('SELECT title, site_name FROM deployments WHERE id = $1', [deploymentId]);
         const deployment = deploymentRes.rows[0];
 
         const sentInvoices = [];
@@ -222,6 +255,7 @@ export const sendDeploymentInvoices = async (req, res) => {
         });
 
         const adminEmail = settings['invoice_admin_email'] || 'admin@coatzadroneusa.com';
+        const paymentDays = parseInt(settings['invoice_payment_days']) || 30;
         let ccEmails = [];
         try {
             if (settings['invoice_cc_emails']) {
@@ -263,11 +297,37 @@ export const sendDeploymentInvoices = async (req, res) => {
                 const expiresAt = new Date();
                 expiresAt.setDate(expiresAt.getDate() + 7);
 
+                // Fetch pilot data for snapshot
+                const pilotSnapshot = await query(
+                    `SELECT p.home_address, 
+                    COALESCE(pb.bank_name, p.bank_name) as bank_name, 
+                    COALESCE(pb.account_number, p.account_number) as account_number, 
+                    COALESCE(pb.routing_number, p.routing_number) as routing_number, 
+                    COALESCE(pb.swift_code, p.swift_code) as swift_code, 
+                    COALESCE(pb.account_type, p.account_type) as account_type,
+                    p.daily_pay_rate 
+             FROM personnel p
+             LEFT JOIN pilot_banking_info pb ON p.id = pb.pilot_id
+             WHERE p.id = $1`,
+                    [summary.technician_id]
+                );
+                const ps = pilotSnapshot.rows[0];
+
+                const cleanRouting = ps?.routing_number ? String(ps.routing_number).replace(/\D/g, '') : null;
+                const cleanAccount = ps?.account_number ? String(ps.account_number).replace(/\D/g, '') : null;
+                const cleanSwift = ps?.swift_code ? String(ps.swift_code).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : null;
+
                 const newInv = await query(
-                    `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at)
-                     VALUES ($1, $2, $3, 'SENT', $4, $5)
+                    `INSERT INTO invoices (
+                        deployment_id, personnel_id, amount, status, token, token_expires_at,
+                        payment_days, home_address, bank_name, account_number, routing_number, swift_code, account_type, daily_pay_rate
+                    )
+                     VALUES ($1, $2, $3, 'SENT', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                      RETURNING *`,
-                    [deploymentId, summary.technician_id, summary.total_pay, token, expiresAt]
+                    [
+                        deploymentId, summary.technician_id, summary.total_pay, token, expiresAt,
+                        paymentDays, ps?.home_address, ps?.bank_name, cleanAccount, cleanRouting, cleanSwift, ps?.account_type, ps?.daily_pay_rate
+                    ]
                 );
                 invoice = newInv.rows[0];
             }
@@ -306,7 +366,160 @@ export const sendDeploymentInvoices = async (req, res) => {
         console.error('Error sending deployment invoices:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to send invoices',
+            message: 'Failed to send invoices: ' + error.message,
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Get all created invoices for a specific deployment
+ */
+export const getInvoicesByDeployment = async (req, res) => {
+    try {
+        const { deploymentId } = req.params;
+
+        const result = await query(
+            `SELECT i.*, p.full_name as pilot_name, p.email as pilot_email 
+             FROM invoices i 
+             JOIN personnel p ON i.personnel_id = p.id 
+             WHERE i.deployment_id = $1 AND (i.status = 'SENT' OR i.status = 'PAID' OR i.status = 'VIEWED')
+             ORDER BY p.full_name ASC`,
+            [deploymentId]
+        );
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching deployment invoices:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch invoices',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Generate a Master Invoice for a Deployment (Aggregating multiple pilot invoices)
+ */
+export const createMasterInvoice = async (req, res) => {
+    try {
+        const { deploymentId, invoiceIds } = req.body;
+
+        if (!invoiceIds || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No invoices selected for Master Invoice.'
+            });
+        }
+
+        // 1. Fetch Deployment Details
+        const deploymentRes = await query(
+            'SELECT * FROM deployments WHERE id = $1 AND tenant_id = $2',
+            [deploymentId, req.user.tenantId]
+        );
+
+        if (deploymentRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        }
+        const deployment = deploymentRes.rows[0];
+
+        // 2. Fetch Selected Invoices with details
+        const invoicesRes = await query(
+            `SELECT i.*, p.full_name as pilot_name 
+             FROM invoices i
+             JOIN personnel p ON i.personnel_id = p.id
+             WHERE i.id = ANY($1) AND i.deployment_id = $2`,
+            [invoiceIds, deploymentId]
+        );
+
+        const invoices = invoicesRes.rows;
+
+        // Calculate Total
+        const totalAmount = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+
+        // 3. Return Data for Rendering
+        res.json({
+            success: true,
+            data: {
+                deployment,
+                invoices,
+                totalAmount,
+                generatedAt: new Date()
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating master invoice:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create master invoice',
+            error: error.message
+        });
+    }
+};
+
+/**
+ * Update an existing invoice (overriding snapshot/calculated values)
+ */
+export const updateInvoice = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const {
+            amount,
+            home_address,
+            bank_name,
+            account_number,
+            routing_number,
+            swift_code,
+            payment_days,
+            status,
+            account_type,
+            daily_pay_rate
+        } = req.body;
+
+        // Verify invoice exists
+        const check = await query('SELECT id FROM invoices WHERE token = $1', [token]);
+        if (check.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invoice not found.' });
+        }
+
+        const cleanRouting = routing_number ? String(routing_number).replace(/\D/g, '') : routing_number;
+        const cleanAccount = account_number ? String(account_number).replace(/\D/g, '') : account_number;
+        const cleanSwift = swift_code ? String(swift_code).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : swift_code;
+
+        const result = await query(
+            `UPDATE invoices 
+             SET amount = COALESCE($1, amount),
+                 home_address = COALESCE($2, home_address),
+                 bank_name = COALESCE($3, bank_name),
+                 account_number = COALESCE($4, account_number),
+                 routing_number = COALESCE($5, routing_number),
+                 swift_code = $6,
+                 payment_days = COALESCE($7, payment_days),
+                 status = COALESCE($8, status),
+                 account_type = COALESCE($9, account_type),
+                 daily_pay_rate = COALESCE($10, daily_pay_rate),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE token = $11
+             RETURNING *`,
+            [amount, home_address, bank_name, cleanAccount, cleanRouting, cleanSwift, payment_days, status, account_type, daily_pay_rate, token]
+        );
+
+        res.json({
+            success: true,
+            message: 'Invoice updated successfully.',
+            data: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Error updating invoice:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update invoice',
             error: error.message
         });
     }

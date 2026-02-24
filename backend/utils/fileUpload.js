@@ -6,27 +6,26 @@ import { AppError } from '../middleware/errorHandler.js';
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 
+// Permissive file filter - allows any file
 const fileFilter = (req, file, cb) => {
-    // Allow images, docs, sheets, kml, videos, etc.
-    const allowedTypes = /jpeg|jpg|png|webp|tiff|gif|bmp|svg|pdf|csv|xlsx|xls|xlsm|doc|docx|docm|ppt|pptx|pptm|kml|kmz|xml|json|zip|rar|7z|txt|md|rtf|odt|ods|odp|mp4|mov|avi|mkv|webm|mp3|wav|m4a/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    // Mimetype check can be tricky for some of these, trust extension for now primarily or check broad implementation
-    // For simplicity in this dev environment, if extension matches, we allow.
-
-    if (extname) {
-        return cb(null, true);
-    } else {
-        cb(new AppError('File type not supported', 400));
-    }
+    // We trust the extension and mimetype but don't strictly block anything 
+    // to meet the user's "accept any files" requirement.
+    cb(null, true);
 };
 
 export const upload = multer({
     storage,
     limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB
+        fileSize: 100 * 1024 * 1024 // Increased to 100MB for multiple/video files
     },
     fileFilter
 });
 
-export const uploadSingle = upload.single('image');
-export const uploadMultiple = upload.array('images', 20);
+// Generic middlewares
+export const uploadSingle = upload.single('file'); // Generic field name 'file'
+export const uploadMultiple = upload.array('files', 50); // Generic field name 'files', up to 50 files
+
+// Legacy mappings for backward compatibility
+export const uploadImage = upload.single('image');
+export const uploadImages = upload.array('images', 20);
+export const uploadDocument = upload.single('document');

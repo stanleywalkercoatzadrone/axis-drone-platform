@@ -19,7 +19,7 @@ export const register = async (req, res, next) => {
         let userRole = 'USER';
         let userPermissions = ['CREATE_REPORT', 'EDIT_REPORT'];
 
-        if (role === 'ADMIN') {
+        if (role && (role.toUpperCase() === 'ADMIN')) {
             console.log(`DEBUG: Admin role requested. Secret provided: ${adminSecret ? 'YES' : 'NO'}`);
             if (adminSecret === 'SKYLENS-ADMIN-2025') {
                 userRole = 'ADMIN';
@@ -337,11 +337,16 @@ export const refreshAccessToken = async (req, res, next) => {
         const JWT_ISS = process.env.JWT_ISS || 'axis-drone-platform';
         const JWT_AUD = process.env.JWT_AUD || 'axis-drone-client';
 
-        const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET, {
-            algorithms: ['HS256'],
-            issuer: JWT_ISS,
-            audience: JWT_AUD,
-        });
+        let decoded;
+        try {
+            decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET, {
+                algorithms: ['HS256'],
+                issuer: JWT_ISS,
+                audience: JWT_AUD,
+            });
+        } catch (err) {
+            throw new AppError('Invalid or expired refresh token', 401);
+        }
 
         if (decoded.type !== 'refresh') throw new AppError('Invalid refresh token type', 401);
         if (!decoded.jti) throw new AppError('Refresh token missing jti', 401);
@@ -465,6 +470,9 @@ export const updatePassword = async (req, res, next) => {
             'UPDATE users SET password_hash = $1 WHERE id = $2',
             [newPasswordHash, userId]
         );
+
+        // Invalidate cache
+        await deleteCache(`user:${userId}`);
 
         // Log audit event
         await query(

@@ -10,13 +10,19 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 let supabase = null;
 
 if (supabaseUrl && supabaseServiceKey) {
-    supabase = createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-            autoRefreshToken: false,
-            persistSession: false
-        }
-    });
-    console.log('✅ Supabase client initialized');
+    try {
+        supabase = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false
+            }
+        });
+        console.log('✅ Supabase client initialized');
+    } catch (err) {
+        console.error('❌ Failed to initialize Supabase client:', err.message);
+        console.log('ℹ️  Proceeding without Supabase storage.');
+        supabase = null;
+    }
 } else {
     console.log('ℹ️  Supabase credentials not found - storage features will use local filesystem');
 }

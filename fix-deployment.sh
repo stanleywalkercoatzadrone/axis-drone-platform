@@ -7,9 +7,9 @@ SERVICE_NAME="axis-platform"
 REGION="us-central1"
 
 # Secrets from .env.local
-DATABASE_URL="postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+DATABASE_URL="postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
 JWT_SECRET="skylens_secret_key_change_in_prod"
-FRONTEND_URL="https://axis-platform-xyz.a.run.app" # Placeholder, update if known
+FRONTEND_URL="https://axis-platform-bqlammqi2q-uc.a.run.app" # Updated with actual service URL
 
 echo "🔧 Configuring Cloud Run service: $SERVICE_NAME in $REGION"
 echo "   Setting DATABASE_URL..."
@@ -20,7 +20,13 @@ gcloud run services update $SERVICE_NAME \
   --region $REGION \
   --set-env-vars "DATABASE_URL=$DATABASE_URL" \
   --set-env-vars "JWT_SECRET=$JWT_SECRET" \
-  --set-env-vars "NODE_ENV=production"
+  --set-env-vars "NODE_ENV=production" \
+  --set-env-vars "SMTP_HOST=smtp.gmail.com" \
+  --set-env-vars "SMTP_PORT=587" \
+  --set-env-vars "SMTP_SECURE=false" \
+  --set-env-vars "SMTP_USER=coatzadrone@gmail.com" \
+  --set-env-vars "SMTP_PASS=nfikqjyoqjyoqjyo" \
+  --set-env-vars "SMTP_FROM=Turnkey Pilots <coatzadrone@gmail.com>"
 
 echo ""
 echo "✅ Configuration updated!"

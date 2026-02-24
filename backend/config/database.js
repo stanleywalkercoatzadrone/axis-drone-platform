@@ -24,10 +24,12 @@ const parseConnectionString = (connectionString) => {
             host: url.hostname,
             port: url.port,
             database: url.pathname.split('/')[1],
-            ssl: {
-                rejectUnauthorized: false,
-                require: true
-            }
+            ssl: (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || process.env.NODE_ENV === 'development')
+                ? false
+                : {
+                    rejectUnauthorized: false,
+                    require: true
+                }
         };
     } catch (e) {
         console.error('Failed to parse DATABASE_URL:', e.message);
@@ -37,25 +39,30 @@ const parseConnectionString = (connectionString) => {
 
 let poolConfig;
 
+const sharedPoolOptions = {
+    max: 5,                          // Small pool for dev — prevents exhaustion
+    min: 1,                          // Keep at least 1 connection warm
+    idleTimeoutMillis: 10000,        // Recycle idle connections quickly
+    connectionTimeoutMillis: 5000,   // Fail fast if can't get connection
+    allowExitOnIdle: false,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    statement_timeout: 30000,        // Kill any query that runs > 30s
+};
+
 if (process.env.DATABASE_URL) {
     poolConfig = {
         ...parseConnectionString(process.env.DATABASE_URL),
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
-        keepAlive: true
+        ...sharedPoolOptions,
     };
 } else {
     poolConfig = {
         connectionString: DEFAULT_CONNECTION_STRING,
-        ssl: {
+        ssl: (process.env.NODE_ENV === 'development') ? false : {
             rejectUnauthorized: false,
             require: true
         },
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
-        keepAlive: true
+        ...sharedPoolOptions,
     };
 }
 
@@ -65,23 +72,8 @@ const pool = new Pool(poolConfig);
 
 // Don't test connection immediately - let it happen lazily on first query
 // This prevents blocking the container startup if DB is slow/unreachable
-pool.on('connect', async (client) => {
+pool.on('connect', () => {
     console.log('✅ PostgreSQL connected');
-    try {
-        const res = await client.query('SHOW search_path');
-        const contextRes = await client.query('SELECT current_database(), current_user, version()');
-        console.log('🔍 Search Path:', res.rows[0].search_path);
-        console.log('👤 DB User/Context:', contextRes.rows[0]);
-        // Mask the URL for security but show enough to compare
-        const dbUrl = poolConfig.connectionString;
-        console.log('📦 DB Connection String:', dbUrl.replace(/:[^:@]+@/, ':****@'));
-
-        // Force public path to be safe
-        await client.query('SET search_path TO public');
-        console.log('✅ Forced search_path to public');
-    } catch (e) {
-        console.error('Error logging DB details:', e);
-    }
 });
 
 pool.on('error', (err) => {

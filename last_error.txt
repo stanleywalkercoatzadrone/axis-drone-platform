@@ -1,14 +1,8 @@
-[2026-02-04T04:07:39.042Z] JsonWebTokenError: jwt malformed
-    at module.exports [as verify] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/jsonwebtoken/verify.js:70:17)
-    at refreshAccessToken (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/controllers/authController.js:340:29)
-    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
-    at next (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/route.js:149:13)
-    at Route.dispatch (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/route.js:119:3)
-    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
-    at /Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:284:15
-    at Function.process_params (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:346:12)
-    at next (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:280:10)
-    at Function.handle (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:175:3)
-Request: POST /api/auth/refresh
-Body: {"refreshToken":"DEMO_REFRESH_TOKEN"}
+[2026-02-19T01:31:18.938Z] error: invalid input syntax for type uuid: "demo-user"
+    at /Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/config/database.js:88:21)
+    at async getMe (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/controllers/authController.js:230:24)
+Request: GET /api/auth/me
+Body: {}
 -------------------

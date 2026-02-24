@@ -266,6 +266,7 @@ export interface InspectionReport {
   syncStatus?: SyncStatus;
   status: 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'REVIEW' | 'FINALIZED' | 'ARCHIVED';
   approvalStatus: 'Draft' | 'Pending Review' | 'Approved' | 'Released';
+  countryId?: string;
 }
 
 export interface AIAnalysisResponse {
@@ -296,6 +297,9 @@ export interface Site {
   client: string;
   location: string;
   status: 'Active' | 'Inactive' | 'Planned';
+  totalLbdCount?: number;
+  scannedLbdCount?: number;
+  issueLbdCount?: number;
 }
 
 export interface Asset {
@@ -322,14 +326,36 @@ export interface Personnel {
   role: PersonnelRole;
   email: string;
   phone?: string;
+  secondaryPhone?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  companyName?: string;
   certificationLevel?: string;
   dailyPayRate?: number;
   maxTravelDistance?: number;
   status: 'Active' | 'On Leave' | 'Inactive';
   assignedAssets?: string[]; // Asset IDs
+  homeAddress?: string; // Address or Coordinates (Lat, Long)
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  country?: string;
+  taxClassification?: string;
+  bankName?: string;
+  routingNumber?: string;
+  accountNumber?: string;
+  accountType?: string;
+  swiftCode?: string;
+  photoUrl?: string; // Standardized from profilePictureUrl
   onboarding_status?: 'not_sent' | 'sent' | 'in_progress' | 'completed';
   onboarding_sent_at?: string;
   onboarding_completed_at?: string;
+  complianceStatus?: 'compliant' | 'expired' | 'expiring_soon' | 'pending';
+  latitude?: number;
+  longitude?: number;
+  town?: string;
+  certifications?: string;
+  equipment?: string;
 }
 
 export enum DeploymentStatus {
@@ -365,8 +391,12 @@ export interface Deployment {
   title: string;
   type: DeploymentType;
   status: DeploymentStatus;
+  industry?: string;
   siteId?: string; // Optional link to Site
   siteName: string;
+  clientId?: string;
+  clientName?: string;
+  countryId?: string; // Link to Country
   date: string;
   technicianIds: string[]; // IDs of assigned Personnel
   notes?: string;
@@ -377,6 +407,26 @@ export interface Deployment {
   fileCount?: number;
   personnelCount?: number;
   monitoringTeam?: MonitoringUser[];
+  baseCost?: number;
+  markupPercentage?: number;
+  clientPrice?: number;
+  estimatedDurationDays?: number;
+  travelCosts?: number;
+  equipmentCosts?: number;
+}
+
+export interface PilotDocument {
+  id: string;
+  personnelId: string;
+  name: string;
+  type?: string;
+  url: string;
+  size?: number;
+  category: 'Flight Logs' | 'Insurance' | 'Certification' | 'Site Documentation' | 'Other';
+  expirationDate?: string;
+  aiMetadata?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MonitoringUser {
@@ -385,6 +435,7 @@ export interface MonitoringUser {
   email: string;
   role: string;
   missionRole: string;
+  companyName?: string;
 }
 
 export interface DailyLog {
@@ -425,4 +476,37 @@ export interface Workbook {
   mappingTemplateId?: string;
   uploadedBy: string;
   createdAt: string;
+}
+
+export interface Region {
+  id: string;
+  name: string;
+  status: 'Active' | 'Inactive';
+}
+
+export interface Country {
+  id: string;
+  name: string;
+  iso_code: string;
+  region_id: string;
+  aviation_authority?: string;
+  currency?: string;
+  units_of_measurement?: string;
+  status: 'ENABLED' | 'DISABLED';
+  default_language?: string;
+  region_name?: string; // Joined field
+}
+
+export interface BankingInfo {
+  id: string;
+  pilotId: string;
+  bankName: string;
+  accountNumber: string;
+  routingNumber: string;
+  swiftCode?: string;
+  accountType: string;
+  currency: string;
+  countryId?: string;
+  iban?: string;
+  updatedAt?: string;
 }

@@ -234,3 +234,53 @@ export const addStakeholder = async (req, res, next) => {
         next(error);
     }
 };
+
+// @desc    Update client
+// @route   PUT /api/clients/:id
+// @access  Admin
+export const updateClient = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, externalId, address, industryId } = req.body;
+
+        const result = await db.query(
+            `UPDATE clients 
+             SET name = $1, external_id = $2, address = $3, industry_id = $4, updated_at = NOW() 
+             WHERE id = $5 
+             RETURNING *`,
+            [name, externalId, address || {}, industryId, id]
+        );
+
+        if (result.rows.length === 0) {
+            return next(new AppError('Client not found', 404));
+        }
+
+        res.status(200).json({
+            success: true,
+            data: result.rows[0]
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Delete client
+// @route   DELETE /api/clients/:id
+// @access  Admin
+export const deleteClient = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const result = await db.query('DELETE FROM clients WHERE id = $1 RETURNING id', [id]);
+
+        if (result.rows.length === 0) {
+            return next(new AppError('Client not found', 404));
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Client deleted successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+};

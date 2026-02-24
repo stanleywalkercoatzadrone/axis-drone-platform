@@ -16,11 +16,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <AuthProvider>
-        <GlobalProvider>
-          <App />
-        </GlobalProvider>
-      </AuthProvider>
+      <App />
     </ErrorBoundary>
   </React.StrictMode>
 );

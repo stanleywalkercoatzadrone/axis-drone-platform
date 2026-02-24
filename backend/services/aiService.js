@@ -228,15 +228,20 @@ class AIService {
             });
 
             // Execute LLM call with retry
-            const result = await executeWithRetry(async () => {
-                const response = await this.model.generateContent(prompt);
-                return response.response.text();
+            const { text, usage } = await executeWithRetry(async () => {
+                const result = await this.model.generateContent(prompt);
+                const response = await result.response;
+                return {
+                    text: response.text(),
+                    usage: response.usageMetadata
+                };
             });
 
             // Parse structured response
-            const structured = parseStructuredResponse(result);
+            const structured = parseStructuredResponse(text);
 
             const processingTime = Date.now() - startTime;
+            const tokenCount = usage?.totalTokenCount || 0;
 
             // Log decision
             const requestId = await logDecision(
@@ -246,21 +251,23 @@ class AIService {
                 structured,
                 {
                     processingTime,
+                    tokenCount,
                     promptVersion: template.version,
                     modelVersion: MODEL_VERSION
                 }
             );
 
             // Update usage metrics
-            await updateUsageMetrics(userId, endpoint, null, processingTime);
+            await updateUsageMetrics(userId, endpoint, tokenCount, processingTime);
 
             return {
                 requestId,
                 data: structured,
                 metadata: {
-                    processingTime,
-                    modelVersion: MODEL_VERSION,
-                    promptVersion: template.version
+                    model_version: MODEL_VERSION,
+                    token_count: tokenCount,
+                    provider: 'Google Gemini',
+                    latency: processingTime
                 }
             };
         } catch (error) {

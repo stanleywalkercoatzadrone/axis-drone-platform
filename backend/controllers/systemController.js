@@ -152,3 +152,26 @@ export const unlinkMasterDrive = async (req, res, next) => {
         next(error);
     }
 };
+export const logError = async (req, res, next) => {
+    try {
+        const { message, stack, componentStack, timestamp, userAgent, url } = req.body;
+
+        console.error('------------------------------------------------');
+        console.error('🚨 CLIENT-SIDE ERROR REPORTED');
+        console.error('Time:', timestamp);
+        console.error('URL:', url);
+        console.error('User Agent:', userAgent);
+        console.error('Message:', message);
+        console.error('Component Stack:', componentStack);
+        console.error('Stack:', stack);
+        console.error('------------------------------------------------');
+
+        // Optional: Persist to DB if needed, but console logs are enough for Cloud Logging
+        // await query(...) 
+
+        res.json({ success: true, message: 'Error logged' });
+    } catch (error) {
+        console.error('Failed to process client error log:', error);
+        res.status(500).json({ success: false });
+    }
+};

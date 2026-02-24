@@ -6,14 +6,15 @@ console.log('🚀 INITIALIZING CONTAINER...');
 console.log(`ℹ️  Time: ${new Date().toISOString()}`);
 console.log(`ℹ️  NODE_ENV: ${process.env.NODE_ENV}`);
 
-// Global Crash Handlers
+// Global Crash Handlers (Set these up BEFORE importing anything else)
 process.on('uncaughtException', (err) => {
     console.error('🔥 CRITICAL: UNCAUGHT EXCEPTION 🔥');
     console.error(err);
+    // On Cloud Run, it is better to exit so a new container is started
     process.exit(1);
 });
 
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 CRITICAL: UNHANDLED REJECTION 🔥');
     console.error(reason);
     process.exit(1);
@@ -21,70 +22,45 @@ process.on('unhandledRejection', (reason) => {
 
 // STARTUP WRAPPER
 (async () => {
-    const PORT = process.env.PORT || 8080;
-    let appReady = false;
-    let expressApp = null;
+    try {
+        console.log('📦 Loading Application Logic...');
 
-    // 1. Create ONE persistent HTTP server that stays on port 8080 the entire time.
-    //    - During startup: returns a minimal 200 OK for /health (passes Cloud Run TCP probe)
-    //    - After app loads: delegates ALL requests to the Express app
-    //    This eliminates the port-gap that caused Cloud Run to mark: instances as unhealthy.
-    const server = createServer((req, res) => {
-        if (appReady && expressApp) {
-            // Delegate to Express once loaded
-            expressApp(req, res);
-        } else {
-            // Simple probe response while loading
-            if (req.url === '/health' || req.url === '/') {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ status: 'starting', service: 'Axis Backend' }));
-            } else {
-                // Return 503 for non-health routes during startup so callers retry
-                res.writeHead(503, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ status: 'starting', error: 'Server is initializing, please retry shortly.' }));
+        // DYNAMIC IMPORT - This catches hanging dependencies!
+        // The server.js body runs immediately, while this import 
+        // will resolve only when all dependencies (db, redis, etc) are loaded.
+
+        // Run Migrations (if in production or requested)
+        // DISABLED: Migrations block container startup and cause timeout
+        // Run migrations separately via Cloud Build step or manual process
+        /*
+        if (process.env.NODE_ENV === 'production') {
+            try {
+                console.log('🔄 Running Database Migrations...');
+                const { execSync } = await import('child_process');
+                execSync('node backend/migrations/run.js', { stdio: 'inherit' });
+                console.log('✅ Migrations Completed.');
+            } catch (migErr) {
+                console.error('⚠️ Migration Error (non-fatal, proceeding):', migErr.message);
             }
         }
-    });
+        */
 
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log('----------------------------------------');
-        console.log(`🔍 SERVER LISTENING ON PORT ${PORT}`);
-        console.log('   Initializing app logic...');
-        console.log('----------------------------------------');
-    });
+        const { httpServer } = await import('./app.js');
 
-    try {
-        console.log('step_1_loading_app: Importing app.js...');
-        // Load the full Express app. This replaces the probe response on same server.
-        const { default: app } = await import('./app.js');
-        console.log('step_1_success: app.js loaded');
+        const PORT = process.env.PORT || 8080;
 
-        // Check DB in background (don't block)
-        (async () => {
-            try {
-                console.log('step_2_db_check: Testing connection...');
-                const { default: pool } = await import('./config/database.js');
-                const res = await pool.query('SELECT NOW() as now');
-                console.log('step_2_success: DB Connected', res.rows[0].now);
-            } catch (dbErr) {
-                console.error('step_2_fail: DB Connection Error', dbErr.message);
-            }
-        })();
+        // Start Listening
+        httpServer.listen(PORT, '0.0.0.0', () => {
+            console.log('----------------------------------------');
+            console.log(`✅ SERVER STARTED SUCCESSFULLY`);
+            console.log(`📡 Listening on PORT: ${PORT}`);
+            console.log('----------------------------------------');
+        });
 
-        // Hand off: future requests go to Express
-        expressApp = app;
-        appReady = true;
-
-        console.log('----------------------------------------');
-        console.log(`✅ REAL SERVER STARTED SUCCESSFULLY`);
-        console.log(`📡 Listening on PORT: ${PORT}`);
-        console.log('   (Using persistent single-server handoff — no port gap)');
-        console.log('----------------------------------------');
-
-        // Setup graceful shutdown
+        // Setup graceful shutdown here as well since we own the server instance
         process.on('SIGTERM', () => {
             console.log('📥 SIGTERM received. Shutting down...');
-            server.close(() => {
+            httpServer.close(() => {
                 console.log('✅ Server closed.');
                 process.exit(0);
             });
@@ -92,6 +68,7 @@ process.on('unhandledRejection', (reason) => {
 
     } catch (error) {
         console.error('❌ FATAL ERROR DURING STARTUP ❌');
+        console.error('This error occurred while importing the application modules.');
         console.error(error);
         process.exit(1);
     }
