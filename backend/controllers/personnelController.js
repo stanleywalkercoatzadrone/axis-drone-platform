@@ -1516,20 +1516,16 @@ export const initPerformanceDB = async (req, res) => {
     }
 };
 
-import db from '../config/database.js';
-import { uploadFile } from '../services/storageService.js';
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import fs from 'fs';
 
 export const getMyDocuments = async (req, res) => {
     try {
         const email = req.user.email;
         const personnelRes = await db.query('SELECT id FROM personnel WHERE email = $1', [email]);
-        
+
         if (personnelRes.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Personnel record not found' });
         }
-        
+
         const personnelId = personnelRes.rows[0].id;
 
         const docResult = await db.query(
@@ -1562,11 +1558,11 @@ export const uploadMyDocument = async (req, res) => {
     try {
         const email = req.user.email;
         const personnelRes = await db.query('SELECT id FROM personnel WHERE email = $1', [email]);
-        
+
         if (personnelRes.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Personnel record not found' });
         }
-        
+
         const personnelId = personnelRes.rows[0].id;
         const { documentType, expirationDate } = req.body;
         const file = req.file;
