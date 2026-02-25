@@ -62,26 +62,17 @@ const ReportConfiguration: React.FC = () => {
                     </div>
                 </Card>
 
-                {/* Industry Selection */}
-                <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">Industry</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {Object.values(Industry).map(ind => (
-                            <button
-                                key={ind}
-                                onClick={() => setIndustry(ind)}
-                                className={`flex items-center gap-2.5 p-3 rounded-lg border text-left transition-all
-                                    ${industry === ind
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
-                            >
-                                <span className={`shrink-0 ${industry === ind ? 'text-blue-600' : 'text-slate-400'}`}>
-                                    {INDUSTRY_ICONS[ind]}
-                                </span>
-                                <span className="font-medium text-sm">{ind}</span>
-                                {industry === ind && <Check className="w-3.5 h-3.5 ml-auto text-blue-600 shrink-0" />}
-                            </button>
-                        ))}
+                {/* Industry Context (Read-Only) */}
+                <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm bg-slate-50/50">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Analysis Target</h3>
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                            {INDUSTRY_ICONS[industry]}
+                        </div>
+                        <div>
+                            <p className="font-bold text-slate-700 tracking-tight">{industry} Sector</p>
+                            <p className="text-xs text-slate-500 font-medium">Neural models optimized for {industry.toLowerCase()} assets.</p>
+                        </div>
                     </div>
                 </Card>
             </div>
