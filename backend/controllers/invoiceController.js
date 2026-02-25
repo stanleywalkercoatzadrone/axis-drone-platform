@@ -23,6 +23,13 @@ export const createInvoice = async (req, res) => {
             });
         }
 
+        // Fetch pilot's daily pay rate
+        const personnelRes = await query(
+            'SELECT daily_pay_rate FROM personnel WHERE id = $1',
+            [personnelId]
+        );
+        const dailyPayRate = personnelRes.rows.length > 0 ? parseFloat(personnelRes.rows[0].daily_pay_rate) || 0 : 0;
+
         // Determine payment terms: use provided value, or fetch from settings, or default to 30
         let paymentDays = paymentTermsDays || 30;
         if (!paymentTermsDays) {
@@ -38,23 +45,18 @@ export const createInvoice = async (req, res) => {
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 7); // 7 day expiration
 
-        // 3. Create Invoice Record with payment_days
+        // 3. Create Invoice Record with payment_days and daily_pay_rate
         const result = await query(
-            `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at, payment_days)
-             VALUES ($1, $2, $3, 'SENT', $4, $5, $6)
+            `INSERT INTO invoices (deployment_id, personnel_id, amount, status, token, token_expires_at, payment_days, daily_pay_rate)
+             VALUES ($1, $2, $3, 'SENT', $4, $5, $6, $7)
              RETURNING *`,
-            [deploymentId, personnelId, amount, token, expiresAt, paymentDays]
+            [deploymentId, personnelId, amount, token, expiresAt, paymentDays, dailyPayRate]
         );
 
         // 4. Return the link
         const invoice = result.rows[0];
-        // In production, use actual domain. For local: header host or fixed.
         const protocol = req.protocol;
         const host = req.get('host');
-        // Backend runs on 8080, Frontend on different port usually (5173 or same if served).
-        // Since we are likely using a separate frontend dev server, we should construct the frontend URL.
-        // Assuming frontend is same host/port for production or we return the relative path for the UI to format.
-        // The user request is "secure link", let's return the full URL assuming /invoice/view route on frontend.
         const secureLink = `/invoice/${token}`;
 
         res.status(201).json({
@@ -82,16 +84,26 @@ export const getInvoiceByToken = async (req, res) => {
     try {
         const { token } = req.params;
 
-        // 1. Find valid unused token - now including payment_days
+        // 1. Find invoice with full personnel banking data from pilot_banking_info
         const result = await query(
             `SELECT i.*, 
                     d.title as mission_title, d.site_name, d.date as mission_date,
                     p.full_name as pilot_name, p.email as pilot_email,
-                    p.home_address, p.bank_name, p.routing_number, p.account_number,
-                    COALESCE(i.payment_days, 30) as payment_days
+                    p.home_address,
+                    COALESCE(pbi.bank_name, p.bank_name) as bank_name,
+                    COALESCE(pbi.routing_number, p.routing_number) as routing_number,
+                    COALESCE(pbi.account_number, p.account_number) as account_number,
+                    COALESCE(pbi.swift_code, p.swift_code) as swift_code,
+                    COALESCE(pbi.account_type, p.account_type, 'Checking') as account_type,
+                    COALESCE(i.payment_days, 30) as payment_days,
+                    COALESCE(i.daily_pay_rate, pbi.daily_rate, p.daily_pay_rate, 0) as daily_pay_rate,
+                    (SELECT COUNT(*) FROM daily_logs dl 
+                     WHERE dl.deployment_id = i.deployment_id 
+                     AND dl.technician_id = i.personnel_id) as days_worked
              FROM invoices i
              JOIN deployments d ON i.deployment_id = d.id
              JOIN personnel p ON i.personnel_id = p.id
+             LEFT JOIN pilot_banking_info pbi ON pbi.pilot_id = p.id
              WHERE i.token = $1`,
             [token]
         );
@@ -131,7 +143,7 @@ import { sendInvoiceEmail, sendAdminSummaryEmail, isMockTransporter } from '../s
 export const sendDeploymentInvoices = async (req, res) => {
     try {
         const { id: deploymentId } = req.params;
-        const { personnelIds, sendToPilots = true } = req.body; // Expect array of personnel IDs, default sendToPilots to true
+        const { personnelIds, sendToPilots = true, adminNote } = req.body;
 
         let queryText = `SELECT 
                 dl.technician_id,
@@ -256,7 +268,8 @@ export const sendDeploymentInvoices = async (req, res) => {
                     deployment,
                     link,
                     parseFloat(summary.total_pay),
-                    adminEmail // Pass adminEmail as CC
+                    adminEmail, // CC
+                    adminNote || null // Note
                 );
             }
 
@@ -374,5 +387,110 @@ export const createMasterInvoice = async (req, res) => {
             message: 'Failed to create master invoice',
             error: error.message
         });
+    }
+};
+
+/**
+ * Update invoice fields via token (admin only via auth header)
+ * PUT /api/invoices/:token
+ */
+export const updateInvoiceByToken = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const {
+            created_at,
+            amount,
+            payment_days,
+            daily_pay_rate,
+            days_worked,
+            pilot_name,
+            home_address,
+            mission_title,
+            site_name,
+            service_description,
+            bank_name,
+            routing_number,
+            account_number,
+            swift_code,
+            account_type,
+        } = req.body;
+
+        // Find invoice by token
+        const findRes = await query('SELECT i.id, i.personnel_id FROM invoices i WHERE i.token = $1', [token]);
+        if (findRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Invoice not found.' });
+        }
+
+        const invoiceId = findRes.rows[0].id;
+        const personnelId = findRes.rows[0].personnel_id;
+
+        // Update invoice record
+        await query(`
+            UPDATE invoices SET
+                created_at = COALESCE($1, created_at),
+                amount = COALESCE($2, amount),
+                payment_days = COALESCE($3, payment_days),
+                daily_pay_rate = COALESCE($4, daily_pay_rate),
+                updated_at = NOW()
+            WHERE id = $5
+        `, [created_at, amount, payment_days, daily_pay_rate, invoiceId]);
+
+        // Update personnel name/address if provided
+        if (pilot_name || home_address) {
+            const nameUpdates = [];
+            const nameParams = [];
+            let idx = 1;
+            if (pilot_name) { nameUpdates.push(`full_name = $${idx++}`); nameParams.push(pilot_name); }
+            if (home_address) { nameUpdates.push(`home_address = $${idx++}`); nameParams.push(home_address); }
+            if (nameUpdates.length > 0) {
+                nameParams.push(personnelId);
+                await query(`UPDATE personnel SET ${nameUpdates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, nameParams);
+            }
+        }
+
+        // Upsert banking info into pilot_banking_info (the correct table)
+        const hasBanking = bank_name || routing_number || account_number || swift_code || account_type;
+        if (hasBanking) {
+            await query(`
+                INSERT INTO pilot_banking_info (pilot_id, bank_name, routing_number, account_number, swift_code, account_type, currency)
+                VALUES ($1, $2, $3, $4, $5, $6, 'USD')
+                ON CONFLICT (pilot_id) DO UPDATE SET
+                    bank_name = COALESCE(EXCLUDED.bank_name, pilot_banking_info.bank_name),
+                    routing_number = COALESCE(EXCLUDED.routing_number, pilot_banking_info.routing_number),
+                    account_number = COALESCE(EXCLUDED.account_number, pilot_banking_info.account_number),
+                    swift_code = COALESCE(EXCLUDED.swift_code, pilot_banking_info.swift_code),
+                    account_type = COALESCE(EXCLUDED.account_type, pilot_banking_info.account_type)
+            `, [personnelId, bank_name, routing_number, account_number, swift_code, account_type]);
+        }
+
+        // Return updated invoice with fresh banking data
+        const updated = await query(
+            `SELECT i.*, 
+                    d.title as mission_title, d.site_name, d.date as mission_date,
+                    p.full_name as pilot_name, p.email as pilot_email,
+                    p.home_address,
+                    COALESCE(pbi.bank_name, p.bank_name) as bank_name,
+                    COALESCE(pbi.routing_number, p.routing_number) as routing_number,
+                    COALESCE(pbi.account_number, p.account_number) as account_number,
+                    COALESCE(pbi.swift_code, p.swift_code) as swift_code,
+                    COALESCE(pbi.account_type, p.account_type, 'Checking') as account_type,
+                    COALESCE(i.payment_days, 30) as payment_days,
+                    COALESCE(i.daily_pay_rate, pbi.daily_rate, p.daily_pay_rate, 0) as daily_pay_rate,
+                    (SELECT COUNT(*) FROM daily_logs dl 
+                     WHERE dl.deployment_id = i.deployment_id 
+                     AND dl.technician_id = i.personnel_id) as days_worked
+             FROM invoices i
+             JOIN deployments d ON i.deployment_id = d.id
+             JOIN personnel p ON i.personnel_id = p.id
+             LEFT JOIN pilot_banking_info pbi ON pbi.pilot_id = p.id
+             WHERE i.token = $1`,
+            [token]
+        );
+
+        res.json({ success: true, data: updated.rows[0] });
+
+    } catch (error) {
+        console.error('Error updating invoice:', error);
+        res.status(500).json({ success: false, message: 'Failed to update invoice', error: error.message });
     }
 };

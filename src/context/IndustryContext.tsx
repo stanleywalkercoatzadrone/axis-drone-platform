@@ -19,8 +19,8 @@ export const IndustryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (storedIndustry && INDUSTRY_CONFIG[storedIndustry as IndustryKey]) {
             setCurrentIndustry(storedIndustry as IndustryKey);
         } else {
-            // Default to null (Global View) or a specific default if desired
-            setCurrentIndustry('default');
+            // Default to 'solar' so user always sees a real industry workspace
+            setCurrentIndustry('solar');
         }
     }, []);
 

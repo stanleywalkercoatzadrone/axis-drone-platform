@@ -24,7 +24,7 @@ const parseConnectionString = (connectionString) => {
             host: url.hostname,
             port: url.port,
             database: url.pathname.split('/')[1],
-            ssl: {
+            ssl: url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? false : {
                 rejectUnauthorized: false,
                 require: true
             }

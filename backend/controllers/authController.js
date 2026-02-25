@@ -136,9 +136,12 @@ export const login = async (req, res, next) => {
             companyName: user.company_name,
             title: user.title,
             role: user.role,
-            permissions: user.permissions,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             authVersion: user.auth_version,
+            forcePasswordReset: user.force_password_reset ?? false,
             createdAt: user.created_at,
             lastLogin: new Date()
         };
@@ -247,7 +250,8 @@ export const getMe = async (req, res, next) => {
             driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             createdAt: user.created_at,
-            lastLogin: user.last_login
+            lastLogin: user.last_login,
+            forcePasswordReset: user.force_password_reset ?? false
         };
 
         res.json({
@@ -305,7 +309,8 @@ export const updateMe = async (req, res, next) => {
             driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             createdAt: user.created_at,
-            lastLogin: user.last_login
+            lastLogin: user.last_login,
+            forcePasswordReset: user.force_password_reset ?? false
         };
 
         // Cache user data
@@ -462,7 +467,7 @@ export const updatePassword = async (req, res, next) => {
 
         // Update password
         await query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
+            'UPDATE users SET password_hash = $1, force_password_reset = false WHERE id = $2',
             [newPasswordHash, userId]
         );
 
@@ -559,6 +564,7 @@ export const setPasswordWithToken = async (req, res, next) => {
                  invitation_token_hash = NULL, 
                  invitation_expires_at = NULL,
                  auth_version = auth_version + 1,
+                 force_password_reset = false,
                  updated_at = NOW()
              WHERE id = $2`,
             [passwordHash, userId]

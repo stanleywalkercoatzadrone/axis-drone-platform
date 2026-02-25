@@ -34,6 +34,9 @@ const createStore = () => {
 export const standardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Limit each IP to 100 requests per windowMs
+    skip: (req) => {
+        return process.env.NODE_ENV === 'development' || process.env.DISABLE_RATE_LIMIT === 'true';
+    },
     standardHeaders: true,
     legacyHeaders: false,
     store: createStore(),

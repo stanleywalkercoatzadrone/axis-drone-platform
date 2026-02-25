@@ -94,6 +94,7 @@ export interface UserAccount {
   isDriveBlocked?: boolean;
   effectiveRoles?: string[];
   bindings?: UserBinding[];
+  forcePasswordReset?: boolean;
 }
 
 export interface UserBinding {
@@ -508,5 +509,6 @@ export interface BankingInfo {
   currency: string;
   countryId?: string;
   iban?: string;
+  dailyRate?: number | null;
   updatedAt?: string;
 }

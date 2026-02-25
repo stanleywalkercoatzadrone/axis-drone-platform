@@ -3,7 +3,7 @@ import { ContextBar } from './ContextBar';
 import { useGlobalContext } from '../../context/GlobalContext';
 import { useAuth } from '../../context/AuthContext';
 import { useIndustry } from '../../context/IndustryContext';
-import { isAdmin, isPilot } from '../../utils/roleUtils';
+import { isAdmin, isPilot, isClient, isInHouse } from '../../utils/roleUtils';
 import {
     Users,
     Settings,
@@ -28,6 +28,7 @@ import {
     FolderOpen,
     BarChart2,
     Archive,
+    LayoutDashboard
 } from 'lucide-react';
 
 interface PageShellProps {
@@ -117,21 +118,25 @@ export const PageShell: React.FC<PageShellProps> = ({
 }) => {
     const { user } = useAuth();
     const { isSidebarOpen, toggleSidebar } = useGlobalContext();
-    const { tLabel } = useIndustry();
+    const { tLabel, setIndustry, currentIndustry } = useIndustry();
 
     // Which industry is selected in the Industry Operations panel
     const [selectedIndustry, setSelectedIndustry] = useState<IndustryId>(
-        (activeIndustry as IndustryId) || 'solar'
+        (activeIndustry as IndustryId) || (currentIndustry !== 'default' ? currentIndustry as IndustryId : 'solar')
     );
 
     // Whether the Industry Operations section is open/expanded
     const [isOpsOpen, setIsOpsOpen] = useState(true);
 
     const handleAIEngineClick = (industry: typeof INDUSTRIES[number]) => {
+        setSelectedIndustry(industry.id);
+        setIndustry(industry.id);
         onNavigate?.('ai-engine', { industry: industry.id });
     };
 
     const handleMissionsClick = (industry: typeof INDUSTRIES[number]) => {
+        setSelectedIndustry(industry.id);
+        setIndustry(industry.id);
         onNavigate?.('missions', { industry: industry.industryValue });
     };
 
@@ -236,102 +241,135 @@ export const PageShell: React.FC<PageShellProps> = ({
                                     <div className="border-l border-slate-800 ml-2 pl-3 space-y-0.5 mb-1">
 
                                         {/* AI Generator */}
-                                        <button
-                                            onClick={() => handleAIEngineClick(industry)}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-150 group border
-                                                ${isAIActive
-                                                    ? `${industry.bgClass} ${industry.colorClass} ${industry.borderClass}`
-                                                    : 'text-slate-500 border-transparent hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <BrainCircuit size={13} className={`mr-2 transition-colors ${isAIActive ? industry.colorClass : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>{industry.emoji} {industry.label} AI</span>
-                                            {isAIActive && <div className={`ml-auto w-1 h-1 rounded-full ${industry.dotClass} animate-pulse`} />}
-                                        </button>
+                                        {(isAdmin(user) || isInHouse(user)) && (
+                                            <button
+                                                onClick={() => handleAIEngineClick(industry)}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-150 group border
+                                                    ${isAIActive
+                                                        ? `${industry.bgClass} ${industry.colorClass} ${industry.borderClass}`
+                                                        : 'text-slate-500 border-transparent hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <BrainCircuit size={13} className={`mr-2 transition-colors ${isAIActive ? industry.colorClass : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>{industry.emoji} {industry.label} AI</span>
+                                                {isAIActive && <div className={`ml-auto w-1 h-1 rounded-full ${industry.dotClass} animate-pulse`} />}
+                                            </button>
+                                        )}
 
                                         {/* Industry Missions */}
-                                        <button
-                                            onClick={() => handleMissionsClick(industry)}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${isMissActive
-                                                    ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <Radar size={13} className={`mr-2 transition-colors ${isMissActive ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>{industry.label} Missions</span>
-                                            {isMissActive && <div className="ml-auto w-1 h-1 rounded-full bg-blue-500 animate-pulse" />}
-                                        </button>
+                                        {(isAdmin(user) || isPilot(user)) && (
+                                            <button
+                                                onClick={() => handleMissionsClick(industry)}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${isMissActive
+                                                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <Radar size={13} className={`mr-2 transition-colors ${isMissActive ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>{industry.label} Missions</span>
+                                                {isMissActive && <div className="ml-auto w-1 h-1 rounded-full bg-blue-500 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                         {/* Weather */}
-                                        <button
-                                            onClick={handleWeatherClick}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${activeTab === 'weather'
-                                                    ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <CloudSun size={13} className={`mr-2 transition-colors ${activeTab === 'weather' ? 'text-sky-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>Weather</span>
-                                            {activeTab === 'weather' && <div className="ml-auto w-1 h-1 rounded-full bg-sky-400 animate-pulse" />}
-                                        </button>
+                                        {(isAdmin(user) || isPilot(user)) && (
+                                            <button
+                                                onClick={handleWeatherClick}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'weather'
+                                                        ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <CloudSun size={13} className={`mr-2 transition-colors ${activeTab === 'weather' ? 'text-sky-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>Weather</span>
+                                                {activeTab === 'weather' && <div className="ml-auto w-1 h-1 rounded-full bg-sky-400 animate-pulse" />}
+                                            </button>
+                                        )}
+
+                                        {/* My Files (Pilots Only) */}
+                                        {isPilot(user) && (
+                                            <button
+                                                onClick={() => {
+                                                    // @ts-ignore
+                                                    onNavigate('my-files');
+                                                }}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'my-files'
+                                                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <FolderOpen size={13} className={`mr-2 transition-colors ${activeTab === 'my-files' ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>My Files</span>
+                                                {activeTab === 'my-files' && <div className="ml-auto w-1 h-1 rounded-full bg-blue-400 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                         {/* Uploads */}
-                                        <button
-                                            onClick={handleUploadClick}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${activeTab === 'upload'
-                                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <Upload size={13} className={`mr-2 transition-colors ${activeTab === 'upload' ? 'text-emerald-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>Uploads</span>
-                                            {activeTab === 'upload' && <div className="ml-auto w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />}
-                                        </button>
+                                        {(isAdmin(user) || isInHouse(user)) && (
+                                            <button
+                                                onClick={handleUploadClick}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'upload'
+                                                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <Upload size={13} className={`mr-2 transition-colors ${activeTab === 'upload' ? 'text-emerald-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>Uploads</span>
+                                                {activeTab === 'upload' && <div className="ml-auto w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                         {/* Assets */}
-                                        <button
-                                            onClick={handleAssetsClick}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${activeTab === 'assets'
-                                                    ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <FolderOpen size={13} className={`mr-2 transition-colors ${activeTab === 'assets' ? 'text-orange-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>Assets</span>
-                                            {activeTab === 'assets' && <div className="ml-auto w-1 h-1 rounded-full bg-orange-400 animate-pulse" />}
-                                        </button>
+                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && (
+                                            <button
+                                                onClick={handleAssetsClick}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'assets'
+                                                        ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <FolderOpen size={13} className={`mr-2 transition-colors ${activeTab === 'assets' ? 'text-orange-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>Assets</span>
+                                                {activeTab === 'assets' && <div className="ml-auto w-1 h-1 rounded-full bg-orange-400 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                         {/* Analytics */}
-                                        <button
-                                            onClick={handleAnalyticsClick}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${activeTab === 'analytics'
-                                                    ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <BarChart2 size={13} className={`mr-2 transition-colors ${activeTab === 'analytics' ? 'text-purple-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>Analytics</span>
-                                            {activeTab === 'analytics' && <div className="ml-auto w-1 h-1 rounded-full bg-purple-400 animate-pulse" />}
-                                        </button>
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={handleAnalyticsClick}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'analytics'
+                                                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <BarChart2 size={13} className={`mr-2 transition-colors ${activeTab === 'analytics' ? 'text-purple-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>Analytics</span>
+                                                {activeTab === 'analytics' && <div className="ml-auto w-1 h-1 rounded-full bg-purple-400 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                         {/* AI Report Archive */}
-                                        <button
-                                            onClick={handleAIReportsClick}
-                                            className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                ${activeTab === 'ai-reports'
-                                                    ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                                                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                }`}
-                                        >
-                                            <Archive size={13} className={`mr-2 transition-colors ${activeTab === 'ai-reports' ? 'text-indigo-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                            <span>AI Reports</span>
-                                            {activeTab === 'ai-reports' && <div className="ml-auto w-1 h-1 rounded-full bg-indigo-400 animate-pulse" />}
-                                        </button>
+                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && (
+                                            <button
+                                                onClick={handleAIReportsClick}
+                                                className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
+                                                    ${activeTab === 'ai-reports'
+                                                        ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                                                        : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
+                                                    }`}
+                                            >
+                                                <Archive size={13} className={`mr-2 transition-colors ${activeTab === 'ai-reports' ? 'text-indigo-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                                <span>AI Reports</span>
+                                                {activeTab === 'ai-reports' && <div className="ml-auto w-1 h-1 rounded-full bg-indigo-400 animate-pulse" />}
+                                            </button>
+                                        )}
 
                                     </div>
                                 </div>
@@ -365,18 +403,30 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 Settings
                             </div>
                         )}
-                        <CompactNavItem
-                            icon={<Users size={16} />}
-                            label={tLabel('stakeholder')}
-                            active={activeTab === 'personnel'}
-                            onClick={() => onNavigate?.('personnel')}
-                        />
-                        <CompactNavItem
-                            icon={<Building size={16} />}
-                            label="Clients"
-                            active={activeTab === 'clients'}
-                            onClick={() => onNavigate?.('clients')}
-                        />
+                        {user && (
+                            <CompactNavItem
+                                icon={<LayoutDashboard size={16} />}
+                                label="Dashboard"
+                                active={activeTab === 'dashboard'}
+                                onClick={() => onNavigate?.('dashboard')}
+                            />
+                        )}
+                        {user && isAdmin(user) && (
+                            <CompactNavItem
+                                icon={<Users size={16} />}
+                                label={tLabel('stakeholder')}
+                                active={activeTab === 'personnel'}
+                                onClick={() => onNavigate?.('personnel')}
+                            />
+                        )}
+                        {user && isAdmin(user) && (
+                            <CompactNavItem
+                                icon={<Building size={16} />}
+                                label="Clients"
+                                active={activeTab === 'clients'}
+                                onClick={() => onNavigate?.('clients')}
+                            />
+                        )}
                         <CompactNavItem
                             icon={<Settings size={16} />}
                             label="System Settings"

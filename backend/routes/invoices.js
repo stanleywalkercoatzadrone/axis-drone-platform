@@ -1,5 +1,5 @@
 import express from 'express';
-import { createInvoice, getInvoiceByToken } from '../controllers/invoiceController.js';
+import { createInvoice, getInvoiceByToken, updateInvoiceByToken } from '../controllers/invoiceController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -9,5 +9,8 @@ router.post('/', protect, createInvoice);
 
 // Public: Pilot views invoice (Token protected)
 router.get('/:token', getInvoiceByToken);
+
+// Public: Update invoice via secure token
+router.put('/:token', updateInvoiceByToken);
 
 export default router;

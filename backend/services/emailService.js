@@ -69,7 +69,7 @@ export const sendEmail = async (to, subject, html) => {
  * @param {number} amount 
  * @param {string} cc - Optional CC recipient
  */
-export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null) => {
+export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null, note = null) => {
     const subject = `Invoice Ready: ${deployment.title}`;
     const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -82,6 +82,11 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, c
                 <li><strong>Total Amount:</strong> $${amount.toLocaleString()}</li>
             </ul>
             <p>Please click the link below to view and acknowledge your invoice:</p>
+            ${note ? `
+            <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
+                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">Note from Operations:</p>
+                <p style="margin: 6px 0 0; font-size: 14px; color: #1e293b; white-space: pre-wrap;">${note}</p>
+            </div>` : ''}
             <p>
                 <a href="${invoiceLink}" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Invoice</a>
             </p>

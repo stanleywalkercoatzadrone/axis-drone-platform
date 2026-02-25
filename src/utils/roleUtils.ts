@@ -16,19 +16,23 @@ export function normalizeRole(roleString: string | undefined | null): string | n
     if (!roleString) return null;
 
     // Convert to lowercase and replace slashes/spaces with underscores
-    const normalized = roleString.toLowerCase().replace(/[\/\s]/g, '_');
+    const normalized = roleString.toLowerCase().replace(/[\/\s-]/g, '_');
 
     // Map variants to standard roles
     if (['admin', 'administrator'].includes(normalized)) {
         return 'admin';
     }
 
-    if (['pilot_technician', 'pilot', 'technician', 'pilot-technician'].includes(normalized)) {
+    if (['pilot_technician', 'pilot', 'technician'].includes(normalized)) {
         return 'pilot_technician';
     }
 
-    // Return as-is for other roles (future-proofing)
-    return normalized;
+    if (['client', 'client_user', 'customer'].includes(normalized)) {
+        return 'client';
+    }
+
+    // Default all other legacy roles to in-house personnel to restrict access
+    return 'in_house_personnel';
 }
 
 /**
@@ -50,13 +54,21 @@ export function isPilot(user: UserAccount | null | undefined): boolean {
 }
 
 /**
- * Check if user has operations/mission control role
+ * Check if user has client role
  * @param user - User object with role property
- * @returns true if user is mission control
+ * @returns true if user is client
  */
-export function isMissionControl(user: UserAccount | null | undefined): boolean {
-    const role = normalizeRole(user?.role);
-    return role === 'operations' || role === 'mission_control';
+export function isClient(user: UserAccount | null | undefined): boolean {
+    return normalizeRole(user?.role) === 'client';
+}
+
+/**
+ * Check if user has in-house personnel role
+ * @param user - User object with role property
+ * @returns true if user is in-house personnel
+ */
+export function isInHouse(user: UserAccount | null | undefined): boolean {
+    return normalizeRole(user?.role) === 'in_house_personnel';
 }
 
 /**
@@ -80,7 +92,9 @@ export function getRoleDisplayName(role: string | undefined | null): string {
 
     const displayNames: Record<string, string> = {
         'admin': 'Administrator',
-        'pilot_technician': 'Pilot/Technician'
+        'pilot_technician': 'Pilot/Technician',
+        'client': 'Client',
+        'in_house_personnel': 'In-House Personnel'
     };
 
     return displayNames[normalized || ''] || normalized || 'Unknown';

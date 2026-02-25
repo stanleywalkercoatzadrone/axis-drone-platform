@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, Sun, Wind, Droplets, Thermometer, Navigation, RefreshCw, MapPin, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { Text, Heading } from '../../stitch/components/Typography';
-import { useMission } from '../../context/MissionContext';
-import { useAuth } from '../../context/AuthContext';
-import { isPilot } from '../../utils/roleUtils';
+import { Cloud, Sun, Wind, Navigation, RefreshCw, MapPin, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 interface WeatherData {
     temp: number;
@@ -16,42 +12,21 @@ interface WeatherData {
     lastUpdated: string;
 }
 
-const SITE_COORDINATES: Record<string, { lat: number, lon: number, town: string }> = {
-    'West Field Solar Array': { lat: 35.86, lon: -114.83, town: 'Boulder City, NV' },
-    'North Tower Cluster': { lat: 47.60, lon: -122.33, town: 'Seattle, WA' },
-    'Downtown Commercial Properties': { lat: 37.77, lon: -122.41, town: 'San Francisco, CA' },
-    'Grid Station Alpha': { lat: 29.76, lon: -95.36, town: 'Houston, TX' },
-    'Nevada Solar One': { lat: 35.80, lon: -114.94, town: 'Boulder City, NV' },
-    'Project Helios': { lat: 33.44, lon: -112.07, town: 'Phoenix, AZ' }
-};
-
 export const WeatherWidget: React.FC = () => {
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [locationLabel, setLocationLabel] = useState<string>('Mission HQ');
 
-    const mission = useMission();
-    const { user } = useAuth();
-
-    const fetchWeather = async (lat?: number, lon?: number, siteName?: string) => {
+    const fetchWeather = (lat?: number, lon?: number, siteName?: string) => {
         setRefreshing(true);
-
-        let targetLat = lat;
-        let targetLon = lon;
-        let town = siteName || 'Mission HQ';
-
-        if (siteName && SITE_COORDINATES[siteName]) {
-            targetLat = SITE_COORDINATES[siteName].lat;
-            targetLon = SITE_COORDINATES[siteName].lon;
-            town = SITE_COORDINATES[siteName].town;
-        }
-
+        const town = siteName || locationLabel;
         setTimeout(() => {
             setWeather({
                 temp: Math.floor(Math.random() * (85 - 65 + 1)) + 65,
                 condition: ['Clear', 'Partly Cloudy', 'Overcast', 'Light Rain'][Math.floor(Math.random() * 4)],
                 humidity: Math.floor(Math.random() * (70 - 40 + 1)) + 40,
-                windSpeed: Math.floor(Math.random() * (22 - 2 + 1)) + 2, // Wider range for risk demo
+                windSpeed: Math.floor(Math.random() * (22 - 2 + 1)) + 2,
                 windDir: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.floor(Math.random() * 8)],
                 visibility: Math.floor(Math.random() * (10 - 2 + 1)) + 2,
                 location: town,
@@ -63,28 +38,31 @@ export const WeatherWidget: React.FC = () => {
     };
 
     useEffect(() => {
-        if (mission.site) {
-            fetchWeather(undefined, undefined, mission.site);
-        } else if ("geolocation" in navigator) {
+        if ("geolocation" in navigator) {
             navigator.geolocation.getCurrentPosition(
                 (position) => {
-                    fetchWeather(position.coords.latitude, position.coords.longitude);
+                    const { latitude, longitude } = position.coords;
+                    setLocationLabel(`${latitude.toFixed(2)}°N, ${Math.abs(longitude).toFixed(2)}°W`);
+                    fetchWeather(latitude, longitude);
                 },
-                () => {
-                    fetchWeather(); // Fallback to default
-                }
+                () => fetchWeather() // Permission denied / unavailable
             );
         } else {
             fetchWeather();
         }
 
-        // Automatic update every 15 minutes
-        const interval = setInterval(() => {
-            fetchWeather(undefined, undefined, mission.site);
-        }, 15 * 60 * 1000);
-
+        const interval = setInterval(() => fetchWeather(), 15 * 60 * 1000);
         return () => clearInterval(interval);
-    }, [mission.site]);
+    }, []);
+
+    const getWeatherIcon = (condition: string) => {
+        switch (condition) {
+            case 'Clear': return <Sun className="w-8 h-8 text-amber-400" />;
+            case 'Partly Cloudy': return <Cloud className="w-8 h-8 text-blue-400" />;
+            case 'Overcast': return <Cloud className="w-8 h-8 text-slate-400" />;
+            default: return <Sun className="w-8 h-8 text-amber-400" />;
+        }
+    };
 
     if (loading) {
         return (
@@ -96,18 +74,21 @@ export const WeatherWidget: React.FC = () => {
         );
     }
 
-    const getWeatherIcon = (condition: string) => {
-        switch (condition) {
-            case 'Clear': return <Sun className="w-8 h-8 text-amber-400" />;
-            case 'Partly Cloudy': return <Cloud className="w-8 h-8 text-blue-400" />;
-            case 'Overcast': return <Cloud className="w-8 h-8 text-slate-400" />;
-            case 'Light Rain': return <Droplets className="w-8 h-8 text-cyan-400" />;
-            default: return <Sun className="w-8 h-8 text-amber-400" />;
-        }
+    const flightRisk = weather
+        ? weather.windSpeed > 18 ? 'no-go'
+            : weather.windSpeed > 12 ? 'caution'
+                : 'go'
+        : 'go';
+
+    const riskColors = {
+        'no-go': { badge: 'bg-red-500/10 border-red-500/30', icon: 'bg-red-500 text-white', text: 'text-red-400', label: 'NO-GO (High Risk)', msg: 'Wind exceeds safety thresholds for steady flight. Risk of loss of control is high.' },
+        'caution': { badge: 'bg-amber-500/10 border-amber-500/30', icon: 'bg-amber-500 text-white', text: 'text-amber-400', label: 'CAUTION (Elevated)', msg: 'Crosswinds detected. Flight permitted with stabilization active. Monitor battery drain.' },
+        'go': { badge: 'bg-emerald-500/10 border-emerald-500/30', icon: 'bg-emerald-500 text-white', text: 'text-emerald-400', label: 'GO (Optimal)', msg: 'Atmospheric conditions are stable. Clarity is excellent for thermal sensors.' },
     };
+    const risk = riskColors[flightRisk];
 
     return (
-        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col h-full group">
+        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shadow-sm flex flex-col h-full">
             <div className="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                 <h3 className="font-semibold text-slate-100 flex items-center gap-2">
                     <Cloud className="w-4 h-4 text-cyan-400" />
@@ -135,18 +116,18 @@ export const WeatherWidget: React.FC = () => {
                                 {weather?.temp}°F
                             </span>
                         </div>
-                        <Heading level={4} className="text-slate-300 font-bold uppercase tracking-widest text-[11px]">
+                        <h4 className="text-slate-300 font-bold uppercase tracking-widest text-[11px]">
                             {weather?.condition}
-                        </Heading>
+                        </h4>
                     </div>
                     <div className="text-right">
                         <div className="flex items-center justify-end gap-1.5 text-slate-500 mb-1">
                             <MapPin className="w-3 h-3" />
                             <span className="text-[10px] font-bold truncate max-w-[120px]">{weather?.location}</span>
                         </div>
-                        <Text variant="small" className="text-[10px] text-slate-500 font-medium">
+                        <span className="text-[10px] text-slate-500 font-medium block">
                             Synced: {weather?.lastUpdated}
-                        </Text>
+                        </span>
                     </div>
                 </div>
 
@@ -168,43 +149,25 @@ export const WeatherWidget: React.FC = () => {
                 </div>
 
                 {/* AI Flight Risk Indicator */}
-                <div className={`mt-6 p-4 rounded-xl border transition-all duration-500 ${weather && weather.windSpeed > 18 ? 'bg-red-500/10 border-red-500/30' :
-                    weather && weather.windSpeed > 12 ? 'bg-amber-500/10 border-amber-500/30' :
-                        'bg-emerald-500/10 border-emerald-500/30'
-                    }`}>
+                <div className={`mt-6 p-4 rounded-xl border transition-all duration-500 ${risk.badge}`}>
                     <div className="flex flex-col gap-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <div className={`p-1.5 rounded-lg ${weather && weather.windSpeed > 18 ? 'bg-red-500 text-white' :
-                                    weather && weather.windSpeed > 12 ? 'bg-amber-500 text-white' :
-                                        'bg-emerald-500 text-white'
-                                    }`}>
-                                    {weather && weather.windSpeed > 18 ? <ShieldAlert className="w-4 h-4" /> :
-                                        weather && weather.windSpeed > 12 ? <AlertTriangle className="w-4 h-4" /> :
-                                            <CheckCircle2 className="w-4 h-4" />
-                                    }
+                                <div className={`p-1.5 rounded-lg ${risk.icon}`}>
+                                    {flightRisk === 'no-go' ? <ShieldAlert className="w-4 h-4" /> :
+                                        flightRisk === 'caution' ? <AlertTriangle className="w-4 h-4" /> :
+                                            <CheckCircle2 className="w-4 h-4" />}
                                 </div>
                                 <div>
-                                    <Text className="text-[10px] font-black text-slate-400 uppercase tracking-tighter leading-none">AI Risk Index</Text>
-                                    <Heading level={6} className={`text-sm font-bold tracking-tight ${weather && weather.windSpeed > 18 ? 'text-red-400' :
-                                        weather && weather.windSpeed > 12 ? 'text-amber-400' :
-                                            'text-emerald-400'
-                                        }`}>
-                                        {weather && weather.windSpeed > 18 ? 'NO-GO (High Risk)' :
-                                            weather && weather.windSpeed > 12 ? 'CAUTION (Elevated)' :
-                                                'GO (Optimal)'
-                                        }
-                                    </Heading>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter leading-none block">AI Risk Index</span>
+                                    <span className={`text-sm font-bold tracking-tight block ${risk.text}`}>
+                                        {risk.label}
+                                    </span>
                                 </div>
                             </div>
                             <span className="text-[10px] font-bold text-slate-500 px-2 py-0.5 bg-slate-800 rounded-full border border-slate-700">GEMINI 2.0</span>
                         </div>
-                        <p className="text-[11px] leading-relaxed text-slate-400 font-medium">
-                            {weather && weather.windSpeed > 18 ? 'Wind exceeds safety thresholds for steady flight. Risk of loss of control is high.' :
-                                weather && weather.windSpeed > 12 ? 'Crosswinds detected. Flight permitted with stabilization active. Monitor battery drain.' :
-                                    'Atmospheric conditions are stable. Clarity is excellent for thermal sensors.'
-                            }
-                        </p>
+                        <p className="text-[11px] leading-relaxed text-slate-400 font-medium">{risk.msg}</p>
                     </div>
                 </div>
             </div>

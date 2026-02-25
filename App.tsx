@@ -22,6 +22,9 @@ import {
   CheckSquare
 } from 'lucide-react';
 import { MissionControl } from './src/components/dashboard/MissionControl';
+import { PilotDashboard } from './components/dashboard/PilotDashboard';
+import { WeatherWidget } from './src/components/widgets/WeatherWidget';
+import WeatherDashboard from './components/WeatherDashboard';
 import { UploadCenter } from './src/components/upload/UploadCenter';
 import Dashboard from './components/Dashboard'; // Legacy Dashboard (kept for Archives)
 import ReportCreator from './components/ReportCreator';
@@ -33,11 +36,14 @@ import DeploymentTracker from './components/DeploymentTracker';
 import ReportingSuite from './components/ReportingSuite';
 import InvoiceView from './components/InvoiceView';
 import OnboardingPortal from './components/OnboardingPortal';
+import CandidateUploadPortal from './src/components/CandidateUploadPortal';
 import UserManagement from './components/UserManagement';
 import SetPassword from './components/SetPassword';
+import ForcePasswordReset from './components/ForcePasswordReset';
 import SystemAIView from './components/SystemAIView';
 import WorkItemsDashboard from './components/WorkItemsDashboard';
 import MyWorkItems from './components/MyWorkItems';
+import { PilotFiles } from './components/PilotFiles';
 import ClientList from './components/ClientList';
 import ClientDetail from './components/ClientDetail';
 import AssetDashboard from './components/AssetGrid/AssetDashboard';
@@ -55,7 +61,7 @@ import { MissionProvider } from './src/context/MissionContext';
 import { GlobalProvider } from './src/context/GlobalContext';
 import { CountryProvider } from './src/context/CountryContext';
 import IndustrySwitcher from './components/IndustrySwitcher';
-import { isAdmin, isPilot } from './src/utils/roleUtils';
+import { isAdmin, isPilot, isClient, isInHouse } from './src/utils/roleUtils';
 
 import apiClient from './src/services/apiClient';
 import { PageShell } from './src/components/layout/PageShell';
@@ -67,9 +73,19 @@ const AppContent: React.FC = () => {
   const { currentIndustry, availableIndustries, tLabel } = useIndustry();
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'ai-engine' | 'view' | 'ai-reports' | 'settings' | 'personnel' | 'analytics' | 'missions' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'upload' | 'assets' | 'weather'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'ai-engine' | 'view' | 'ai-reports' | 'settings' | 'personnel' | 'analytics' | 'missions' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'upload' | 'assets' | 'weather' | 'my-files'>('dashboard');
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [activeReport, setActiveReport] = useState<InspectionReport | null>(null);
+
+  // Map IndustryKey ('solar', 'insurance', etc.) → Industry enum ('Solar', 'Insurance', etc.)
+  const INDUSTRY_KEY_TO_ENUM: Record<string, Industry> = {
+    solar: Industry.SOLAR,
+    insurance: Industry.INSURANCE,
+    utilities: Industry.UTILITIES,
+    telecom: Industry.TELECOM,
+    construction: Industry.CONSTRUCTION,
+  };
+  const activeIndustryEnum: Industry = (currentIndustry && INDUSTRY_KEY_TO_ENUM[currentIndustry]) || Industry.SOLAR;
 
   useEffect(() => {
     async function handleAuthCallback() {
@@ -121,6 +137,10 @@ const AppContent: React.FC = () => {
     return <Login onLogin={handleLogin} />;
   }
 
+  if (user.forcePasswordReset) {
+    return <ForcePasswordReset />;
+  }
+
   // Navigation Item Component (Legacy support for PageShell internal nav)
   // Note: PageShell now handles the sidebar navigation visually.
 
@@ -136,7 +156,7 @@ const AppContent: React.FC = () => {
         activeTab === 'dashboard' ? 'Mission Control' :
           activeTab === 'upload' ? 'Enterprise Upload' :
             activeTab === 'analytics' ? 'Analytics Suite' :
-              activeTab === 'ai-engine' ? `New ${currentIndustry ? availableIndustries.find(i => i.key === currentIndustry)?.name : 'Platform'} AI Extraction` :
+              activeTab === 'ai-engine' ? `New ${selectedIndustry || activeIndustryEnum} AI Extraction` :
                 activeTab === 'ai-reports' ? `${tLabel('report')} Archive` :
                   activeTab === 'missions' ? `${tLabel('mission')} Terminal` :
                     activeTab === 'personnel' ? `${tLabel('stakeholder')}s` :
@@ -144,24 +164,27 @@ const AppContent: React.FC = () => {
                         activeTab === 'checklists' ? `${tLabel('workItem')}s` :
                           activeTab === 'clients' ? `${tLabel('client')} Management` :
                             activeTab === 'my-tasks' ? `My ${tLabel('workItem')}s` :
-                              activeTab === 'assets' ? 'Asset Grid' :
-                                activeTab === 'weather' ? 'Weather & Skies' :
-                                  activeTab === 'settings' ? 'Configuration' : 'Viewer'
+                              activeTab === 'my-files' ? 'My Files' :
+                                activeTab === 'assets' ? 'Asset Grid' :
+                                  activeTab === 'weather' ? 'Weather & Skies' :
+                                    activeTab === 'settings' ? 'Configuration' : 'Viewer'
       }
     >
       <div className="animate-in fade-in duration-500 slide-in-from-bottom-2">
         {/* Dynamic Content */}
         {(activeTab === 'dashboard') && (
-          <MissionControl />
+          isPilot(user) ? <PilotDashboard /> :
+            isClient(user) ? <div className="p-10 text-xl font-bold text-center">Client Dashboard (Coming Soon)</div> :
+              <MissionControl /> // Admin and In-House default
         )}
-        {activeTab === 'ai-reports' && (
+        {activeTab === 'ai-reports' && (isAdmin(user) || isInHouse(user) || isClient(user)) && (
           <Dashboard onNewReport={startNewReport} onViewReport={onViewReport} isArchiveView={true} />
         )}
-        {activeTab === 'upload' && (
+        {activeTab === 'upload' && (isAdmin(user) || isInHouse(user)) && (
           <UploadCenter />
         )}
-        {activeTab === 'ai-engine' && (
-          <ReportCreator initialIndustry={selectedIndustry} />
+        {activeTab === 'ai-engine' && (isAdmin(user) || isInHouse(user)) && (
+          <ReportCreator key={currentIndustry || 'default'} initialIndustry={selectedIndustry || activeIndustryEnum} />
         )}
         {activeTab === 'view' && activeReport && (
           <ReportCreator initialIndustry={activeReport.industry} viewingReport={activeReport} onBack={() => setActiveTab('dashboard')} />
@@ -169,14 +192,14 @@ const AppContent: React.FC = () => {
         {activeTab === 'settings' && user && (
           <SettingsView currentUser={user} onUpdateUser={updateUser} onLogout={handleLogout} />
         )}
-        {activeTab === 'analytics' && <ReportingSuite />}
-        {activeTab === 'weather' && (
-          <div className="p-20 text-center text-slate-500 bg-slate-900 border border-slate-800 rounded-3xl mx-20 mt-10">
-            Weather & Forecasting (Integration Coming Soon)
+        {activeTab === 'analytics' && isAdmin(user) && <ReportingSuite />}
+        {activeTab === 'weather' && (isAdmin(user) || isPilot(user)) && (
+          <div className="p-8">
+            <WeatherDashboard industry={((selectedIndustry || activeIndustryEnum) as string).toLowerCase() as any} />
           </div>
         )}
-        {activeTab === 'missions' && <DeploymentTracker />}
-        {activeTab === 'clients' && (
+        {activeTab === 'missions' && (isAdmin(user) || isPilot(user)) && <DeploymentTracker />}
+        {activeTab === 'clients' && isAdmin(user) && (
           selectedClient ? (
             <ClientDetail clientId={selectedClient} onBack={() => setSelectedClient(null)} />
           ) : (
@@ -190,9 +213,10 @@ const AppContent: React.FC = () => {
             <SystemAIView aiSensitivity={50} onSensitivityChange={() => { }} />
           </div>
         )}
-        {activeTab === 'checklists' && isAdmin(user) && <WorkItemsDashboard />}
-        {activeTab === 'my-tasks' && <MyWorkItems />}
-        {activeTab === 'assets' && <AssetDashboard />}
+        {activeTab === 'checklists' && (isAdmin(user) || isInHouse(user)) && <WorkItemsDashboard />}
+        {activeTab === 'my-tasks' && (isAdmin(user) || isPilot(user)) && <MyWorkItems />}
+        {activeTab === 'my-files' && isPilot(user) && <PilotFiles />}
+        {activeTab === 'assets' && (isAdmin(user) || isClient(user) || isInHouse(user)) && <AssetDashboard />}
       </div>
     </PageShell>
   );
@@ -209,6 +233,9 @@ const App: React.FC = () => {
                 <Routes>
                   {/* Specific route for secure guest view of invoices */}
                   <Route path="/invoice/:token" element={<InvoiceView />} />
+
+                  {/* Candidate Upload Portal Route */}
+                  <Route path="/candidate-portal/:token" element={<CandidateUploadPortal />} />
 
                   {/* Onboarding Portal Route */}
                   <Route path="/onboarding/:token" element={<OnboardingPortal />} />

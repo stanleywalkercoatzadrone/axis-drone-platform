@@ -26,6 +26,7 @@ import workItemRoutes from './routes/workItems.js';
 import clientRoutes from './routes/clients.js';
 import industryRoutes from './routes/industries.js';
 import ingestionRoutes from './routes/ingestion.js';
+import candidateRoutes from './routes/candidates.js';
 import v1Routes from './routes/v1/index.js';
 
 // Import middleware
@@ -128,6 +129,7 @@ app.use('/api/work-items', workItemRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/industries', industryRoutes);
 app.use('/api/ingestion', ingestionRoutes);
+app.use('/api/candidates', candidateRoutes);
 
 // Error handling for API routes
 app.use('/api/*', notFound);

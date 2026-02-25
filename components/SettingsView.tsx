@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { isAdmin } from '../src/utils/roleUtils';
+import { isAdmin, isPilot } from '../src/utils/roleUtils';
 import {
   User,
   Building2,
@@ -51,6 +51,7 @@ import apiClient from '../src/services/apiClient';
 
 import SystemAIView from './SystemAIView';
 import { PerformanceConfigPanel } from '../src/components/admin/PerformanceConfigPanel';
+import { AxisPerformanceTab } from './personnel/AxisPerformanceTab';
 import { useAuth } from '../src/context/AuthContext';
 
 interface SettingsViewProps {
@@ -534,9 +535,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'invoicing', label: 'Invoicing Setup', icon: Receipt, admin: true },
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'User Management', icon: Users, admin: true },
-            { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true }
+            { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true },
+            { id: 'my-performance', label: 'My Performance', icon: BarChart3, pilot: true }
           ].map(item => (
-            (!item.admin || isAdmin(currentUser)) && (
+            (!item.admin || isAdmin(currentUser)) && (!(item as any).pilot || isPilot(currentUser) || isAdmin(currentUser)) && (
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
@@ -1104,6 +1106,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
           {activeSection === 'performance' && (isAdmin(currentUser)) && (
             <PerformanceConfigPanel />
+          )}
+
+          {activeSection === 'my-performance' && (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-6 animate-in fade-in">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" /> My Performance
+                </h3>
+                <p className="text-slate-500 text-sm mt-1">View your Axis Performance Index and scoring breakdown.</p>
+              </div>
+              <AxisPerformanceTab pilotId={currentUser.id} />
+            </div>
           )}
         </div>
       </div>

@@ -144,6 +144,15 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Form element text color fix - body inherits near-white text.  
+   Inputs on white backgrounds need explicit dark text. */
+input,
+select,
+textarea {
+  color: #0f172a;
+  /* slate-900 */
+}
+
 /* Typography Classes */
 .axis-h1 {
   font-size: var(--axis-text-5xl);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../src/services/apiClient';
 import { useIndustry } from '../src/context/IndustryContext';
+import { useAuth } from '../src/context/AuthContext';
 import { ArrowLeft, Building2, MapPin, Globe, Mail, Phone, Users, LayoutGrid, Plane, Calendar, Plus } from 'lucide-react';
 import StakeholderList from './StakeholderList';
 import { Deployment, DeploymentStatus, DeploymentType } from '../types';
@@ -12,6 +13,7 @@ interface ClientDetailProps {
 
 const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
     const { tLabel } = useIndustry();
+    const { user } = useAuth();
     const [client, setClient] = useState<any>(null);
     const [stats, setStats] = useState<any>({
         activeMissions: 0,
@@ -213,13 +215,15 @@ const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
                         <div className="space-y-6">
                             <div className="flex justify-between items-center">
                                 <h3 className="text-lg font-medium text-slate-900">Flight Missions</h3>
-                                <button
-                                    onClick={() => setIsAddModalOpen(true)}
-                                    className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                    Schedule Mission
-                                </button>
+                                {user?.role !== 'pilot_technician' && (
+                                    <button
+                                        onClick={() => setIsAddModalOpen(true)}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors text-sm font-medium"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Schedule Mission
+                                    </button>
+                                )}
                             </div>
 
                             {isMissionsLoading ? (
@@ -228,12 +232,14 @@ const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
                                 <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-200">
                                     <Plane className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                                     <p className="text-slate-500 font-medium">No missions scheduled for this client.</p>
-                                    <button
-                                        onClick={() => setIsAddModalOpen(true)}
-                                        className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
-                                    >
-                                        Create first mission
-                                    </button>
+                                    {user?.role !== 'pilot_technician' && (
+                                        <button
+                                            onClick={() => setIsAddModalOpen(true)}
+                                            className="mt-4 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                                        >
+                                            Create first mission
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="grid gap-4">

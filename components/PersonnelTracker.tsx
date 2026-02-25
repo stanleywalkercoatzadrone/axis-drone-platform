@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PilotSchedule from './PilotSchedule';
-import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, ShieldCheck, MapPin, Upload, Package, X, Loader2, Download, Trash2, Plus, Zap } from 'lucide-react';
+import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, ShieldCheck, MapPin, Upload, Package, X, Loader2, Download, Trash2, Plus, Zap, Eye } from 'lucide-react';
 import { Personnel, PersonnelRole, BankingInfo, Country } from '../types';
 import apiClient from '../src/services/apiClient';
 import { MAJOR_US_BANKS } from '../src/utils/bankData';
@@ -69,7 +69,7 @@ const PersonnelTracker: React.FC = () => {
     const [addFile, setAddFile] = useState<File | null>(null);
     const [sendingOnboarding, setSendingOnboarding] = useState(false);
 
-    const [onboardingPromptOpen, setOnboardingPromptOpen] = useState<{ isOpen: boolean; personnelId?: string; name?: string; }>({ isOpen: false });
+    const [onboardingPromptOpen, setOnboardingPromptOpen] = useState<{ isOpen: boolean; personnelId?: string; name?: string; email?: string; }>({ isOpen: false });
     const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
 
     // Banking State
@@ -81,10 +81,12 @@ const PersonnelTracker: React.FC = () => {
     // Document State
     const [analyzingDoc, setAnalyzingDoc] = useState(false);
     const [uploadingDoc, setUploadingDoc] = useState(false);
-    const [docType, setDocType] = useState('License');
     const [docExpiration, setDocExpiration] = useState(''); // New state
     const [uploadingPhoto, setUploadingPhoto] = useState(false);
     const [documents, setDocuments] = useState<any[]>([]);
+    const [viewingDoc, setViewingDoc] = useState<any | null>(null);
+    const [viewingDocBlobUrl, setViewingDocBlobUrl] = useState<string | null>(null);
+    const [loadingView, setLoadingView] = useState(false);
     const [documentSearch, setDocumentSearch] = useState('');
     const [loadingDocuments, setLoadingDocuments] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,11 +112,11 @@ const PersonnelTracker: React.FC = () => {
         }
     };
 
-    const handleSendOnboarding = async (id: string) => {
+    const handleSendOnboarding = async (id: string, email: string) => {
         try {
-            const res = await apiClient.post('/onboarding/send', { personnelId: id });
+            const res = await apiClient.post('/candidates/send', { candidate_email: email, payload: { personnelId: id } });
             if (res.data.success) {
-                alert('Onboarding package sent!');
+                alert(`Onboarding package sent to ${email}!\n\nMagic Link (Admin Copy):\n${res.data.data.magicLink}`);
                 setPersonnel(prev => prev.map(p => p.id === id ? { ...p, onboarding_status: 'sent' } : p));
                 if (selectedPerson?.id === id) {
                     setSelectedPerson(prev => prev ? { ...prev, onboarding_status: 'sent' } : null);
@@ -123,6 +125,18 @@ const PersonnelTracker: React.FC = () => {
         } catch (error: any) {
             console.error('Failed to send onboarding:', error);
             alert(error.response?.data?.message || 'Failed to send onboarding package');
+        }
+    };
+
+    const handleProvisionAccount = async (id: string, email: string) => {
+        try {
+            const res = await apiClient.post(`/personnel/${id}/provision`);
+            if (res.data.success) {
+                alert(`Account provisioned successfully for ${email}!\n\nPilot Login Link (Admin Copy):\n${res.data.data.invitationUrl}`);
+            }
+        } catch (error: any) {
+            console.error('Failed to provision account:', error);
+            alert(error.response?.data?.message || 'Failed to provision pilot account');
         }
     };
 
@@ -242,7 +256,8 @@ const PersonnelTracker: React.FC = () => {
             setOnboardingPromptOpen({
                 isOpen: true,
                 personnelId: data.data.id,
-                name: data.data.fullName
+                name: data.data.fullName,
+                email: newPersonnel.email
             });
 
         } catch (err: any) {
@@ -259,7 +274,8 @@ const PersonnelTracker: React.FC = () => {
         setNewPersonnel(prev => ({
             ...prev,
             routingNumber: routing,
-            bankName: bank ? bank.name : prev.bankName
+            bankName: bank ? bank.name : prev.bankName,
+            swiftCode: bank ? (bank as any).swiftCode : prev.swiftCode
         }));
     };
 
@@ -364,7 +380,6 @@ const PersonnelTracker: React.FC = () => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('pilotId', selectedPerson.id);
-        formData.append('documentType', docType);
         formData.append('countryId', selectedPerson.country === 'US' ? 'US' : 'CA'); // Simple default logic
         if (docExpiration) formData.append('expirationDate', docExpiration);
 
@@ -395,6 +410,47 @@ const PersonnelTracker: React.FC = () => {
         } finally {
             setUploadingDoc(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleDeleteDocument = async (docId: string) => {
+        if (!selectedPerson) return;
+        if (!confirm('Are you sure you want to delete this document?')) return;
+        try {
+            const res = await apiClient.delete(`/personnel/${selectedPerson.id}/documents/${docId}`);
+            if (res.data.success) {
+                setDocuments(prev => prev.filter(d => d.id !== docId));
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('Failed to delete document.');
+        }
+    };
+
+    const handleViewDocument = async (doc: any) => {
+        if (!selectedPerson) return;
+        setViewingDoc(doc);
+        setLoadingView(true);
+        try {
+            const response = await apiClient.get(`/personnel/${selectedPerson.id}/documents/${doc.id}/view`, {
+                responseType: 'blob'
+            });
+            const blobUrl = URL.createObjectURL(response.data);
+            setViewingDocBlobUrl(blobUrl);
+        } catch (error) {
+            console.error('Error fetching document view:', error);
+            alert('Failed to load document preview.');
+            handleCloseViewer();
+        } finally {
+            setLoadingView(false);
+        }
+    };
+
+    const handleCloseViewer = () => {
+        setViewingDoc(null);
+        if (viewingDocBlobUrl) {
+            URL.revokeObjectURL(viewingDocBlobUrl);
+            setViewingDocBlobUrl(null);
         }
     };
 
@@ -506,11 +562,11 @@ const PersonnelTracker: React.FC = () => {
                             <table className="w-full text-left">
                                 <thead className="bg-slate-950/30 border-b border-slate-800">
                                     <tr>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Name</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Role</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Compliance</th>
-                                        <th className="px-6 py-4 text-right text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                                        <th className="px-6 py-4 text-[11px] font-bold text-slate-100 uppercase tracking-widest bg-slate-900/60">Name</th>
+                                        <th className="px-6 py-4 text-[11px] font-bold text-slate-100 uppercase tracking-widest bg-slate-900/60">Role</th>
+                                        <th className="px-6 py-4 text-[11px] font-bold text-slate-100 uppercase tracking-widest bg-slate-900/60">Status</th>
+                                        <th className="px-6 py-4 text-[11px] font-bold text-slate-100 uppercase tracking-widest bg-slate-900/60">Compliance</th>
+                                        <th className="px-6 py-4 text-right text-[11px] font-bold text-slate-100 uppercase tracking-widest bg-slate-900/60">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-800/50">
@@ -748,7 +804,7 @@ const PersonnelTracker: React.FC = () => {
             {
                 isDetailModalOpen && selectedPerson && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] text-slate-900">
                             {/* Header */}
                             <div className="px-6 py-5 border-b flex justify-between items-center bg-slate-50">
                                 <div className="flex items-center gap-4">
@@ -776,12 +832,21 @@ const PersonnelTracker: React.FC = () => {
                                             size="sm"
                                             variant="outline"
                                             className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
-                                            onClick={() => handleSendOnboarding(selectedPerson.id)}
+                                            onClick={() => handleSendOnboarding(selectedPerson.id, selectedPerson.email)}
                                         >
                                             <Send className="w-4 h-4 mr-2" />
                                             Send Onboarding
                                         </Button>
                                     )}
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100"
+                                        onClick={() => handleProvisionAccount(selectedPerson.id, selectedPerson.email)}
+                                    >
+                                        <ShieldCheck className="w-4 h-4 mr-2" />
+                                        Provision Account
+                                    </Button>
                                     <Button variant="ghost" size="icon" onClick={() => setIsDetailModalOpen(false)}><X /></Button>
                                 </div>
                             </div>
@@ -811,11 +876,11 @@ const PersonnelTracker: React.FC = () => {
                             )}
 
                             {/* Tabs */}
-                            <div className="flex border-b border-slate-800 bg-slate-950/50 px-4 pt-2">
+                            <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-2">
                                 {['details', 'performance', 'schedule', 'banking', 'documents'].map(tab => (
                                     <button
                                         key={tab}
-                                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${modalTab === tab ? 'text-cyan-400 border-cyan-400' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                                        className={`px-6 py-4 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all ${modalTab === tab ? 'text-blue-600 border-blue-600' : 'text-slate-500 border-transparent hover:text-slate-800'}`}
                                         onClick={() => setModalTab(tab as any)}
                                     >
                                         {tab === 'details' ? 'Profile' : tab}
@@ -824,7 +889,7 @@ const PersonnelTracker: React.FC = () => {
                             </div>
 
                             {/* Content */}
-                            <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-white">
+                            <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-white text-slate-900">
                                 {modalTab === 'performance' && selectedPerson && (
                                     <AxisPerformanceTab pilotId={selectedPerson.id} />
                                 )}
@@ -882,17 +947,17 @@ const PersonnelTracker: React.FC = () => {
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
-                                                <div><Text variant="small" className="font-bold text-slate-500">Contact</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.email}</Text><Text>{selectedPerson.phone}</Text><Text className="text-slate-400">{selectedPerson.secondaryPhone}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Contact</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.email}</Text><Text className="text-slate-900 font-medium">{selectedPerson.phone}</Text><Text className="text-slate-500">{selectedPerson.secondaryPhone}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Address</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.homeAddress}</Text><Text>{selectedPerson.city}, {selectedPerson.state} {selectedPerson.zipCode}</Text><Text>{selectedPerson.country}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Address</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.homeAddress}</Text><Text className="text-slate-900 font-medium">{selectedPerson.city}, {selectedPerson.state} {selectedPerson.zipCode}</Text><Text className="text-slate-900 font-medium">{selectedPerson.country}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Emergency</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.emergencyContactName || 'N/A'}</Text><Text>{selectedPerson.emergencyContactPhone}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Emergency</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactName || 'N/A'}</Text><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactPhone}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Professional</Text>
-                                                    <div className="mt-1"><Text>Max Travel: {selectedPerson.maxTravelDistance} miles</Text><Text>Company: {selectedPerson.companyName || 'N/A'}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Professional</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">Max Travel: {selectedPerson.maxTravelDistance} miles</Text><Text className="text-slate-900 font-medium">Company: {selectedPerson.companyName || 'N/A'}</Text></div>
                                                 </div>
                                             </div>
                                         )}
@@ -920,7 +985,16 @@ const PersonnelTracker: React.FC = () => {
                                                 </div>
                                                 <Input label="Bank Name" value={editedBankingInfo.bankName || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, bankName: e.target.value }))} />
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <Input label="Routing" value={editedBankingInfo.routingNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, routingNumber: e.target.value }))} />
+                                                    <Input label="Routing" value={editedBankingInfo.routingNumber || ''} onChange={e => {
+                                                        const routing = e.target.value;
+                                                        const bank = MAJOR_US_BANKS.find(b => b.routingNumber === routing);
+                                                        setEditedBankingInfo(prev => ({
+                                                            ...prev,
+                                                            routingNumber: routing,
+                                                            bankName: bank ? bank.name : prev.bankName,
+                                                            swiftCode: bank ? (bank as any).swiftCode : prev.swiftCode
+                                                        }));
+                                                    }} />
                                                     <div className="space-y-2">
                                                         <label className="text-sm font-medium text-slate-700">Account Type</label>
                                                         <select
@@ -935,24 +1009,58 @@ const PersonnelTracker: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <Input label="Account" type="password" value={editedBankingInfo.accountNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, accountNumber: e.target.value }))} />
+                                                    <Input label="Account" type="text" value={editedBankingInfo.accountNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, accountNumber: e.target.value }))} />
                                                     <Input label="Swift Code" value={editedBankingInfo.swiftCode || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, swiftCode: e.target.value }))} />
+                                                </div>
+                                                <div className="space-y-2 pt-4 border-t">
+                                                    <label className="text-sm font-medium text-slate-700">Daily Rate ($)</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        className="w-full p-2 border rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                        placeholder="e.g. 450.00"
+                                                        value={editedBankingInfo.dailyRate || ''}
+                                                        onChange={e => setEditedBankingInfo(prev => ({ ...prev, dailyRate: parseFloat(e.target.value) || null }))}
+                                                    />
+                                                    <p className="text-xs text-slate-400">Standard daily rate of pay for this personnel</p>
                                                 </div>
                                             </>
                                         ) : (
                                             <div className="space-y-4">
                                                 <div className="bg-slate-50 p-4 rounded-lg border">
                                                     <Text variant="small" className="font-bold text-slate-500 uppercase mb-2">Tax Info</Text>
-                                                    <Text>{selectedPerson.taxClassification || 'Not set'}</Text>
+                                                    <Text className="text-slate-900 font-medium">{selectedPerson.taxClassification || 'Not set'}</Text>
                                                 </div>
                                                 <div className="bg-slate-50 p-4 rounded-lg border">
                                                     <Text variant="small" className="font-bold text-slate-500 uppercase mb-2">Banking</Text>
                                                     <div className="grid grid-cols-2 gap-4">
-                                                        <div><Text variant="small" className="text-slate-500">Bank</Text><Text>{bankingInfo?.bankName || 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Account Type</Text><Badge variant="outline">{bankingInfo?.accountType || 'Checking'}</Badge></div>
-                                                        <div><Text variant="small" className="text-slate-500">Routing</Text><Text>{bankingInfo?.routingNumber ? '****' + bankingInfo.routingNumber.slice(-4) : 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Account</Text><Text>{bankingInfo?.accountNumber ? '****' + bankingInfo.accountNumber.slice(-4) : 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Swift Code</Text><Text>{bankingInfo?.swiftCode || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Bank</Text><Text className="text-slate-900 font-medium">{bankingInfo?.bankName || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Account Type</Text><Badge variant="outline" className="border-slate-300 text-slate-700">{bankingInfo?.accountType || 'Checking'}</Badge></div>
+                                                        <div>
+                                                            <Text variant="small" className="text-slate-500 mb-1">Routing</Text>
+                                                            <div className="flex items-center gap-2">
+                                                                <Text className="text-slate-900 font-mono font-medium">{bankingInfo?.routingNumber || 'Not set'}</Text>
+                                                                {bankingInfo?.routingNumber && (
+                                                                    <button onClick={() => navigator.clipboard.writeText(bankingInfo.routingNumber!)} className="text-slate-400 hover:text-blue-600 transition-colors" title="Copy routing number">
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <Text variant="small" className="text-slate-500 mb-1">Account</Text>
+                                                            <div className="flex items-center gap-2">
+                                                                <Text className="text-slate-900 font-mono font-medium">{bankingInfo?.accountNumber || 'Not set'}</Text>
+                                                                {bankingInfo?.accountNumber && (
+                                                                    <button onClick={() => navigator.clipboard.writeText(bankingInfo.accountNumber!)} className="text-slate-400 hover:text-blue-600 transition-colors" title="Copy account number">
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Swift Code</Text><Text className="text-slate-900 font-medium">{bankingInfo?.swiftCode || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Daily Rate</Text><Text className="font-semibold text-green-700">{bankingInfo?.dailyRate ? `$${bankingInfo.dailyRate.toFixed(2)}` : 'Not set'}</Text></div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -964,16 +1072,7 @@ const PersonnelTracker: React.FC = () => {
                                     <div className="space-y-6">
                                         <div className="bg-slate-50 p-4 rounded-lg border space-y-4">
                                             <Heading level={4}>Upload Document</Heading>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <label className="text-sm font-medium text-slate-700">Document Type</label>
-                                                    <select className="w-full p-2 border rounded-lg bg-white" value={docType} onChange={e => setDocType(e.target.value)}>
-                                                        <option value="License">License (Driver/FAA)</option>
-                                                        <option value="W9">W9 Form</option>
-                                                        <option value="Insurance">Insurance</option>
-                                                        <option value="Other">Other</option>
-                                                    </select>
-                                                </div>
+                                            <div className="grid grid-cols-1 gap-4">
                                                 <div className="space-y-2">
                                                     <label className="text-sm font-medium text-slate-700">Expiration Date (Optional)</label>
                                                     <input type="date" className="w-full p-2 border rounded-lg bg-white" value={docExpiration} onChange={e => setDocExpiration(e.target.value)} />
@@ -982,7 +1081,7 @@ const PersonnelTracker: React.FC = () => {
                                             <div className="flex gap-2">
                                                 <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploadingDoc} className="flex-1 items-center justify-center">
                                                     {uploadingDoc ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
-                                                    Select File
+                                                    Select File (Auto-Detects Type)
                                                 </Button>
                                                 <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
                                             </div>
@@ -997,12 +1096,19 @@ const PersonnelTracker: React.FC = () => {
                                                         <div className="flex items-center gap-3">
                                                             <div className="bg-blue-100 p-2 rounded text-blue-600"><FileText className="w-4 h-4" /></div>
                                                             <div>
-                                                                <Text className="font-medium">{doc.document_type}</Text>
+                                                                <Text className="font-medium text-slate-900">{doc.document_type}</Text>
                                                                 <Text variant="small" className="text-slate-500">{new Date(doc.created_at).toLocaleDateString()} {doc.expiration_date && `• Exp: ${new Date(doc.expiration_date).toLocaleDateString()}`}</Text>
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             <Badge variant={doc.validation_status === 'VALID' ? 'success' : 'outline'}>{doc.validation_status}</Badge>
+                                                            <button
+                                                                onClick={() => handleViewDocument(doc)}
+                                                                className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
+                                                                title="View Document"
+                                                            >
+                                                                <Eye className="w-4 h-4" />
+                                                            </button>
                                                             <a
                                                                 href={doc.file_url}
                                                                 target="_blank"
@@ -1011,6 +1117,13 @@ const PersonnelTracker: React.FC = () => {
                                                             >
                                                                 <Download className="w-4 h-4" />
                                                             </a>
+                                                            <button
+                                                                onClick={() => handleDeleteDocument(doc.id)}
+                                                                className="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                                                                title="Delete Document"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1046,12 +1159,70 @@ const PersonnelTracker: React.FC = () => {
                             <Text className="mb-6">Send onboarding documents to {onboardingPromptOpen.name}?</Text>
                             <div className="flex gap-3 justify-center">
                                 <Button variant="ghost" onClick={() => setOnboardingPromptOpen({ isOpen: false })}>Later</Button>
-                                <Button onClick={() => onboardingPromptOpen.personnelId && handleSendOnboarding(onboardingPromptOpen.personnelId)}>Send Now</Button>
+                                <Button onClick={() => onboardingPromptOpen.personnelId && onboardingPromptOpen.email && handleSendOnboarding(onboardingPromptOpen.personnelId, onboardingPromptOpen.email)}>Send Now</Button>
                             </div>
                         </div>
                     </div>
                 )
             }
+            {/* Document Viewer Modal */}
+            {viewingDoc && (
+                <div className="fixed inset-0 z-[100] flex justify-center items-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" style={{ height: '90vh' }}>
+                        <div className="flex justify-between items-center p-4 border-b bg-slate-50">
+                            <div>
+                                <Heading level={3} className="text-slate-800">{viewingDoc.document_type || 'Document Viewer'}</Heading>
+                                <Text variant="small" className="text-slate-500">Uploaded on {new Date(viewingDoc.uploaded_at || viewingDoc.created_at).toLocaleDateString()}</Text>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <a
+                                    href={viewingDoc.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm flex items-center transition-colors shadow-sm"
+                                >
+                                    <Download className="w-4 h-4 mr-2" /> Download
+                                </a>
+                                <button
+                                    onClick={handleCloseViewer}
+                                    className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 bg-slate-200 p-2 md:p-6 overflow-hidden flex justify-center items-center">
+                            {/* Secure document viewer via backend proxy */}
+                            {loadingView ? (
+                                <div className="flex flex-col items-center justify-center text-slate-500 space-y-4">
+                                    <Loader2 className="w-8 h-8 animate-spin" />
+                                    <p>Loading document...</p>
+                                </div>
+                            ) : viewingDoc.file_url.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/) ? (
+                                <img
+                                    src={viewingDocBlobUrl || viewingDoc.file_url}
+                                    alt="Document Viewer"
+                                    className="max-w-full max-h-full object-contain rounded shadow-sm bg-white"
+                                />
+                            ) : viewingDocBlobUrl ? (
+                                <iframe
+                                    src={viewingDocBlobUrl}
+                                    className="w-full h-full rounded shadow-sm bg-white border-0"
+                                    title="Document Viewer"
+                                />
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full bg-white text-slate-500 space-y-4 p-8">
+                                    <FileText className="w-12 h-12 text-slate-300" />
+                                    <p className="text-slate-500">Failed to load document preview.</p>
+                                    <a href={viewingDoc.file_url} target="_blank" rel="noreferrer" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                        Open in New Tab
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

@@ -111,9 +111,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     // Invoicing State
     const [selectedPersonnelForInvoice, setSelectedPersonnelForInvoice] = useState<Set<string>>(new Set());
     const [sendToPilots, setSendToPilots] = useState(true);
+    const [invoiceNote, setInvoiceNote] = useState('');
+    const [showInvoiceNoteModal, setShowInvoiceNoteModal] = useState(false);
+    const [pendingInvoiceIds, setPendingInvoiceIds] = useState<string[] | undefined>(undefined);
 
     const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'checklist' | 'ai-reports'>('logs');
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
     const [generatedLink, setGeneratedLink] = useState<string | null>(null);
     const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
     const [clients, setClients] = useState<any[]>([]);
@@ -229,6 +233,45 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         } catch (err: any) {
             console.error('Error adding log:', err);
             alert(err.message);
+        }
+    };
+
+    const handleAddPilotToAllDays = async () => {
+        if (!selectedDeployment || !newLog.technicianId || !newLog.dailyPay) return;
+        const allDays = getDeploymentDays(selectedDeployment);
+        const existingDays = new Set(
+            (selectedDeployment.dailyLogs || [])
+                .filter(l => String(l.technicianId) === String(newLog.technicianId))
+                .map(l => String(l.date).split('T')[0])
+        );
+        const daysToAdd = allDays.filter(day => !existingDays.has(day));
+        if (daysToAdd.length === 0) {
+            alert('This pilot is already assigned to all days.');
+            return;
+        }
+        if (!confirm(`Add ${personnel.find(p => String(p.id) === String(newLog.technicianId))?.fullName || 'Pilot'} to ${daysToAdd.length} remaining day(s) at $${newLog.dailyPay}/day?`)) return;
+        try {
+            let updatedDeployment = { ...selectedDeployment };
+            for (const day of daysToAdd) {
+                const payload = {
+                    ...newLog,
+                    date: new Date(day + 'T12:00:00').toISOString(),
+                    deploymentId: selectedDeployment.id
+                };
+                const response = await apiClient.post(`/deployments/${selectedDeployment.id}/daily-logs`, payload);
+                const addedLog = response.data.data;
+                updatedDeployment = {
+                    ...updatedDeployment,
+                    dailyLogs: [...(updatedDeployment.dailyLogs || []), addedLog]
+                };
+            }
+            setSelectedDeployment(updatedDeployment);
+            setDeployments(prev => prev.map(d => d.id === selectedDeployment.id ? updatedDeployment : d));
+            setNewLog({ technicianId: '', date: '', dailyPay: 0, bonusPay: 0, notes: '' });
+            alert(`Successfully added pilot to ${daysToAdd.length} day(s).`);
+        } catch (err: any) {
+            console.error('Error adding pilot to all days:', err);
+            alert('Failed to add pilot to some days: ' + (err.response?.data?.message || err.message));
         }
     };
 
@@ -436,7 +479,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                 fetchClientStakeholders(freshDeployment.clientId);
             }
 
-            setActiveModalTab('logs');
+            setActiveModalTab(user?.role === 'pilot_technician' ? 'files' : 'logs');
             setIsLogModalOpen(true);
         } catch (err: any) {
             console.error('Error fetching deployment details:', err);
@@ -458,27 +501,46 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     };
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file || !selectedDeployment) return;
+        const files = event.target.files;
+        if (!files || files.length === 0 || !selectedDeployment) return;
 
-        const formData = new FormData();
-        formData.append('image', file); // API expects 'image' key from uploadSingle
+        setUploading(true);
+        setUploadProgress({ current: 0, total: files.length });
+        let currentDeployment = selectedDeployment;
 
         try {
-            setUploading(true);
-            const response = await apiClient.post(`/deployments/${selectedDeployment.id}/files`, formData);
+            // Because backend uses uploadSingle, we upload sequentially
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('image', file);
 
-            const newFile = response.data.data;
-            setSelectedDeployment(prev => prev ? ({
-                ...prev,
-                files: [newFile, ...(prev.files || [])]
-            }) : null);
+                const response = await apiClient.post(`/deployments/${selectedDeployment.id}/files`, formData);
+                if (response.data.success) {
+                    const newFile = response.data.data;
+                    currentDeployment = {
+                        ...currentDeployment,
+                        files: [newFile, ...(currentDeployment.files || [])]
+                    };
+                }
+                setUploadProgress({ current: i + 1, total: files.length });
+            }
+
+            // Sync final state after all uploads complete
+            setSelectedDeployment(currentDeployment);
+            setDeployments(prev => prev.map(d =>
+                d.id === selectedDeployment.id ? { ...d, fileCount: (d.fileCount || 0) + files.length } : d
+            ));
 
         } catch (err: any) {
             console.error('Error uploading file:', err);
-            alert('Upload failed: ' + err.message);
+            alert('Upload failed for some or all files: ' + err.message);
         } finally {
             setUploading(false);
+            setUploadProgress(null);
+            if (event.target) {
+                event.target.value = ''; // Reset input to allow selecting same files again
+            }
         }
     };
 
@@ -638,7 +700,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         }
     };
 
-    const handleGenerateInvoice = async (personnelId: string) => {
+    const handleGenerateInvoice = async (personnelId: string, openEdit: boolean = false) => {
         if (!selectedDeployment) return;
         try {
             const response = await apiClient.post('/invoices', {
@@ -650,7 +712,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             // Assuming the link returned by backend is relative /invoice/token
             // We want to show full URL
             const fullLink = `${window.location.origin}${link}`;
-            setGeneratedLink(fullLink);
+
+            if (openEdit) {
+                window.open(`${fullLink}?edit=true`, '_blank');
+            } else {
+                setGeneratedLink(fullLink);
+            }
         } catch (err: any) {
             console.error('Error creating invoice:', err);
             alert(err.message);
@@ -833,20 +900,29 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const handleEmailInvoices = async (specificPersonnelIds?: string[]) => {
         if (!selectedDeployment) return;
+        // Show note modal first
+        setPendingInvoiceIds(specificPersonnelIds || []);
+        setShowInvoiceNoteModal(true);
+    };
 
-        const idsToUse = specificPersonnelIds || Array.from(selectedPersonnelForInvoice);
-        const count = idsToUse.length > 0 ? idsToUse.length : 'ALL';
+    const handleConfirmSendInvoices = async () => {
+        if (!selectedDeployment) return;
+        setShowInvoiceNoteModal(false);
+
+        // Determine the target list exactly like the previous logic did
+        const idsToUse = pendingInvoiceIds && pendingInvoiceIds.length > 0
+            ? pendingInvoiceIds
+            : Array.from(selectedPersonnelForInvoice);
+
         const isSelective = idsToUse.length > 0;
-
-        const actionDescription = sendToPilots ? 'send invoices to' : 'generate invoices for';
-        if (!confirm(`Are you sure you want to ${actionDescription} ${isSelective ? count : 'ALL'} pilots?${sendToPilots ? '' : ' (Pilots will NOT be emailed)'}`)) return;
 
         try {
             const payload = isSelective
-                ? { personnelIds: idsToUse, sendToPilots }
-                : { sendToPilots };
+                ? { personnelIds: idsToUse, sendToPilots, adminNote: invoiceNote.trim() || undefined }
+                : { sendToPilots, adminNote: invoiceNote.trim() || undefined };
 
             const response = await apiClient.post(`/deployments/${selectedDeployment.id}/invoices/send`, payload);
+            setInvoiceNote('');
             if (response.data.emailStatus === 'MOCK') {
                 alert('Success, but NOTE: System is in SMTP MOCK MODE. Emails were logged to server but not actually sent. Please check your SMTP settings if this is unexpected.');
             } else {
@@ -1042,6 +1118,54 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
+            {/* ── Invoice Note Modal ── */}
+            {showInvoiceNoteModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                        <div className="bg-slate-900 px-6 py-5">
+                            <h3 className="text-white font-bold text-lg">Send Invoices</h3>
+                            <p className="text-slate-400 text-sm mt-0.5">
+                                {pendingInvoiceIds && pendingInvoiceIds.length > 0
+                                    ? `Sending to ${pendingInvoiceIds.length} selected pilot${pendingInvoiceIds.length > 1 ? 's' : ''}`
+                                    : selectedPersonnelForInvoice.size > 0
+                                        ? `Sending to ${selectedPersonnelForInvoice.size} selected pilot${selectedPersonnelForInvoice.size > 1 ? 's' : ''}`
+                                        : 'Sending to all eligible pilots'}
+                                {!sendToPilots && ' · Generating only (not emailing)'}
+                            </p>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                    Note to pilots <span className="text-slate-400 font-normal">(optional)</span>
+                                </label>
+                                <textarea
+                                    className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 placeholder-slate-400 bg-slate-50"
+                                    rows={4}
+                                    placeholder="e.g. Please review your invoice and confirm your banking details are correct. Payment will be processed within 5 business days."
+                                    value={invoiceNote}
+                                    onChange={e => setInvoiceNote(e.target.value)}
+                                    autoFocus
+                                />
+                                <p className="text-xs text-slate-400 mt-1.5">This note will appear in the invoice email sent to each pilot.</p>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={() => { setShowInvoiceNoteModal(false); setInvoiceNote(''); setPendingInvoiceIds(undefined); }}
+                                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmSendInvoices}
+                                    className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                                >
+                                    Send Invoices
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="flex items-end justify-between">
                 <div>
                     <h2 className="text-lg font-semibold text-slate-900">Missions</h2>
@@ -1065,17 +1189,19 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                         </button>
                     </div>
 
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                    >
-                        <Plus className="w-4 h-4" /> Schedule Mission
-                    </button>
+                    {user?.role !== 'pilot_technician' && (
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+                        >
+                            <Plus className="w-4 h-4" /> Schedule Mission
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* Terminal Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Terminal Metrics Grid — hidden for pilots */}
+            {user?.role !== 'pilot_technician' && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
@@ -1127,7 +1253,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                         <span className="text-[10px] font-medium text-slate-400">ACTIVE</span>
                     </div>
                 </div>
-            </div>
+            </div>}
 
             {viewMode === 'calendar' ? (
                 <CalendarView
@@ -1136,7 +1262,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     onDayClick={handleDayClick}
                 />
             ) : (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col text-slate-900">
                     {/* Filters */}
                     <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
                         <div className="flex items-center bg-slate-100 p-1 rounded-lg">
@@ -1308,13 +1434,19 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                     <Plane className="w-5 h-5 text-slate-400" />
                                 </div>
                                 <h3 className="text-sm font-medium text-slate-900">No missions found</h3>
-                                <p className="text-xs text-slate-500 mt-1">Check your search terms or schedule a new mission.</p>
-                                <button
-                                    onClick={() => setIsAddModalOpen(true)}
-                                    className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                                >
-                                    Schedule Mission
-                                </button>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    {user?.role === 'pilot_technician'
+                                        ? "You don't have any assigned missions yet."
+                                        : "Check your search terms or schedule a new mission."}
+                                </p>
+                                {user?.role !== 'pilot_technician' && (
+                                    <button
+                                        onClick={() => setIsAddModalOpen(true)}
+                                        className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
+                                    >
+                                        Schedule Mission
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1326,7 +1458,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             {
                 isLogModalOpen && selectedDeployment && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 h-[80vh] flex flex-col">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 h-[80vh] flex flex-col text-slate-900">
                             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
                                 <div>
                                     <h3 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -1368,69 +1500,84 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                             </div>
 
                             {/* Tabs */}
+                            {/* Tabs: pilots see only Flight Data; admins/ops see full tab set */}
                             <div className="flex border-b border-slate-200 px-6">
-                                <button
-                                    onClick={() => setActiveModalTab('logs')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <DollarSign className="w-4 h-4" />
-                                        Daily Logs & Pay
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('files')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="w-4 h-4" />
-                                        Mission Assets / Files
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('financials')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'financials' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Receipt className="w-4 h-4" />
-                                        Financials & Invoicing
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('team')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'team' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Users className="w-4 h-4" />
-                                        Team Setup
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('site-assets')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'site-assets' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Zap className="w-4 h-4" />
-                                        Site Assets
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('checklist')}
-                                    className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <CheckSquare className="w-4 h-4" />
-                                        Checklist
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('ai-reports')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-600 bg-orange-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                                >
-                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                                    AI Reports
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">NEW</span>
-                                </button>
+                                {user?.role === 'pilot_technician' ? (
+                                    <button
+                                        onClick={() => setActiveModalTab('files')}
+                                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <FileText className="w-4 h-4" />
+                                            Flight Data
+                                        </div>
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={() => setActiveModalTab('logs')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <DollarSign className="w-4 h-4" />
+                                                Daily Logs & Pay
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('files')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="w-4 h-4" />
+                                                Mission Assets / Files
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('financials')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'financials' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Receipt className="w-4 h-4" />
+                                                Financials & Invoicing
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('team')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'team' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Users className="w-4 h-4" />
+                                                Team Setup
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('site-assets')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'site-assets' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Zap className="w-4 h-4" />
+                                                Site Assets
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('checklist')}
+                                            className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <CheckSquare className="w-4 h-4" />
+                                                Checklist
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('ai-reports')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-600 bg-orange-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                                        >
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                            AI Reports
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">NEW</span>
+                                        </button>
+                                    </>
+                                )}
                             </div>
 
                             <div className="flex-1 overflow-y-auto bg-slate-50/50">
@@ -1471,7 +1618,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
                                                         <div className="space-y-2">
                                                             {(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day) || []).map(log => {
-                                                                const personName = personnel.find(p => p.id === log.technicianId)?.fullName || log.technicianId;
+                                                                const personName = personnel.find(p => String(p.id) === String(log.technicianId))?.fullName || `Pilot #${String(log.technicianId).slice(0, 8)}`;
                                                                 const totalPay = (editingLogId === log.id ? editForm.dailyPay + editForm.bonusPay : (log.dailyPay || 0) + (log.bonusPay || 0));
 
                                                                 return (
@@ -1578,7 +1725,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none"
                                                                         value={newLog.technicianId || ''}
                                                                         onChange={e => {
-                                                                            const selectedPersonnel = personnel.find(p => p.id === e.target.value);
+                                                                            const selectedPersonnel = personnel.find(p => String(p.id) === String(e.target.value));
                                                                             setNewLog({
                                                                                 ...newLog,
                                                                                 technicianId: e.target.value,
@@ -1632,7 +1779,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         onChange={e => setNewLog({ ...newLog, bonusPay: parseFloat(e.target.value) || 0 })}
                                                                     />
                                                                 </div>
-                                                                <div className="col-span-3 flex items-end">
+                                                                <div className="col-span-3 flex items-end gap-1">
                                                                     <button
                                                                         type="button"
                                                                         onClick={(e) => {
@@ -1640,9 +1787,21 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                             handleAddLog(day);
                                                                         }}
                                                                         disabled={!newLog.technicianId || !newLog.dailyPay}
-                                                                        className="w-full px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
+                                                                        className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
                                                                     >
-                                                                        <Plus className="w-3 h-3" /> Add Pilot
+                                                                        <Plus className="w-3 h-3" /> Day
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            handleAddPilotToAllDays();
+                                                                        }}
+                                                                        disabled={!newLog.technicianId || !newLog.dailyPay}
+                                                                        className="flex-1 px-2 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
+                                                                        title="Add this pilot to every day of the mission"
+                                                                    >
+                                                                        <Calendar className="w-3 h-3" /> All Days
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -1700,20 +1859,25 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-3">
                                                 <Upload className="w-6 h-6" />
                                             </div>
-                                            <h3 className="text-sm font-semibold text-slate-900">Upload Mission Assets</h3>
+                                            <h3 className="text-sm font-semibold text-slate-900">
+                                                {user?.role === 'pilot_technician' ? 'Upload Flight Data' : 'Upload Mission Assets'}
+                                            </h3>
                                             <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                                                Upload flight logs, KML files, site photos, or PDF reports associated with this mission.
+                                                {user?.role === 'pilot_technician'
+                                                    ? 'Upload your KML/KMZ flight paths, CSV/Excel data spreadsheets, and mission images (JPG/PNG).'
+                                                    : 'Upload flight logs, KML files, site photos, or PDF reports associated with this mission.'}
                                             </p>
                                             <div className="mt-4 relative">
                                                 <input
                                                     type="file"
                                                     onChange={handleFileUpload}
                                                     disabled={uploading}
+                                                    accept={user?.role === 'pilot_technician' ? '.kml,.kmz,.csv,.xlsx,.xls,.ods,.jpg,.jpeg,.png,.heic,.webp' : undefined}
                                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                                                    multiple={false}
+                                                    multiple={true}
                                                 />
-                                                <button disabled={uploading} className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50">
-                                                    {uploading ? 'Uploading...' : 'Select File'}
+                                                <button disabled={uploading} className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 min-w-[140px]">
+                                                    {uploadProgress ? `Uploading ${uploadProgress.current}/${uploadProgress.total}...` : uploading ? 'Uploading...' : 'Select Files'}
                                                 </button>
                                             </div>
                                         </div>
@@ -1753,13 +1917,15 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                 >
                                                                     <Download className="w-4 h-4" />
                                                                 </a>
-                                                                <button
-                                                                    onClick={() => handleDeleteFile(file.id)}
-                                                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                                    title="Delete"
-                                                                >
-                                                                    <Trash2 className="w-4 h-4" />
-                                                                </button>
+                                                                {user?.role !== 'pilot_technician' && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteFile(file.id)}
+                                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))
@@ -2027,6 +2193,16 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         <div className="text-right">
                                                                             <p className="text-xl font-bold text-emerald-600">${totalPay.toLocaleString()}</p>
                                                                         </div>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleGenerateInvoice(techId, true);
+                                                                            }}
+                                                                            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium rounded hover:bg-amber-100 transition-colors shadow-sm z-10"
+                                                                            title="Edit Invoice Directly"
+                                                                        >
+                                                                            <Edit2 className="w-3 h-3" /> Edit
+                                                                        </button>
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
@@ -2475,7 +2651,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                     &times;
                                 </button>
                             </div>
-                            <div className="p-6 space-y-4 overflow-y-auto">
+                            <div className="p-6 space-y-4 overflow-y-auto text-slate-900">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
                                     <input

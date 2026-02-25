@@ -4,6 +4,8 @@ import fs from 'fs';
 import { logAudit } from '../utils/auditLogger.js';
 import { uploadFile } from '../services/storageService.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import crypto from 'crypto';
+import { generateInvitationToken } from '../services/tokenService.js';
 
 /**
  * Helper to map personnel database row to camelCase
@@ -113,7 +115,7 @@ export const getAllPersonnel = async (req, res) => {
 
         if (tenantId) {
             params.push(tenantId);
-            query += ` AND p.tenant_id = $${params.length}`;
+            query += ` AND (p.tenant_id = $${params.length} OR p.tenant_id IS NULL)`;
         }
 
         if (role) {
@@ -288,7 +290,7 @@ export const updatePersonnel = async (req, res) => {
 
         // Check if personnel exists
         const checkResult = await db.query(
-            'SELECT id, role FROM personnel WHERE id = $1 AND (tenant_id = $2::text OR (tenant_id IS NULL AND $2 IS NULL))',
+            'SELECT id, role FROM personnel WHERE id = $1 AND (tenant_id::text = $2::text OR tenant_id IS NULL)',
             [id, req.user.tenantId]
         );
 
@@ -361,7 +363,7 @@ export const updatePersonnel = async (req, res) => {
             country = COALESCE($24, country),
             account_type = COALESCE($25, account_type),
             updated_at = CURRENT_TIMESTAMP
-            WHERE id = $26 AND (tenant_id = $27::text OR (tenant_id IS NULL AND $27 IS NULL))
+            WHERE id = $26 AND (tenant_id::text = $27::text OR tenant_id IS NULL)
             RETURNING * `,
             [
                 fullName || null, role || null, phone || null, certificationLevel || null, payRate || null, travelDist || null, status || null,
@@ -405,7 +407,7 @@ export const deletePersonnel = async (req, res) => {
         const { id } = req.params;
 
         const result = await db.query(
-            'DELETE FROM personnel WHERE id = $1 AND (tenant_id = $2::text OR (tenant_id IS NULL AND $2 IS NULL)) RETURNING id',
+            'DELETE FROM personnel WHERE id = $1 AND (tenant_id::text = $2::text OR tenant_id IS NULL) RETURNING id',
             [id, req.user.tenantId]
         );
 
@@ -582,6 +584,7 @@ export const getPersonnelBanking = async (req, res) => {
                 accountType: row.account_type,
                 currency: row.currency,
                 countryId: row.country_id,
+                dailyRate: row.daily_rate ? parseFloat(row.daily_rate) : null,
                 updatedAt: row.updated_at
             }
         });
@@ -601,7 +604,7 @@ export const getPersonnelBanking = async (req, res) => {
 export const updatePersonnelBanking = async (req, res) => {
     try {
         const { id } = req.params;
-        const { bankName, accountNumber, routingNumber, swiftCode, accountType, currency, countryId } = req.body;
+        const { bankName, accountNumber, routingNumber, swiftCode, accountType, currency, countryId, dailyRate } = req.body;
 
         const cleanRouting = routingNumber ? String(routingNumber).replace(/\D/g, '') : undefined;
         const cleanAccount = accountNumber ? String(accountNumber).replace(/\D/g, '') : undefined;
@@ -642,19 +645,30 @@ export const updatePersonnelBanking = async (req, res) => {
             account_type = COALESCE($5, account_type),
             currency = COALESCE($6, currency),
             country_id = COALESCE($7, country_id),
+            daily_rate = COALESCE($8, daily_rate),
             updated_at = CURRENT_TIMESTAMP
-                 WHERE pilot_id = $8
+                 WHERE pilot_id = $9
                  RETURNING * `,
-                [bankName, cleanAccount, cleanRouting, cleanSwift, accountType, currency, resolvedCountryId, id]
+                [bankName, cleanAccount, cleanRouting, cleanSwift, accountType, currency, resolvedCountryId, dailyRate !== undefined ? dailyRate : null, id]
             );
         } else {
             // Insert
             result = await db.query(
                 `INSERT INTO pilot_banking_info
-            (pilot_id, bank_name, account_number, routing_number, swift_code, account_type, currency, country_id)
-                 VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+            (pilot_id, bank_name, account_number, routing_number, swift_code, account_type, currency, country_id, daily_rate)
+                 VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
                  RETURNING * `,
-                [id, bankName, cleanAccount, cleanRouting, cleanSwift, accountType || 'Checking', currency, resolvedCountryId]
+                [
+                    id,
+                    bankName || 'Pending',
+                    cleanAccount || 'Pending',
+                    cleanRouting || 'Pending',
+                    cleanSwift,
+                    accountType || 'Checking',
+                    currency,
+                    resolvedCountryId,
+                    dailyRate || null
+                ]
             );
         }
 
@@ -671,6 +685,7 @@ export const updatePersonnelBanking = async (req, res) => {
                 accountType: row.account_type,
                 currency: row.currency,
                 countryId: row.country_id,
+                dailyRate: row.daily_rate ? parseFloat(row.daily_rate) : null,
                 updatedAt: row.updated_at
             },
             message: 'Banking information updated successfully'
@@ -724,11 +739,11 @@ export const getPersonnelDocuments = async (req, res) => {
                 document_type,
                 file_url,
                 validation_status,
-                uploaded_at,
+                created_at as uploaded_at,
                 updated_at
                  FROM pilot_documents
                  WHERE pilot_id = $1
-                 ORDER BY uploaded_at DESC`,
+                 ORDER BY created_at DESC`,
                 [id]
             );
         }
@@ -806,27 +821,9 @@ export const uploadPersonnelDocument = async (req, res) => {
             });
         }
 
-        // 2. Save Document Record to DB - try new schema first, fall back to old
-        let docResult;
-        try {
-            docResult = await db.query(
-                `INSERT INTO pilot_documents(personnel_id, category, name, url, expiration_date)
-                VALUES($1, $2, $3, $4, $5)
-                RETURNING *, category as document_type, url as file_url, created_at as uploaded_at, 'VALID' as validation_status`,
-                [id, documentType, documentType, webViewLink, expirationDate || null]
-            );
-        } catch (schemaErr) {
-            // Fall back to old schema
-            docResult = await db.query(
-                `INSERT INTO pilot_documents(pilot_id, document_type, file_url, validation_status, expiration_date)
-                VALUES($1, $2, $3, 'PENDING', $4)
-                RETURNING *`,
-                [id, documentType, webViewLink, expirationDate || null]
-            );
-        }
-
-        // 3. AI Extraction (Gemini)
+        // 2. AI Extraction (Gemini)
         let extractedData = {};
+        let finalDocumentType = documentType || 'Other';
 
         if (process.env.GEMINI_API_KEY) {
             try {
@@ -835,6 +832,7 @@ export const uploadPersonnelDocument = async (req, res) => {
 
                 const prompt = `
                     Analyze this document image. Extract the following information in JSON format:
+                    - documentType: Detect the type of document. Choose from ["License", "W9", "Insurance", "Direct Deposit", "Passport", "Certification", "Other"].
                     - Banking: bankName, routingNumber, accountNumber, accountType (Checking / Savings).
                     - Address: fullAddress (as homeAddress), street, city, state, zipCode.
                     - License: licenseNumber, expirationDate (YYYY-MM-DD).
@@ -842,7 +840,7 @@ export const uploadPersonnelDocument = async (req, res) => {
                     
                     Return ONLY the JSON object. Access nested fields directly.
                     If value is not found, return null. 
-                    Format the keys exactly as: bankName, routingNumber, accountNumber, accountType, homeAddress, licenseNumber, name, email, phone.
+                    Format the keys exactly as: documentType, bankName, routingNumber, accountNumber, accountType, homeAddress, licenseNumber, name, email, phone.
                 `;
 
                 const image = {
@@ -872,18 +870,50 @@ export const uploadPersonnelDocument = async (req, res) => {
                     }
                 }
 
+                if (extractedData.documentType) {
+                    finalDocumentType = extractedData.documentType;
+                }
+
                 console.log('🤖 Gemini 1.5 Extracted:', extractedData);
                 fs.appendFileSync(logPath, `[${new Date().toISOString()}] (Upload) PARSED DATA: ${JSON.stringify(extractedData)}\n`);
 
-                // Debug tracking
-                analysisDebug = {
-                    raw: text,
-                    json: extractedData,
-                    updates: []
-                };
+            } catch (err) {
+                console.error('AI Processing Error:', err);
+                // Don't fail the upload, just log it
+            }
+        } else {
+            console.warn('⚠️ GEMINI_API_KEY is missing. Skipping AI analysis.');
+        }
 
-                // 4. Auto-Populate Database
+        // Debug tracking
+        let analysisDebug = {
+            json: extractedData,
+            updates: []
+        };
 
+        // 3. Save Document Record to DB
+        let docResult;
+        try {
+            docResult = await db.query(
+                `INSERT INTO pilot_documents(personnel_id, category, name, url, expiration_date)
+                VALUES($1, $2, $3, $4, $5)
+                RETURNING *, category as document_type, url as file_url, created_at as uploaded_at, 'VALID' as validation_status`,
+                [id, finalDocumentType, finalDocumentType, webViewLink, expirationDate || null]
+            );
+        } catch (schemaErr) {
+            // Fall back to old schema
+            docResult = await db.query(
+                `INSERT INTO pilot_documents(pilot_id, document_type, file_url, validation_status, expiration_date)
+                VALUES($1, $2, $3, 'PENDING', $4)
+                RETURNING *`,
+                [id, finalDocumentType, webViewLink, expirationDate || null]
+            );
+        }
+
+        // 4. Auto-Populate Database
+        // We do this outside the AI block just in case, but it relies on extractedData
+        if (Object.keys(extractedData).length > 0) {
+            try {
                 // Address Update
                 if (extractedData.homeAddress || extractedData.fullAddress) {
                     const address = extractedData.homeAddress || extractedData.fullAddress;
@@ -894,15 +924,42 @@ export const uploadPersonnelDocument = async (req, res) => {
                     analysisDebug.updates.push('address');
                 }
 
+                // Profile Update (Name, Phone, Email)
+                if (extractedData.name || extractedData.phone || extractedData.email) {
+                    // Only update fields that exist to avoid blowing away existing correct data
+                    const currentProfile = await db.query('SELECT full_name, phone, secondary_phone, email FROM personnel WHERE id = $1', [id]);
+                    const current = currentProfile.rows[0] || {};
+
+                    let newName = extractedData.name || current.full_name;
+                    let newPhone = extractedData.phone || current.phone;
+                    let newEmail = extractedData.email || current.email;
+
+                    await db.query(
+                        `UPDATE personnel SET full_name = $1, phone = $2, email = $3 WHERE id = $4`,
+                        [newName, newPhone, newEmail, id]
+                    );
+                    analysisDebug.updates.push('profile');
+                    await logAudit(req.user.id, 'AUTO_POPULATE', 'PERSONNEL', id, { source: 'AI Extraction Profile' }, req.user.tenantId);
+                }
+
                 // Banking Update
                 if (extractedData.routingNumber && extractedData.accountNumber) {
+                    // Resolve countryId if it's an ISO2 code (like 'US')
+                    let resolvedCountryId = countryId || 'US';
+                    if (resolvedCountryId && resolvedCountryId.length === 2) {
+                        const countryRes = await db.query('SELECT id FROM countries WHERE iso_code = $1', [resolvedCountryId]);
+                        if (countryRes.rows.length > 0) {
+                            resolvedCountryId = countryRes.rows[0].id;
+                        }
+                    }
+
                     const bankData = {
                         bankName: extractedData.bankName || 'Unknown Bank',
                         routingNumber: extractedData.routingNumber.toString().replace(/\D/g, ''),
                         accountNumber: extractedData.accountNumber.toString().replace(/\D/g, ''),
                         accountType: extractedData.accountType || 'Checking',
                         currency: 'USD',
-                        countryId: countryId || 'US'
+                        countryId: resolvedCountryId
                     };
 
                     const existingBank = await db.query('SELECT id FROM pilot_banking_info WHERE pilot_id = $1', [id]);
@@ -910,15 +967,15 @@ export const uploadPersonnelDocument = async (req, res) => {
                     if (existingBank.rows.length > 0) {
                         await db.query(
                             `UPDATE pilot_banking_info 
-                             SET bank_name = $1, routing_number = $2, account_number = $3, account_type = $4, currency = $5, country_id = $6, updated_at = CURRENT_TIMESTAMP
-                             WHERE pilot_id = $7`,
+                            SET bank_name = $1, routing_number = $2, account_number = $3, account_type = $4, currency = $5, country_id = $6, updated_at = CURRENT_TIMESTAMP
+                            WHERE pilot_id = $7`,
                             [bankData.bankName, bankData.routingNumber, bankData.accountNumber, bankData.accountType, bankData.currency, bankData.countryId, id]
                         );
                         analysisDebug.updates.push('banking_update');
                     } else {
                         await db.query(
                             `INSERT INTO pilot_banking_info (pilot_id, bank_name, routing_number, account_number, account_type, currency, country_id)
-                             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                             [id, bankData.bankName, bankData.routingNumber, bankData.accountNumber, bankData.accountType, bankData.currency, bankData.countryId]
                         );
                         analysisDebug.updates.push('banking_insert');
@@ -926,13 +983,9 @@ export const uploadPersonnelDocument = async (req, res) => {
 
                     await logAudit(req.user.id, 'AUTO_POPULATE', 'BANKING', id, { source: 'AI Extraction' }, req.user.tenantId);
                 }
-
-            } catch (err) {
-                console.error('AI Processing Error:', err);
-                // Don't fail the upload, just log it
+            } catch (populateErr) {
+                console.error('Auto-Populate Post-Process Error:', populateErr);
             }
-        } else {
-            console.warn('⚠️ GEMINI_API_KEY is missing. Skipping AI analysis.');
         }
 
         // 5. Fetch Final State to return to FE
@@ -962,6 +1015,76 @@ export const uploadPersonnelDocument = async (req, res) => {
     } catch (error) {
         console.error('Error uploading document:', error);
         res.status(500).json({ success: false, message: 'Failed to upload document', error: error.message });
+    }
+};
+
+/**
+ * Delete personnel document
+ */
+export const deletePersonnelDocument = async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+
+        // Check Access
+        if (req.user.role !== 'ADMIN' && req.user.role !== 'FINANCE' && req.user.id !== id) {
+            return res.status(403).json({ success: false, message: 'Not authorized to delete documents for this user' });
+        }
+
+        try {
+            const result = await db.query(`DELETE FROM pilot_documents WHERE id = $1 AND personnel_id = $2 RETURNING id`, [docId, id]);
+            if (result.rowCount === 0) {
+                // Fall back to old schema
+                await db.query(`DELETE FROM pilot_documents WHERE id = $1 AND pilot_id = $2`, [docId, id]);
+            }
+        } catch (schemaErr) {
+            await db.query(`DELETE FROM pilot_documents WHERE id = $1 AND pilot_id = $2`, [docId, id]);
+        }
+
+        res.status(200).json({ success: true, message: 'Document deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting document:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete document', error: error.message });
+    }
+};
+
+/**
+ * View personnel document (Proxy to avoid X-Frame-Options)
+ */
+export const viewPersonnelDocument = async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+
+        // Check Access
+        if (req.user.role !== 'ADMIN' && req.user.role !== 'FINANCE' && req.user.id !== id) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+
+        let result = await db.query(`SELECT url, file_url FROM pilot_documents WHERE id = $1`, [docId]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Document not found' });
+        }
+
+        const fileUrl = result.rows[0].url || result.rows[0].file_url;
+        if (!fileUrl) {
+            return res.status(404).json({ success: false, message: 'File URL not found' });
+        }
+
+        const fetchResponse = await fetch(fileUrl);
+        if (!fetchResponse.ok) {
+            throw new Error(`Failed to fetch from storage: ${fetchResponse.statusText}`);
+        }
+
+        const contentType = fetchResponse.headers.get('content-type') || 'application/pdf';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', 'inline');
+
+        const arrayBuffer = await fetchResponse.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        return res.send(buffer);
+    } catch (error) {
+        console.error('Error viewing document:', error);
+        res.status(500).json({ success: false, message: 'Failed to view document', error: error.message });
     }
 };
 
@@ -1014,8 +1137,94 @@ export const uploadPersonnelPhoto = async (req, res) => {
     }
 };
 
-
 /**
+ * Provision an account for existing personnel
+ */
+export const provisionPilotAccount = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Get the personnel record
+        const personRes = await db.query(
+            'SELECT id, email, full_name, role FROM personnel WHERE id = $1 AND (tenant_id::text = $2::text OR tenant_id IS NULL)',
+            [id, req.user.tenantId]
+        );
+
+        if (personRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Personnel not found' });
+        }
+
+        const person = personRes.rows[0];
+
+        if (!person.email) {
+            return res.status(400).json({ success: false, message: 'Personnel must have an email address to be provisioned' });
+        }
+
+        if (person.role !== 'Pilot' && person.role !== 'Technician' && person.role !== 'Both') {
+            return res.status(400).json({ success: false, message: 'Only Pilots and Technicians can be provisioned through this flow' });
+        }
+
+        // 2. Map role to system role string 
+        const mappedRole = 'USER'; // Pilot/Technician are typically mapped to 'USER' or 'PILOT' in the future. For now, adhering strictly.
+
+        // 3. Generate magic reset token
+        const rawToken = generateInvitationToken();
+        const invitationTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        const invitationExpires = new Date();
+        invitationExpires.setDate(invitationExpires.getDate() + 7);
+
+        // 4. Try to insert or update users table
+        const userRes = await db.query(
+            `INSERT INTO users (
+                email, full_name, role, permissions, tenant_id, 
+                invitation_token_hash, invitation_expires_at, force_password_reset
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+            ON CONFLICT (email) DO UPDATE SET
+                invitation_token_hash = EXCLUDED.invitation_token_hash,
+                invitation_expires_at = EXCLUDED.invitation_expires_at,
+                force_password_reset = true,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING id, email`,
+            [
+                person.email,
+                person.full_name,
+                mappedRole,
+                JSON.stringify(['PILOT_ACCESS']), // Distinguish them by permission if needed
+                req.user.tenantId,
+                invitationTokenHash,
+                invitationExpires
+            ]
+        );
+
+        // 5. Audit Log
+        await logAudit(
+            req.user.id,
+            'PROVISION_ACCOUNT',
+            'PERSONNEL',
+            id,
+            { email: person.email, role: mappedRole },
+            req.user.tenantId
+        );
+
+        // Generate magic link
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const invitationUrl = `${frontendUrl}/set-password/${rawToken}`;
+
+        res.json({
+            success: true,
+            message: 'Account provisioned successfully',
+            data: {
+                invitationUrl: invitationUrl,
+                userId: userRes.rows[0].id
+            }
+        });
+
+    } catch (error) {
+        console.error('Error provisioning pilot account:', error);
+        res.status(500).json({ success: false, message: 'Failed to provision account', error: error.message });
+    }
+};/**
  * Analyze personnel document — Vertex AI primary, AI Studio fallback
  */
 export const analyzePersonnelDocument = async (req, res) => {
@@ -1184,44 +1393,43 @@ If a field is not found, set it to null.`;
 export const getPilotPerformance = async (req, res) => {
     try {
         const { id } = req.params;
-        const userId = req.user?.id; // From auth middleware
+        const userId = req.user?.id;
 
-        const performanceRes = await db.query(`
-            SELECT 
-                lifetime_score, 
-                rolling_30_day_score, 
-                tier_level, 
-                reliability_flag
-            FROM personnel 
-            WHERE id = $1
-        `, [id]);
-
-        if (performanceRes.rows.length === 0) {
+        // Verify pilot exists
+        const pilotRes = await db.query('SELECT id FROM personnel WHERE id = $1', [id]);
+        if (pilotRes.rows.length === 0) {
             return res.status(404).json({ message: 'Pilot not found' });
         }
 
-        const stats = performanceRes.rows[0];
-
-        // Fetch detailed breakdown from scoring service
-        const { calculateIndividualScores } = await import('../services/scoringService.js');
+        // Dynamically import scoring and insights services
+        const { calculateIndividualScores, calculateFinalAPIScore, getTierFromScore } = await import('../services/scoringService.js');
         const { generatePilotInsights } = await import('../services/aiInsightsService.js');
 
-        const breakdown = await calculateIndividualScores(id, false);
-        const rollingBreakdown = await calculateIndividualScores(id, true);
+        // Compute lifetime and rolling scores on-the-fly
+        const [breakdown, rollingBreakdown, lifetimeScore, rollingScore] = await Promise.all([
+            calculateIndividualScores(id, false),
+            calculateIndividualScores(id, true),
+            calculateFinalAPIScore(id, false),
+            calculateFinalAPIScore(id, true),
+        ]);
+
+        const tierLevel = getTierFromScore(lifetimeScore);
+        const reliabilityFlag = breakdown.reliability >= 70;
+
         const insights = await generatePilotInsights(id, userId);
 
         res.json({
-            lifetimeScore: stats.lifetime_score,
-            rollingScore: stats.rolling_30_day_score,
-            tierLevel: stats.tier_level,
-            reliabilityFlag: stats.reliability_flag,
+            lifetimeScore,
+            rollingScore,
+            tierLevel,
+            reliabilityFlag,
             breakdown,
             rollingBreakdown,
             insights
         });
     } catch (error) {
         console.error('Error fetching pilot performance:', error);
-        res.status(500).json({ message: 'Error fetching performance metrics' });
+        res.status(500).json({ message: 'Error fetching performance metrics', error: error.message });
     }
 };
 
@@ -1268,3 +1476,149 @@ export const getPerformanceConfig = async (req, res) => {
     }
 };
 
+/**
+ * Initialize performance_config table (Bypass local IPv6 routing blocks)
+ */
+export const initPerformanceDB = async (req, res) => {
+    try {
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS performance_config (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                acceptance_enabled BOOLEAN DEFAULT true,
+                completion_enabled BOOLEAN DEFAULT true,
+                qa_enabled BOOLEAN DEFAULT true,
+                rating_enabled BOOLEAN DEFAULT true,
+                reliability_enabled BOOLEAN DEFAULT true,
+                travel_enabled BOOLEAN DEFAULT true,
+                speed_enabled BOOLEAN DEFAULT true,
+                acceptance_weight INTEGER DEFAULT 15,
+                completion_weight INTEGER DEFAULT 15,
+                qa_weight INTEGER DEFAULT 20,
+                rating_weight INTEGER DEFAULT 20,
+                reliability_weight INTEGER DEFAULT 10,
+                travel_weight INTEGER DEFAULT 10,
+                speed_weight INTEGER DEFAULT 10,
+                is_active BOOLEAN DEFAULT true,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now())
+            );
+        `);
+
+        await db.query(`
+            INSERT INTO performance_config (id)
+            SELECT gen_random_uuid()
+            WHERE NOT EXISTS (SELECT 1 FROM performance_config WHERE is_active = true);
+        `);
+
+        res.json({ message: 'Performance configuration initialized successfully.' });
+    } catch (error) {
+        console.error('Error initializing perf db:', error);
+        res.status(500).json({ message: 'Failed to initialize DB', error: error.message });
+    }
+};
+
+import db from '../config/database.js';
+import { uploadFile } from '../services/storageService.js';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import fs from 'fs';
+
+export const getMyDocuments = async (req, res) => {
+    try {
+        const email = req.user.email;
+        const personnelRes = await db.query('SELECT id FROM personnel WHERE email = $1', [email]);
+        
+        if (personnelRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Personnel record not found' });
+        }
+        
+        const personnelId = personnelRes.rows[0].id;
+
+        const docResult = await db.query(
+            `SELECT 
+                id,
+                personnel_id as pilot_id,
+                category as document_type,
+                url as file_url,
+                'VALID' as validation_status,
+                created_at as uploaded_at,
+                updated_at,
+                expiration_date
+             FROM pilot_documents
+             WHERE personnel_id = $1
+             ORDER BY created_at DESC`,
+            [personnelId]
+        );
+
+        res.status(200).json({
+            success: true,
+            data: docResult.rows
+        });
+    } catch (error) {
+        console.error('Error fetching my documents:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch documents' });
+    }
+};
+
+export const uploadMyDocument = async (req, res) => {
+    try {
+        const email = req.user.email;
+        const personnelRes = await db.query('SELECT id FROM personnel WHERE email = $1', [email]);
+        
+        if (personnelRes.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Personnel record not found' });
+        }
+        
+        const personnelId = personnelRes.rows[0].id;
+        const { documentType, expirationDate } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded.' });
+        }
+
+        let webViewLink = null;
+        try {
+            const uploadResult = await uploadFile(file, 'pilots');
+            webViewLink = uploadResult.url;
+        } catch (storageError) {
+            return res.status(500).json({ success: false, message: 'Storage Upload Failed' });
+        }
+
+        let finalDocumentType = documentType || 'Other';
+
+        // Basic AI if enabled
+        if (process.env.GEMINI_API_KEY) {
+            try {
+                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+                const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+                const prompt = `Analyze this document image. Extract {"documentType": "type"}. Try to classify into Flight Logs, Certification, License, W9, Insurance, Photo ID, Other.`;
+                const image = { inlineData: { data: file.buffer.toString('base64'), mimeType: file.mimetype } };
+                const result = await model.generateContent([prompt, image]);
+                const text = result.response.text();
+                const jsonStr = text.replace(/```json\s*/g, '').replace(/```/g, '').trim();
+                const extractedData = JSON.parse(jsonStr);
+                if (extractedData.documentType) finalDocumentType = extractedData.documentType;
+            } catch (err) { }
+        }
+
+        const docResult = await db.query(
+            `INSERT INTO pilot_documents(personnel_id, category, name, url, expiration_date)
+             VALUES($1, $2, $3, $4, $5)
+             RETURNING *, category as document_type, url as file_url, created_at as uploaded_at, 'VALID' as validation_status`,
+            [
+                personnelId,
+                finalDocumentType,
+                file.originalname,
+                webViewLink,
+                expirationDate || null
+            ]
+        );
+
+        res.status(201).json({
+            success: true,
+            data: docResult.rows[0]
+        });
+    } catch (error) {
+        console.error('Error in uploadMyDocument:', error);
+        res.status(500).json({ success: false, message: 'Upload Failed' });
+    }
+};

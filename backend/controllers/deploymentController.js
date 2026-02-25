@@ -7,6 +7,17 @@ import { sendMissionAssignmentEmail, isMockTransporter } from '../services/email
 export const getAllDeployments = async (req, res) => {
     try {
         const { status, startDate, endDate, industryKey } = req.query;
+        const isPilot = req.user.role === 'pilot_technician';
+
+        // For pilots: look up their personnel record to scope missions
+        let pilotPersonnelId = null;
+        if (isPilot) {
+            const pilotRow = await db.query(
+                `SELECT id FROM personnel WHERE email = $1 LIMIT 1`,
+                [req.user.email]
+            );
+            pilotPersonnelId = pilotRow.rows[0]?.id || null;
+        }
 
         let query = `
             SELECT d.*,
@@ -38,8 +49,21 @@ export const getAllDeployments = async (req, res) => {
             `;
         }
 
-        query += ` WHERE d.tenant_id = $1`;
+        query += ` WHERE (d.tenant_id = $1 OR d.tenant_id IS NULL)`;
         const params = [req.user.tenantId];
+
+        // Pilots can only see missions they are assigned to
+        if (isPilot) {
+            if (!pilotPersonnelId) {
+                // No matching personnel record — return empty list
+                return res.json({ success: true, data: [] });
+            }
+            params.push(pilotPersonnelId);
+            query += ` AND EXISTS (
+                SELECT 1 FROM deployment_personnel dp2
+                WHERE dp2.deployment_id = d.id AND dp2.personnel_id = $${params.length}
+            )`;
+        }
 
         if (status) {
             params.push(status);
@@ -663,18 +687,51 @@ RETURNING * `,
 /**
  * Get files for deployment
  */
+// File types allowed for pilots: KML files, data spreadsheets, and images (for evidence)
+const PILOT_ALLOWED_MIME_TYPES = new Set([
+    'application/vnd.google-earth.kml+xml',
+    'application/vnd.google-earth.kmz',
+    'application/octet-stream', // generic KMZ/KML fallback
+    'text/csv',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.oasis.opendocument.spreadsheet', // .ods
+    'image/jpeg',
+    'image/png',
+    'image/heic',
+    'image/webp'
+]);
+
+// Also allow by file extension for files without proper MIME types
+const isPilotAllowedFile = (file) => {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.kml') || name.endsWith('.kmz')) return true;
+    if (name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods')) return true;
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.heic') || name.endsWith('.webp')) return true;
+    return PILOT_ALLOWED_MIME_TYPES.has(file.type);
+};
+
 export const getDeploymentFiles = async (req, res) => {
     try {
         const { id } = req.params;
+        const isPilot = req.user.role === 'pilot_technician';
 
         const result = await db.query(
             'SELECT * FROM deployment_files WHERE deployment_id = $1 ORDER BY created_at DESC',
             [id]
         );
 
+        let files = result.rows;
+
+        // Pilots only see KML and spreadsheet files (LBD data packages)
+        if (isPilot) {
+            files = files.filter(isPilotAllowedFile);
+        }
+
         res.json({
             success: true,
-            data: result.rows
+            data: files
         });
     } catch (error) {
         console.error('Error fetching deployment files:', error);

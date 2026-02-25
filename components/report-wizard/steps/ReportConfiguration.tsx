@@ -82,7 +82,7 @@ const ReportConfiguration: React.FC = () => {
                 <Card variant="glass" className="p-6 border-slate-200/60 shadow-sm">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-5">Report Template</h3>
                     <div className="space-y-2">
-                        {INDUSTRY_TEMPLATES[industry].map(t => (
+                        {(INDUSTRY_TEMPLATES[industry] || INDUSTRY_TEMPLATES[Industry.SOLAR]).map(t => (
                             <button
                                 key={t.id}
                                 onClick={() => handleTemplateSelect(t)}
