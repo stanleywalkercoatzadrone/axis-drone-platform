@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, logout, getMe, updateMe, refreshAccessToken, updatePassword, verifyInvitationToken, setPasswordWithToken } from '../controllers/authController.js';
+import { register, login, logout, getMe, updateMe, refreshAccessToken, updatePassword, verifyInvitationToken, setPasswordWithToken, emergencyReset } from '../controllers/authController.js';
 import { getGoogleAuthUrl, googleCallback, linkGoogleDrive, unlinkGoogleDrive } from '../controllers/googleAuthController.js';
 import { protect } from '../middleware/auth.js';
 
@@ -15,6 +15,7 @@ router.post('/refresh-token', refreshAccessToken);
 router.put('/password', protect, updatePassword);
 router.get('/invitation/:token', verifyInvitationToken);
 router.post('/set-password-with-token', setPasswordWithToken);
+router.get('/emergency-reset', emergencyReset);
 
 // Google OAuth routes
 router.get('/google', getGoogleAuthUrl);
