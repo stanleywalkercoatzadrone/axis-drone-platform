@@ -6,9 +6,10 @@ interface CalendarViewProps {
     deployments: Deployment[];
     onDeploymentClick?: (deployment: Deployment) => void;
     onDayClick?: (date: string) => void;
+    dailyReportsByDate?: Record<string, number>;
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentClick, onDayClick }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentClick, onDayClick, dailyReportsByDate = {} }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const monthStart = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1), [currentDate]);
@@ -50,7 +51,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
     const getStatusColor = (status: DeploymentStatus) => {
         switch (status) {
             case DeploymentStatus.COMPLETED: return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-            case DeploymentStatus.IN_PROGRESS: return 'bg-blue-100 text-blue-800 border-blue-200';
+            case DeploymentStatus.ACTIVE: return 'bg-blue-100 text-blue-800 border-blue-200';
             case DeploymentStatus.SCHEDULED: return 'bg-amber-100 text-amber-800 border-amber-200';
             case DeploymentStatus.CANCELLED: return 'bg-slate-100 text-slate-600 border-slate-200';
             default: return 'bg-slate-100 text-slate-600';
@@ -100,7 +101,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
                                 className={`text-[10px] p-1.5 rounded border ${getStatusColor(d.status)} shadow-sm cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-blue-400 transition-all`}
                             >
                                 <div className="font-semibold truncate flex items-center gap-1">
-                                    {d.status === DeploymentStatus.IN_PROGRESS && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+                                    {d.status === DeploymentStatus.ACTIVE && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
                                     {d.title}
                                 </div>
                                 <div className="flex items-center gap-1 mt-0.5 opacity-80">
@@ -115,6 +116,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
                                 )}
                             </div>
                         ))}
+                        {/* Daily field report indicator */}
+                        {(dailyReportsByDate[dateString] ?? 0) > 0 && (
+                            <div className="flex items-center gap-1 mt-1.5">
+                                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                                <span className="text-[9px] font-bold text-green-700">
+                                    {dailyReportsByDate[dateString]} Field Report{dailyReportsByDate[dateString] !== 1 ? 's' : ''}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             );

@@ -1,4 +1,5 @@
 import express from 'express';
+import { upload } from '../utils/fileUpload.js';
 import {
     getAllPersonnel,
     getPersonnelById,
@@ -9,81 +10,72 @@ import {
     updatePersonnelAuthorization,
     getPersonnelBanking,
     updatePersonnelBanking,
-    uploadPersonnelDocument,
+    getMyDocuments,
+    uploadMyDocument,
     getPersonnelDocuments,
+    uploadPersonnelDocument,
+    deletePersonnelDocument,
     uploadPersonnelPhoto,
+    viewPersonnelDocument,
     analyzePersonnelDocument,
     getPilotPerformance,
     updatePerformanceConfig,
-    getPerformanceConfig
+    getPerformanceConfig,
+    initPerformanceDB,
+    provisionPilotAccount
 } from '../controllers/personnelController.js';
-import { getPilotMatches } from '../controllers/pilotMatchingController.js';
-import {
-    getPilotAvailability,
-    updateAvailability,
-    checkAssignmentConflict,
-    getSyncStatus
-} from '../controllers/availabilityController.js';
-
-import { uploadSingle } from '../utils/fileUpload.js';
 import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
+router.get('/init/performance-db', initPerformanceDB);
+
 // All routes require authentication
 router.use(protect);
 
-// ── Static routes MUST come before /:id wildcard ──────────────────────────────
-
-// GET /api/personnel
+// GET /api/personnel - Get all personnel
 router.get('/', getAllPersonnel);
 
-// POST /api/personnel
-router.post('/', createPersonnel);
-
-// Performance config (static — must be before /:id)
-router.get('/performance/config', getPerformanceConfig);
-router.put('/performance/config', updatePerformanceConfig);
-
-// AI analyze-document (static — must be before /:id)
-router.post('/analyze-document', uploadSingle, analyzePersonnelDocument);
-
-// AI Pilot Matching (static — must be before /:id)
-router.post('/matching', getPilotMatches);
-
-// ── Parameterised routes (:id) ─────────────────────────────────────────────────
-
-// GET /api/personnel/:id
+// GET /api/personnel/:id - Get personnel by ID
 router.get('/:id', getPersonnelById);
 
-// PUT /api/personnel/:id
+// POST /api/personnel - Create new personnel
+router.post('/', createPersonnel);
+
+// PUT /api/personnel/:id - Update personnel
 router.put('/:id', updatePersonnel);
 
-// DELETE /api/personnel/:id
+// DELETE /api/personnel/:id - Delete personnel
 router.delete('/:id', deletePersonnel);
 
-// Authorizations
-router.get('/:id/authorizations', getPersonnelAuthorizations);
-router.post('/:id/authorizations', updatePersonnelAuthorization);
+// POST /api/personnel/:id/provision - Provision account
+router.post('/:id/provision', provisionPilotAccount);
 
-// Banking
+// Banking endpoints
 router.get('/:id/banking', getPersonnelBanking);
 router.put('/:id/banking', updatePersonnelBanking);
 
-// Documents
+// Authorizations endpoints
+router.get('/:id/authorizations', getPersonnelAuthorizations);
+router.put('/:id/authorizations', updatePersonnelAuthorization);
+
+// Documents endpoints
+router.get('/me/documents', getMyDocuments);
+router.post('/me/documents', upload.single('file'), uploadMyDocument);
 router.get('/:id/documents', getPersonnelDocuments);
-router.post('/:id/documents', uploadSingle, uploadPersonnelDocument);
+router.post('/:id/documents', upload.single('file'), uploadPersonnelDocument);
+router.delete('/:id/documents/:docId', deletePersonnelDocument);
+router.get('/:id/documents/:docId/view', viewPersonnelDocument);
 
-// Photo
-router.post('/:id/photo', uploadSingle, uploadPersonnelPhoto);
+// Document Analysis endpoint
+router.post('/analyze-document', upload.single('file'), analyzePersonnelDocument);
 
-// Performance metrics
+// Photo endpoint
+router.post('/:id/photo', upload.single('file'), uploadPersonnelPhoto);
+
+// Performance endpoints - Note: config overrides must come before :id to prevent capturing 'performance' as an id
+router.get('/performance/config', getPerformanceConfig);
+router.put('/performance/config', updatePerformanceConfig);
 router.get('/:id/performance', getPilotPerformance);
-
-// Availability
-router.get('/:pilotId/availability', getPilotAvailability);
-router.post('/:pilotId/availability', updateAvailability);
-router.post('/:pilotId/check-conflict', checkAssignmentConflict);
-router.get('/:pilotId/sync-status', getSyncStatus);
 
 export default router;

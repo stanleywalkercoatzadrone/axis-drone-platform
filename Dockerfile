@@ -20,7 +20,6 @@ RUN npm install --only=production --legacy-peer-deps
 
 # Copy backend code (JavaScript only)
 COPY backend ./backend
-COPY modules ./modules
 
 # Copy built frontend
 COPY --from=frontend-builder /app/dist ./dist

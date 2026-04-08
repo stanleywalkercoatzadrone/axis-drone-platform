@@ -21,25 +21,32 @@ type HubView = 'hub' | 'generator';
 interface IndustryReportsHubProps {
     missionId?: string;
     missionTitle?: string;
+    missionSiteName?: string;
+    missionClientName?: string;
     defaultIndustry?: IndustryId;
     /** When true (launched from sidebar industry row), hides the tab strip so only that industry is shown */
     singleIndustry?: boolean;
 }
 
-const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, missionTitle, defaultIndustry, singleIndustry }) => {
+const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, missionTitle, missionSiteName, missionClientName, defaultIndustry, singleIndustry }) => {
     const { currentIndustry } = useIndustry();
     const { user } = useAuth();
     const storageKey = `axis_reports_industry_${user?.id ?? 'default'}`;
 
-    // Priority: explicit defaultIndustry prop (from sidebar nav) > user's stored preference > mission industry > fallback
+    // Auto-detect: if the user is inside a specific industry context (e.g. Solar Missions),
+    // lock the hub to that industry and hide the tab strip.
+    const industryFromContext = currentIndustry && INDUSTRY_REPORT_CONFIGS.find(c => c.id === currentIndustry)
+        ? (currentIndustry as IndustryId)
+        : null;
+
+    const effectiveSingleIndustry = singleIndustry || !!industryFromContext;
+
+    // Priority: explicit prop > active industry context > stored preference > fallback
     const resolveDefaultIndustry = (): IndustryId => {
         if (defaultIndustry && INDUSTRY_REPORT_CONFIGS.find(c => c.id === defaultIndustry)) return defaultIndustry;
+        if (industryFromContext) return industryFromContext;
         const stored = localStorage.getItem(storageKey) as IndustryId | null;
         if (stored && INDUSTRY_REPORT_CONFIGS.find(c => c.id === stored)) return stored;
-        if (currentIndustry === 'solar') return 'solar';
-        if (currentIndustry === 'construction') return 'construction';
-        if (currentIndustry === 'utilities') return 'utilities';
-        if (currentIndustry === 'telecom') return 'telecom';
         return 'insurance';
     };
 
@@ -47,7 +54,7 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
     const [view, setView] = useState<HubView>('hub');
     const [activeSection, setActiveSection] = useState<ReportSection | null>(null);
 
-    const config = INDUSTRY_REPORT_CONFIGS.find(c => c.id === activeIndustry)!;
+    const config = INDUSTRY_REPORT_CONFIGS.find(c => c.id === activeIndustry)!
 
     const handleSelectIndustry = (id: IndustryId) => {
         setActiveIndustry(id);
@@ -91,6 +98,8 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
             <GeneratorShell
                 section={activeSection}
                 industryConfig={config}
+                missionSiteName={missionSiteName}
+                missionClientName={missionClientName}
                 onBack={handleBack}
             />
         );
@@ -123,8 +132,8 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
                     </div>
                 </div>
 
-                {/* Industry tab strip — hidden when launched from a single-industry sidebar link */}
-                {!singleIndustry && (
+                {/* Industry tab strip — hidden when launched from a single-industry sidebar link or when industry context is active */}
+                {!effectiveSingleIndustry && (
                     <div className="flex items-center gap-2 overflow-x-auto pb-0 scrollbar-hide">
                         {INDUSTRY_REPORT_CONFIGS.map(ind => {
                             const isActive = ind.id === activeIndustry;
@@ -160,22 +169,31 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
             </div>
 
             {/* Industry panel */}
-            <div className="bg-slate-900/60 border-t border-slate-800">
-                <div className="px-8 py-6">
+            <div className="relative border-t border-slate-800 bg-[#0B1121] overflow-hidden">
+                {/* Background ambient glow matching the active industry */}
+                <div 
+                    className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full blur-[120px] opacity-10 pointer-events-none transition-colors duration-1000"
+                    style={{ background: config.colorHex }}
+                />
+                
+                <div className="relative px-8 py-8 z-10">
                     {/* Panel header */}
-                    <div className="flex items-center justify-between mb-6">
-                        <div>
-                            <h2 className="text-xl font-black text-white">{config.subtitle}</h2>
-                            <p className="text-slate-400 text-sm mt-1">
-                                Select a report section below to launch the AI generator
+                    <div className="flex items-end justify-between mb-8 pb-6 border-b border-slate-800/60">
+                        <div className="max-w-xl">
+                            <h2 className="text-[22px] font-black text-white tracking-tight mb-2 drop-shadow-sm">{config.subtitle}</h2>
+                            <p className="text-sm text-slate-400 leading-relaxed font-medium">
+                                Choose an AI module below. Our deep learning engine will automatically synthesize raw data points, drone telemetry, and computer vision findings into an enterprise-grade PDF deliverable.
                             </p>
                         </div>
                         <div
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold"
-                            style={{ background: config.colorHex + '18', color: config.colorHex, border: `1px solid ${config.colorHex}30` }}
+                            className="flex flex-col items-end gap-2"
                         >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            AI-Powered
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] uppercase tracking-widest font-black"
+                                style={{ background: config.colorHex + '18', color: config.colorHex, border: `1px solid ${config.colorHex}30` }}>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                Neural Generation Ready
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-mono tracking-widest">SYS.ID // {config.id.toUpperCase()}-MODULE</div>
                         </div>
                     </div>
 
@@ -206,37 +224,56 @@ const SectionCard: React.FC<{
 }> = ({ section, industryColor, onClick }) => (
     <button
         onClick={onClick}
-        className="group relative text-left bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 rounded-2xl p-5 transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 cursor-pointer overflow-hidden"
-        style={{ borderLeft: `3px solid ${section.accentHex}` }}
+        className="group relative text-left bg-[#0B1121]/80 hover:bg-[#111827] border border-slate-700/50 hover:border-slate-500 rounded-xl p-6 transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.4)] hover:-translate-y-1 cursor-pointer overflow-hidden isolate"
     >
+        {/* Animated Glow Background (Glassmorphic FX) */}
+        <div 
+            className="absolute -inset-x-0 bottom-0 h-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-[40px] pointer-events-none -z-10"
+            style={{ background: `linear-gradient(to top, ${section.accentHex}1a, transparent)` }}
+        />
+
+        {/* Top Accent Line */}
+        <div 
+            className="absolute inset-x-0 top-0 h-1 opacity-80 group-hover:opacity-100 transition-opacity duration-300" 
+            style={{ background: `linear-gradient(90deg, ${section.accentHex}, transparent)` }} 
+        />
+
         {/* AI badge */}
         <div
-            className="absolute top-4 right-4 text-xs font-bold px-2 py-0.5 rounded-full"
-            style={{ background: section.accentHex + '20', color: section.accentHex, border: `1px solid ${section.accentHex}40` }}
+            className="absolute top-5 right-5 text-[10px] font-black px-2.5 py-1 rounded-full tracking-widest uppercase shadow-sm"
+            style={{ background: section.accentHex + '15', color: section.accentHex, border: `1px solid ${section.accentHex}40` }}
         >
             {section.badge}
         </div>
 
-        {/* Icon */}
-        <div
-            className="w-11 h-11 rounded-xl flex items-center justify-center text-xl mb-4 transition-transform group-hover:scale-110"
-            style={{ background: section.accentHex + '18', border: `1px solid ${section.accentHex}30` }}
-        >
-            {section.icon}
+        {/* Icon Container with Nested Glow */}
+        <div className="relative mb-5 inline-block">
+            <div 
+                className="absolute inset-0 blur-md opacity-20 group-hover:opacity-60 transition-opacity"
+                style={{ background: section.accentHex }}
+            />
+            <div
+                className="relative w-12 h-12 rounded-xl flex items-center justify-center text-xl transition-transform duration-300 group-hover:scale-110 shadow-inner"
+                style={{ background: section.accentHex + '11', border: `1px solid ${section.accentHex}30` }}
+            >
+                {section.icon}
+            </div>
         </div>
 
         {/* Content */}
-        <h3 className="text-sm font-bold text-white mb-1.5 pr-16 leading-snug">{section.title}</h3>
-        <p className="text-xs text-slate-400 leading-relaxed mb-4">{section.description}</p>
+        <h3 className="text-[15px] font-black text-white mb-2 pr-12 leading-tight tracking-tight drop-shadow-md">{section.title}</h3>
+        <p className="text-[12px] text-slate-400 leading-relaxed mb-6 font-medium">{section.description}</p>
 
-        {/* CTA row */}
+        {/* Premium CTA row */}
         <div
-            className="flex items-center gap-1.5 text-xs font-semibold transition-colors"
+            className="flex items-center gap-2 text-[11px] font-bold tracking-wider uppercase transition-colors"
             style={{ color: section.accentHex }}
         >
-            <FileText className="w-3.5 h-3.5" />
-            Open Generator
-            <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+            <div className="flex items-center justify-center p-1 rounded-full" style={{ background: section.accentHex + '15' }}>
+                <FileText className="w-3.5 h-3.5" />
+            </div>
+            Generate Report
+            <ChevronRight className="w-3.5 h-3.5 opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 group-hover:translate-x-1 transition-all duration-300" />
         </div>
     </button>
 );
@@ -246,18 +283,21 @@ const SectionCard: React.FC<{
 const GeneratorShell: React.FC<{
     section: ReportSection;
     industryConfig: IndustryReportConfig;
+    missionSiteName?: string;
+    missionClientName?: string;
     onBack: () => void;
-}> = ({ section, industryConfig, onBack }) => {
+}> = ({ section, industryConfig, missionSiteName, missionClientName, onBack }) => {
     const renderGenerator = () => {
         switch (section.generator) {
             case 'solar':
-                return <SolarReportGenerator section={section} />;
+                return <SolarReportGenerator section={section} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
             case 'construction':
-                return <ConstructionReportGenerator section={section} />;
+                return <ConstructionReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
             case 'utilities':
-                return <UtilitiesReportGenerator section={section} />;
+                return <UtilitiesReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
             case 'telecom':
-                return <TelecomReportGenerator section={section} />;
+                return <TelecomReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
+            case 'insurance':
             default:
                 return (
                     <div className="flex items-center justify-center h-64 text-slate-400">

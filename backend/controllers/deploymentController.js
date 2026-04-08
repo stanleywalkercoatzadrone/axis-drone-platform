@@ -1,16 +1,54 @@
 import db from '../config/database.js';
 import { sendMissionAssignmentEmail, isMockTransporter } from '../services/emailService.js';
+import { eventBus, EVENT_TYPES } from '../events/eventBus.js';
+
+/**
+ * Geocode a city/location string using Open-Meteo geocoding API.
+ * Returns { lat, lon, label } or null if not found.
+ * Non-blocking — never throws, always resolves.
+ */
+async function geocodeLocation(text) {
+    if (!text) return null;
+    const searchTerm = text.split(',')[0].trim();
+    if (!searchTerm || searchTerm.length < 2) return null;
+    try {
+        const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchTerm)}&count=1&language=en&format=json`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+            const r = data.results[0];
+            return {
+                lat: r.latitude,
+                lon: r.longitude,
+                label: `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}`,
+            };
+        }
+    } catch (e) {
+        console.warn('[deploymentController] Geocoding failed for:', searchTerm, e.message);
+    }
+    return null;
+}
 
 /**
  * Get all deployments with optional filters
  */
 export const getAllDeployments = async (req, res) => {
     try {
-        const { status, startDate, endDate, industryKey, clientId } = req.query;
+        const { status, startDate, endDate, industryKey } = req.query;
+        const isPilot = req.user.role === 'pilot_technician';
+
+        // For pilots: look up their personnel record to scope missions
+        let pilotPersonnelId = null;
+        if (isPilot) {
+            const pilotRow = await db.query(
+                `SELECT id FROM personnel WHERE email = $1 LIMIT 1`,
+                [req.user.email]
+            );
+            pilotPersonnelId = pilotRow.rows[0]?.id || null;
+        }
 
         let query = `
             SELECT d.*,
-                   d.country_id,
                    (SELECT COUNT(*) FROM deployment_files df WHERE df.deployment_id = d.id) as file_count,
                    (SELECT COUNT(*) FROM deployment_personnel dp WHERE dp.deployment_id = d.id) as personnel_count,
                    COALESCE(
@@ -28,15 +66,27 @@ export const getAllDeployments = async (req, res) => {
                    ) as daily_logs
             FROM deployments d
             LEFT JOIN daily_logs dl ON d.id = dl.deployment_id
-            LEFT JOIN sites s ON d.site_id = s.id
-            LEFT JOIN clients c ON COALESCE(d.client_id, s.client_id) = c.id
-            LEFT JOIN industries i ON c.industry_id = i.id
         `;
 
-        // (industryKey join already done above)
+        // Dynamic WHERE clauses — use 1=1 anchor so all ANDs are safe
+        const params = [];
+        query += ` WHERE 1=1`;
 
-        query += ` WHERE d.tenant_id = $1`;
-        const params = [req.user.tenantId];
+        // Tenant filter — skip if user has no tenant (null = null matches nothing in SQL)
+        if (req.user.tenantId) {
+            params.push(req.user.tenantId);
+            query += ` AND (d.tenant_id = $${params.length} OR d.tenant_id IS NULL)`;
+        }
+
+        // Pilots: filter to their assigned missions (only when personnel record exists)
+        if (isPilot && pilotPersonnelId) {
+            params.push(pilotPersonnelId);
+            query += ` AND EXISTS (
+                SELECT 1 FROM deployment_personnel dp2
+                WHERE dp2.deployment_id = d.id AND dp2.personnel_id = $${params.length}
+            )`;
+        }
+        // Pilot with no personnel record: show all missions so they can still submit reports
 
         if (status) {
             params.push(status);
@@ -45,30 +95,34 @@ export const getAllDeployments = async (req, res) => {
 
         if (startDate) {
             params.push(startDate);
-            query += ` AND d.date >= $${params.length} `;
+            query += ` AND d.date >= $${params.length}`;
         }
 
         if (endDate) {
             params.push(endDate);
-            query += ` AND d.date <= $${params.length} `;
+            query += ` AND d.date <= $${params.length}`;
         }
 
         if (industryKey) {
             params.push(industryKey);
-            query += ` AND (i.key = $${params.length})`;
+            query += ` AND d.industry_key = $${params.length}`;
         }
 
+        // Filter by clientId when viewing missions under a specific client
+        const { clientId, country_id } = req.query;
         if (clientId) {
             params.push(clientId);
-            query += ` AND c.id = $${params.length}`;
+            query += ` AND d.client_id = $${params.length}`;
         }
 
-        if (req.query.countryId) {
-            params.push(req.query.countryId);
-            query += ` AND d.country_id = $${params.length}`;
+        // Filter by country: exact country_id match OR null country for US (all legacy missions)
+        if (country_id) {
+            params.push(country_id);
+            query += ` AND (d.country_id = $${params.length} OR d.country_id IS NULL)`;
         }
 
         query += ' GROUP BY d.id ORDER BY d.date DESC, d.created_at DESC';
+
 
         const result = await db.query(query, params);
 
@@ -78,14 +132,20 @@ export const getAllDeployments = async (req, res) => {
             title: row.title,
             type: row.type,
             status: row.status,
-            countryId: row.country_id,
-            industry: row.industry || null,
+            missionStatusV2: row.mission_status_v2 || null,
+            mission_status_v2: row.mission_status_v2 || null,
+            industryKey: row.industry_key || null,
             siteName: row.site_name,
             siteId: row.site_id,
+            countryId: row.country_id || null,
             date: new Date(row.date).toISOString().split('T')[0],
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            latitude: row.latitude != null ? parseFloat(row.latitude) : null,
+            longitude: row.longitude != null ? parseFloat(row.longitude) : null,
+            city: row.city || null,
+            state: row.state || null,
             dailyLogs: row.daily_logs,
             fileCount: parseInt(row.file_count || 0),
             personnelCount: parseInt(row.personnel_count || 0),
@@ -115,16 +175,8 @@ export const getDeploymentById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Use COALESCE in the SELECT to return the effective client_id
-        // But we want to distinguish between direct and site-linked if needed?
-        // Let's select d.client_id explicitly to ensure it overrides any implicit collision if we want that,
-        // or rename the site one.
-        // Also removed s.client_id alias collision.
         const query = `
-            SELECT d.*, 
-                   d.country_id,
-                   s.client_id as site_client_id, 
-                   c.name as client_name,
+            SELECT d.*,
             (SELECT COUNT(*) FROM deployment_files df WHERE df.deployment_id = d.id) as file_count,
                 COALESCE(
                     (SELECT json_agg(personnel_id) FROM deployment_personnel WHERE deployment_id = d.id),
@@ -145,10 +197,8 @@ export const getDeploymentById = async (req, res) => {
     ) as daily_logs
             FROM deployments d
             LEFT JOIN daily_logs dl ON d.id = dl.deployment_id
-            LEFT JOIN sites s ON d.site_id = s.id
-            LEFT JOIN clients c ON COALESCE(d.client_id, s.client_id) = c.id
             WHERE d.id = $1 AND d.tenant_id = $2
-            GROUP BY d.id, s.client_id, c.name, d.client_id
+            GROUP BY d.id
         `;
 
         const result = await db.query(query, [id, req.user.tenantId]);
@@ -164,7 +214,7 @@ export const getDeploymentById = async (req, res) => {
 
         // Fetch monitoring users
         const monitoringResult = await db.query(
-            `SELECT u.id, u.full_name, u.email, u.role, u.company_name, dmu.role as mission_role
+            `SELECT u.id, u.full_name, u.email, u.role, dmu.role as mission_role
              FROM users u
              JOIN deployment_monitoring_users dmu ON u.id = dmu.user_id
              WHERE dmu.deployment_id = $1`,
@@ -176,35 +226,30 @@ export const getDeploymentById = async (req, res) => {
             title: row.title,
             type: row.type,
             status: row.status,
-            countryId: row.country_id,
             siteName: row.site_name,
             siteId: row.site_id,
             date: new Date(row.date).toISOString().split('T')[0],
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            city: row.city || null,
+            state: row.state || null,
             dailyLogs: row.daily_logs,
             fileCount: parseInt(row.file_count || 0),
-            // d.client_id takes precedence if set, otherwise site_client_id
-            clientId: row.client_id || row.site_client_id,
-            clientName: row.client_name,
             technicianIds: row.technician_ids,
             monitoringTeam: monitoringResult.rows.map(u => ({
                 id: u.id,
                 fullName: u.full_name,
                 email: u.email,
                 role: u.role,
-                missionRole: u.mission_role,
-                companyName: u.company_name
+                missionRole: u.mission_role
             })),
+            latitude: row.latitude != null ? parseFloat(row.latitude) : null,
+            longitude: row.longitude != null ? parseFloat(row.longitude) : null,
+            city: row.city || null,
+            state: row.state || null,
             createdAt: row.created_at,
-            updatedAt: row.updated_at,
-            baseCost: parseFloat(row.base_cost || 0),
-            markupPercentage: parseFloat(row.markup_percentage || 0),
-            clientPrice: parseFloat(row.client_price || 0),
-            estimatedDurationDays: row.estimated_duration_days || 1,
-            travelCosts: parseFloat(row.travel_costs || 0),
-            equipmentCosts: parseFloat(row.equipment_costs || 0)
+            updatedAt: row.updated_at
         };
 
         res.json({
@@ -236,12 +281,12 @@ export const createDeployment = async (req, res) => {
             location,
             notes,
             daysOnSite,
-            clientId,
-            countryId,
-            industry,
+            industryKey,
+            latitude,
+            longitude
         } = req.body;
 
-        // Validation
+        // Base field validation
         if (!title || !type || !siteName || !date) {
             return res.status(400).json({
                 success: false,
@@ -249,11 +294,30 @@ export const createDeployment = async (req, res) => {
             });
         }
 
+        // Resolve coordinates: use provided → auto-geocode from location/siteName → null (never block)
+        let lat = null, lon = null;
+        if (latitude !== undefined && latitude !== null && latitude !== '' &&
+            longitude !== undefined && longitude !== null && longitude !== '') {
+            lat = parseFloat(latitude);
+            lon = parseFloat(longitude);
+            if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lon) || lon < -180 || lon > 180) {
+                return res.status(400).json({ success: false, message: 'Invalid coordinates. Latitude must be -90 to 90, longitude -180 to 180' });
+            }
+        } else {
+            // Auto-geocode from location or site name
+            const geocoded = await geocodeLocation(location) || await geocodeLocation(siteName);
+            if (geocoded) {
+                lat = geocoded.lat;
+                lon = geocoded.lon;
+                console.log(`[deploymentController] Auto-geocoded "${location || siteName}" → ${geocoded.label} (${lat}, ${lon})`);
+            }
+        }
+
         const result = await db.query(
             `INSERT INTO deployments
-    (title, type, status, site_name, site_id, date, location, notes, days_on_site, tenant_id, client_id, country_id, industry)
+    (title, type, status, site_name, site_id, date, location, notes, days_on_site, industry_key, tenant_id, latitude, longitude)
 VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING * `,
+RETURNING *`,
             [
                 title,
                 type,
@@ -264,10 +328,10 @@ RETURNING * `,
                 location || null,
                 notes || null,
                 daysOnSite || 1,
+                industryKey || null,
                 req.user.tenantId,
-                clientId || null,
-                countryId || null,
-                industry || null,
+                lat,
+                lon
             ]
         );
 
@@ -277,14 +341,14 @@ RETURNING * `,
             title: row.title,
             type: row.type,
             status: row.status,
-            countryId: row.country_id,
-            industry: row.industry || null,
             siteName: row.site_name,
             siteId: row.site_id,
             date: new Date(row.date).toISOString().split('T')[0],
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            latitude: row.latitude ? parseFloat(row.latitude) : null,
+            longitude: row.longitude ? parseFloat(row.longitude) : null,
             dailyLogs: [],
             technicianIds: []
         };
@@ -293,6 +357,16 @@ RETURNING * `,
             success: true,
             data: deployment,
             message: 'Deployment created successfully'
+        });
+
+        // §3 Emit mission.created event (non-blocking, after response sent)
+        eventBus.emit(EVENT_TYPES.MISSION_CREATED, {
+            missionId:  row.id,
+            title:      row.title,
+            userId:     req.user?.id,
+            tenantId:   req.user?.tenantId,
+            requestId:  req.requestId,
+            after: deployment,
         });
     } catch (error) {
         console.error('Error creating deployment:', error);
@@ -320,8 +394,9 @@ export const updateDeployment = async (req, res) => {
             location,
             notes,
             daysOnSite,
-            clientId,
-            countryId
+            latitude,
+            longitude,
+            state
         } = req.body;
 
         // Check current status for transition validation
@@ -337,97 +412,69 @@ export const updateDeployment = async (req, res) => {
                 'Draft': ['Scheduled', 'Archived'],
                 'Scheduled': ['Active', 'Cancelled', 'Delayed', 'Draft'],
                 'Active': ['Review', 'Completed', 'Delayed', 'Cancelled'],
-                'Review': ['Completed', 'Active'],
-                'Completed': ['Archived', 'Review'],
-                'Archived': []
+                'Review': ['Completed', 'Active'], // Can go back to active if review fails
+                'Completed': ['Archived', 'Review'], // Reactivate for review?
+                'Archived': [] // Terminal
             };
 
+            // Bypass for simple "Draft" or if Logic not strictly defined for custom flow
+            // But enforce basic "Draft" -> "Active"
             if (allowed[currentStatus] && !allowed[currentStatus].includes(status)) {
-                // Log warning or enforce strict mode
+                // Determine if user is Admin/Ops? (Req object doesn't have user here usually, need middleware)
+                // For now, allow but LOG WARNING? Or strict?
+                // Strict:
+                // return res.status(400).json({ success: false, message: `Invalid status transition from ${ currentStatus } to ${ status } ` });
             }
         }
 
-        // Validate Country Change vs Assigned Personnel
-        if (countryId) {
-            const personnelRes = await db.query('SELECT personnel_id FROM deployment_personnel WHERE deployment_id = $1', [id]);
-            const personnelIds = personnelRes.rows.map(r => r.personnel_id);
-
-            if (personnelIds.length > 0) {
-                const validCountRes = await db.query(
-                    `SELECT count(*) FROM pilot_country_authorizations
-                      WHERE country_id = $1 AND status = 'APPROVED' AND pilot_id = ANY($2)`,
-                    [countryId, personnelIds]
-                );
-
-                if (parseInt(validCountRes.rows[0].count) !== personnelIds.length) {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'Cannot update Country: One or more assigned personnel are not authorized for this country.'
-                    });
-                }
+        // Resolve coordinates: use provided → auto-geocode from location/siteName → keep existing (null = no change)
+        let lat = undefined;
+        let lon = undefined;
+        if (latitude !== undefined && latitude !== null && latitude !== '' &&
+            longitude !== undefined && longitude !== null && longitude !== '') {
+            lat = parseFloat(latitude);
+            lon = parseFloat(longitude);
+            if (isNaN(lat) || lat < -90 || lat > 90) {
+                return res.status(400).json({ success: false, message: 'Invalid latitude. Must be -90 to 90.' });
+            }
+            if (isNaN(lon) || lon < -180 || lon > 180) {
+                return res.status(400).json({ success: false, message: 'Invalid longitude. Must be -180 to 180.' });
+            }
+        } else if (location || siteName) {
+            // No explicit coords — try to geocode from the location/siteName being set
+            const geocoded = await geocodeLocation(location) || await geocodeLocation(siteName);
+            if (geocoded) {
+                lat = geocoded.lat;
+                lon = geocoded.lon;
+                console.log(`[deploymentController] Auto-geocoded on update: "${location || siteName}" → ${geocoded.label} (${lat}, ${lon})`);
             }
         }
 
-        // Dynamic Update Query Construction
-        const updates = [];
-        const values = [];
-        let paramCount = 0;
-
-        const addUpdate = (field, value) => {
-            // Treat empty strings as NULL for foreign keys and nullable fields if desired
-            // Or explicitly allow setting blank strings for text fields?
-            // For UUIDs, empty string MUST be null.
-            let safeValue = value;
-            if (field === 'client_id' || field === 'site_id' || field === 'country_id') {
-                if (value === '') safeValue = null;
-            }
-            // If value is undefined, do not update. If null, update to null.
-            if (value !== undefined) {
-                paramCount++;
-                updates.push(`${field} = $${paramCount}`);
-                values.push(safeValue);
-            }
-        };
-
-        addUpdate('title', title);
-        addUpdate('type', type);
-        addUpdate('status', status);
-        addUpdate('site_name', siteName);
-        addUpdate('site_id', siteId); // Can be null
-        addUpdate('date', date);
-        addUpdate('location', location);
-        addUpdate('notes', notes);
-        addUpdate('days_on_site', daysOnSite);
-        addUpdate('client_id', clientId); // Can be null
-        addUpdate('country_id', countryId); // Can be null
-
-        // If nothing to update
-        if (updates.length === 0) {
-            return res.json({ success: true, message: 'No changes provided' });
-        }
-
-        updates.push(`updated_at = CURRENT_TIMESTAMP`);
-
-        // Where clause
-        paramCount++;
-        const whereClause = `WHERE id = $${paramCount} AND tenant_id = $${paramCount + 1}`;
-        values.push(id, req.user.tenantId);
-
-        const query = `
-            UPDATE deployments
-            SET ${updates.join(', ')}
-            ${whereClause}
-            RETURNING *
-        `;
-
-        const result = await db.query(query, values);
+        const result = await db.query(
+            `UPDATE deployments 
+            SET title = COALESCE($1, title),
+    type = COALESCE($2, type),
+    status = COALESCE($3, status),
+    site_name = COALESCE($4, site_name),
+    site_id = COALESCE($5, site_id),
+    date = COALESCE($6, date),
+    location = COALESCE($7, location),
+    notes = COALESCE($8, notes),
+    days_on_site = COALESCE($9, days_on_site),
+    latitude = CASE WHEN $12::numeric IS NOT NULL THEN $12::numeric ELSE latitude END,
+    longitude = CASE WHEN $13::numeric IS NOT NULL THEN $13::numeric ELSE longitude END,
+    updated_at = CURRENT_TIMESTAMP
+            WHERE id = $10 AND tenant_id = $11
+RETURNING * `,
+            [title, type, status, siteName, siteId, date, location, notes, daysOnSite, id, req.user.tenantId, lat ?? null, lon ?? null]
+        );
 
         // Audit Log
-        if (req.user) {
+        if (req.user) { // Ensure auth middleware populated user
             await db.query(
                 `INSERT INTO audit_logs(user_id, action, resource_type, resource_id, metadata)
 VALUES($1, $2, $3, $4, $5)`,
-                [req.user.id, 'DEPLOYMENT_UPDATED', 'deployment', id, JSON.stringify({ status_change: status ? `${currentStatus} -> ${status} ` : 'No status change', updates: Object.keys(req.body) })]
+                [req.user.id, 'DEPLOYMENT_UPDATED', 'deployment', id, JSON.stringify({ status_change: status ? `${currentStatus} -> ${status} ` : 'No status change' })]
             );
         }
 
@@ -450,17 +497,42 @@ VALUES($1, $2, $3, $4, $5)`,
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
-            clientId: row.client_id, // Return actual DB value
-            countryId: row.country_id
+            latitude: row.latitude ? parseFloat(row.latitude) : null,
+            longitude: row.longitude ? parseFloat(row.longitude) : null,
         };
+
+        // Save state and city separately — safe even if columns don't exist yet
+        if (state !== undefined || location) {
+            try {
+                await db.query(
+                    `UPDATE deployments SET state = $1 WHERE id = $2`,
+                    [state || null, id]
+                );
+            } catch (_) { /* state column may not exist yet — non-fatal */ }
+        }
 
         res.json({
             success: true,
             data: deployment,
             message: 'Deployment updated successfully'
         });
+
+        // §3 Emit mission.updated event (non-blocking)
+        eventBus.emit(EVENT_TYPES.MISSION_UPDATED, {
+            missionId:      id,
+            userId:         req.user?.id,
+            tenantId:       req.user?.tenantId,
+            requestId:      req.requestId,
+            previousStatus: currentStatus,
+            newStatus:      status || currentStatus,
+            after:          deployment,
+            entityType:     'deployment',
+            entityId:       id,
+            resourceType:   'deployment',
+            resourceId:     id,
+        });
     } catch (error) {
-        console.error('Error updating deployment:', error);
+        console.error('Error updating deployment:', error.message, error.stack);
         res.status(500).json({
             success: false,
             message: 'Failed to update deployment',
@@ -698,7 +770,7 @@ export const getDeploymentCost = async (req, res) => {
 export const uploadDeploymentFile = async (req, res) => {
     try {
         const { id } = req.params;
-        const file = req.file;
+        const file = req.file ?? req.files?.[0];
 
         if (!file) {
             return res.status(400).json({
@@ -725,18 +797,18 @@ export const uploadDeploymentFile = async (req, res) => {
             await fs.mkdir(uploadDir, { recursive: true });
         }
 
-        const filename = `${id} -${Date.now()} -${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')} `;
+        const filename = `${id}-${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
         const filepath = path.join(uploadDir, filename);
 
         await fs.writeFile(filepath, file.buffer);
 
-        const fileUrl = `/ uploads / ${filename} `;
+        const fileUrl = `/uploads/${filename}`;
 
         const result = await db.query(
-            `INSERT INTO deployment_files(deployment_id, name, url, type, size)
-VALUES($1, $2, $3, $4, $5)
-RETURNING * `,
-            [id, file.originalname, fileUrl, file.mimetype, file.size]
+            `INSERT INTO deployment_files(deployment_id, name, url, type, size, content)
+             VALUES($1, $2, $3, $4, $5, $6)
+             RETURNING id, deployment_id, name, url, type, size, created_at`,
+            [id, file.originalname, fileUrl, file.mimetype, file.size, file.buffer]
         );
 
         res.status(201).json({
@@ -758,18 +830,51 @@ RETURNING * `,
 /**
  * Get files for deployment
  */
+// File types allowed for pilots: KML files, data spreadsheets, and images (for evidence)
+const PILOT_ALLOWED_MIME_TYPES = new Set([
+    'application/vnd.google-earth.kml+xml',
+    'application/vnd.google-earth.kmz',
+    'application/octet-stream', // generic KMZ/KML fallback
+    'text/csv',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.oasis.opendocument.spreadsheet', // .ods
+    'image/jpeg',
+    'image/png',
+    'image/heic',
+    'image/webp'
+]);
+
+// Also allow by file extension for files without proper MIME types
+const isPilotAllowedFile = (file) => {
+    const name = (file.name || '').toLowerCase();
+    if (name.endsWith('.kml') || name.endsWith('.kmz')) return true;
+    if (name.endsWith('.csv') || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.ods')) return true;
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.heic') || name.endsWith('.webp')) return true;
+    return PILOT_ALLOWED_MIME_TYPES.has(file.type);
+};
+
 export const getDeploymentFiles = async (req, res) => {
     try {
         const { id } = req.params;
+        const isPilot = req.user.role === 'pilot_technician';
 
         const result = await db.query(
             'SELECT * FROM deployment_files WHERE deployment_id = $1 ORDER BY created_at DESC',
             [id]
         );
 
+        let files = result.rows;
+
+        // Pilots only see KML and spreadsheet files (LBD data packages)
+        if (isPilot) {
+            files = files.filter(isPilotAllowedFile);
+        }
+
         res.json({
             success: true,
-            data: result.rows
+            data: files
         });
     } catch (error) {
         console.error('Error fetching deployment files:', error);
@@ -822,6 +927,8 @@ export const assignPersonnel = async (req, res) => {
         const { id: deploymentId } = req.params;
         const { personnelId } = req.body;
 
+        console.log(`[assignPersonnel] Called by ${req.user?.email} (role=${req.user?.role}) | deploymentId=${deploymentId} | personnelId=${personnelId}`);
+
         if (!personnelId) {
             return res.status(400).json({
                 success: false,
@@ -829,42 +936,35 @@ export const assignPersonnel = async (req, res) => {
             });
         }
 
-        // Check Deployment Country
-        const deployCheck = await db.query('SELECT country_id FROM deployments WHERE id = $1', [deploymentId]);
-        if (deployCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Deployment not found' });
+        // Verify personnel ID exists in the personnel table
+        const personCheck = await db.query(
+            'SELECT id, full_name, email FROM personnel WHERE id = $1',
+            [personnelId]
+        );
+        console.log(`[assignPersonnel] Personnel lookup: found=${personCheck.rows.length > 0} name=${personCheck.rows[0]?.full_name || 'N/A'} email=${personCheck.rows[0]?.email || 'N/A'}`);
+
+        if (personCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Personnel record not found' });
         }
 
-        const countryId = deployCheck.rows[0].country_id;
-
-        // If Deployment has a specific country, validate Pilot Authorization
-        if (countryId) {
-            // Check if personnel has APPROVED authorization for this country
-            const authCheck = await db.query(
-                `SELECT status FROM pilot_country_authorizations 
-                 WHERE pilot_id = $1 AND country_id = $2 AND status = 'APPROVED'`,
-                [personnelId, countryId]
-            );
-
-            if (authCheck.rows.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Personnel is not authorized to operate in the deployment country.'
-                });
-            }
-        }
-
-        await db.query(
-            'INSERT INTO deployment_personnel (deployment_id, personnel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        const result = await db.query(
+            'INSERT INTO deployment_personnel (deployment_id, personnel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING deployment_id, personnel_id',
             [deploymentId, personnelId]
         );
 
+        if (result.rows.length === 0) {
+            console.log(`[assignPersonnel] Already assigned (ON CONFLICT DO NOTHING) — deploymentId=${deploymentId} personnelId=${personnelId}`);
+        } else {
+            console.log(`[assignPersonnel] ✅ INSERT succeeded — ${personCheck.rows[0]?.full_name} assigned to deployment ${deploymentId}`);
+        }
+
         res.json({
             success: true,
-            message: 'Personnel assigned successfully'
+            message: result.rows.length > 0 ? 'Personnel assigned successfully' : 'Already assigned',
+            personnelName: personCheck.rows[0]?.full_name
         });
     } catch (error) {
-        console.error('Error assigning personnel:', error);
+        console.error('[assignPersonnel] Error:', error.message, '| deploymentId:', req.params.id, '| personnelId:', req.body?.personnelId);
         res.status(500).json({
             success: false,
             message: 'Failed to assign personnel',
@@ -991,7 +1091,7 @@ export const notifyAssignment = async (req, res) => {
             if (pResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Personnel not found' });
             person = { name: pResult.rows[0].full_name, email: pResult.rows[0].email };
             role = pResult.rows[0].role;
-        } else if (type === 'MONITOR' || type === 'CLIENT') {
+        } else if (type === 'MONITOR') {
             const uResult = await db.query(
                 `SELECT u.full_name, u.email, dmu.role 
                  FROM users u 
@@ -999,7 +1099,7 @@ export const notifyAssignment = async (req, res) => {
                  WHERE u.id = $1 AND dmu.deployment_id = $2`,
                 [personId, deploymentId]
             );
-            if (uResult.rows.length === 0) return res.status(404).json({ success: false, message: 'User not found on this mission' });
+            if (uResult.rows.length === 0) return res.status(404).json({ success: false, message: 'Monitoring user not found on this mission' });
             person = { name: uResult.rows[0].full_name, email: uResult.rows[0].email };
             role = uResult.rows[0].role;
         }
@@ -1014,50 +1114,5 @@ export const notifyAssignment = async (req, res) => {
     } catch (error) {
         console.error('Error notifying assignment:', error);
         res.status(500).json({ success: false, message: 'Failed to send notification', error: error.message });
-    }
-};
-/**
- * Link client to deployment
- */
-export const linkClientToDeployment = async (req, res) => {
-    try {
-        const { id: deploymentId } = req.params;
-        const { clientId } = req.body;
-
-        if (!clientId) {
-            return res.status(400).json({ success: false, message: 'Client ID is required' });
-        }
-
-        // Verify deployment exists
-        const deployCheck = await db.query('SELECT id FROM deployments WHERE id = $1', [deploymentId]);
-        if (deployCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Deployment not found' });
-        }
-
-        // Verify client exists
-        const clientCheck = await db.query('SELECT id FROM clients WHERE id = $1', [clientId]);
-        if (clientCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Client not found' });
-        }
-
-        // Update deployment
-        await db.query(
-            'UPDATE deployments SET client_id = $1, updated_at = NOW() WHERE id = $2',
-            [clientId, deploymentId]
-        );
-
-        res.json({
-            success: true,
-            deploymentId,
-            clientId,
-            message: 'Client linked successfully'
-        });
-    } catch (error) {
-        console.error('Error linking client to deployment:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to link client',
-            error: error.message
-        });
     }
 };

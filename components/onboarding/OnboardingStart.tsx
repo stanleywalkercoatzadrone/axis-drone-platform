@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, Zap, Building2, Shield, HardHat, ChevronRight } from 'lucide-react';
+import { Star, Zap, Shield, ChevronRight, SlidersHorizontal, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../src/services/apiClient';
 
@@ -9,7 +9,10 @@ const TEMPLATES = [
         name: 'Solar — Minimal',
         industry: 'solar',
         icon: Zap,
-        description: 'Basic info + core deliverables. Fast setup.',
+        description: 'Basic info + core deliverables. Fast setup, ideal for quick client additions.',
+        accentColor: 'from-amber-500/20 to-transparent',
+        borderColor: 'border-amber-500/20 hover:border-amber-400/40',
+        iconColor: 'text-amber-400',
         config: {
             sections: {
                 operations: { enabled: true, fields: { work_structure: { enabled: true, required: true } } },
@@ -23,8 +26,11 @@ const TEMPLATES = [
         name: 'Solar — Full',
         industry: 'solar',
         icon: Star,
-        description: 'Complete operational, billing, and solar setup.',
+        description: 'Complete operational, billing, and solar configuration. Recommended for enterprise clients.',
         recommended: true,
+        accentColor: 'from-blue-500/20 to-transparent',
+        borderColor: 'border-blue-500/40 hover:border-blue-400/60',
+        iconColor: 'text-blue-400',
         config: {
             sections: {
                 operations: { enabled: true, fields: { work_structure: { enabled: true, required: true }, default_sla_hours: { enabled: true, required: false } } },
@@ -38,7 +44,10 @@ const TEMPLATES = [
         name: 'Insurance — Standard',
         industry: 'insurance',
         icon: Shield,
-        description: 'Standard deliverables for claims & inspections.',
+        description: 'Standard deliverables for claims processing and aerial inspections.',
+        accentColor: 'from-violet-500/20 to-transparent',
+        borderColor: 'border-violet-500/20 hover:border-violet-400/40',
+        iconColor: 'text-violet-400',
         config: {
             sections: {
                 operations: { enabled: true, fields: {} },
@@ -61,53 +70,89 @@ const OnboardingStart: React.FC = () => {
             });
             if (response.data.success) {
                 navigate(`/clients/new/step-1?configId=${response.data.data.id}`);
+            } else {
+                navigate('/clients/new/step-1');
             }
         } catch (err) {
             console.error('Failed to create onboarding config:', err);
+            navigate('/clients/new/step-1');
         }
     };
 
     return (
-        <div className="max-w-5xl mx-auto py-12 px-6">
-            <div className="text-center mb-12">
-                <h1 className="text-3xl font-bold text-slate-900 mb-4">Start New Client Onboarding</h1>
-                <p className="text-slate-600 font-medium tracking-tight">Select a template to begin, or customize your own workflow.</p>
-            </div>
+        <div className="min-h-full bg-slate-900 px-8 py-10">
+            <div className="max-w-4xl mx-auto space-y-10">
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {TEMPLATES.map((tpl) => (
-                    <button
-                        key={tpl.id}
-                        onClick={() => handleSelectTemplate(tpl)}
-                        className={`
-                            relative group p-6 rounded-2xl border-2 text-left transition-all duration-300
-                            ${tpl.recommended ? 'bg-blue-600/10 border-blue-500/50 hover:border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.1)]' :
-                                'bg-slate-900 border-slate-800 hover:border-slate-700'}
-                        `}
-                    >
-                        {tpl.recommended && (
-                            <span className="absolute -top-3 left-6 px-2 py-1 bg-blue-600 text-[10px] font-bold text-white rounded uppercase tracking-wider">
-                                Recommended
-                            </span>
-                        )}
-                        <tpl.icon className={`w-8 h-8 mb-4 ${tpl.recommended ? 'text-blue-600' : 'text-slate-500'}`} />
-                        <h3 className={`text-lg font-bold mb-2 transition-colors ${tpl.recommended ? 'text-slate-900' : 'text-slate-800'}`}>{tpl.name}</h3>
-                        <p className={`text-sm mb-6 flex-grow font-medium ${tpl.recommended ? 'text-slate-700' : 'text-slate-600'}`}>{tpl.description}</p>
-                        <div className="flex items-center gap-2 text-sm font-semibold text-blue-500 group-hover:gap-3 transition-all">
-                            Continue <ChevronRight className="w-4 h-4" />
-                        </div>
-                    </button>
-                ))}
-            </div>
-
-            <div className="mt-12 p-6 rounded-xl border border-dashed border-slate-800 text-center">
-                <p className="text-slate-500 mb-4 italic">Need more control? Customize every field before you start.</p>
+                {/* Back link */}
                 <button
-                    onClick={() => navigate('/clients/new/setup')}
-                    className="px-6 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+                    onClick={() => navigate(-1)}
+                    className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors"
                 >
-                    Customize fields
+                    <ArrowLeft className="w-4 h-4" />
+                    Back to Clients
                 </button>
+
+                {/* Header */}
+                <div className="space-y-2">
+                    <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        Client Onboarding
+                    </div>
+                    <h1 className="text-2xl font-bold text-white">Onboard a New Client</h1>
+                    <p className="text-sm text-slate-400">Choose a template to get started, or customize your own workflow below.</p>
+                </div>
+
+                {/* Template cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    {TEMPLATES.map(tpl => (
+                        <button
+                            key={tpl.id}
+                            onClick={() => handleSelectTemplate(tpl)}
+                            className={`relative group text-left rounded-2xl border bg-slate-900/60 backdrop-blur-sm p-6 transition-all hover:shadow-xl hover:shadow-black/30 ${tpl.borderColor}`}
+                        >
+                            {/* Gradient top */}
+                            <div className={`absolute inset-0 rounded-2xl bg-gradient-to-b ${tpl.accentColor} opacity-40 pointer-events-none`} />
+
+                            {tpl.recommended && (
+                                <span className="absolute -top-3 left-5 px-2.5 py-0.5 bg-blue-600 text-[9px] font-bold text-white rounded-full uppercase tracking-wider shadow-lg">
+                                    Recommended
+                                </span>
+                            )}
+
+                            <div className="relative space-y-3">
+                                <div className={`w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center ${tpl.iconColor}`}>
+                                    <tpl.icon className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-sm">{tpl.name}</h3>
+                                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">{tpl.description}</p>
+                                </div>
+                                <div className={`inline-flex items-center gap-1 text-xs font-bold group-hover:gap-2 transition-all ${tpl.iconColor}`}>
+                                    Select Template <ChevronRight className="w-3.5 h-3.5" />
+                                </div>
+                            </div>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Custom option */}
+                <div className="rounded-2xl border border-dashed border-white/10 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 flex-shrink-0">
+                            <SlidersHorizontal className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <p className="text-sm font-semibold text-white">Custom Workflow</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Need more control? Configure every field from scratch.</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => navigate('/clients/new/setup')}
+                        className="px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-xs font-bold text-slate-300 hover:bg-white/10 hover:text-white transition-all whitespace-nowrap"
+                    >
+                        Customize Fields
+                    </button>
+                </div>
+
             </div>
         </div>
     );

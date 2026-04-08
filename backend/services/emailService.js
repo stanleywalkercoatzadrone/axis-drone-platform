@@ -69,7 +69,7 @@ export const sendEmail = async (to, subject, html) => {
  * @param {number} amount 
  * @param {string} cc - Optional CC recipient
  */
-export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null) => {
+export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null, note = null) => {
     const subject = `Invoice Ready: ${deployment.title}`;
     const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -82,6 +82,11 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, c
                 <li><strong>Total Amount:</strong> $${amount.toLocaleString()}</li>
             </ul>
             <p>Please click the link below to view and acknowledge your invoice:</p>
+            ${note ? `
+            <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
+                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">Note from Operations:</p>
+                <p style="margin: 6px 0 0; font-size: 14px; color: #1e293b; white-space: pre-wrap;">${note}</p>
+            </div>` : ''}
             <p>
                 <a href="${invoiceLink}" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Invoice</a>
             </p>
@@ -442,3 +447,75 @@ export const sendUserInvitationEmail = async ({ to, fullName, invitationUrl, rol
     return sendEmail(to, subject, html);
 };
 
+/**
+ * Send pre-onboarding documents as email attachments directly to a candidate
+ * @param {object} params { to, documents }
+ */
+export const sendPreOnboardingEmail = async ({ to, documents }) => {
+    const subject = 'CoatzadroneUSA - Pilot Onboarding Documents';
+    const documentNames = documents.map(doc => `• ${doc.name}`).join('\n');
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: #1e293b; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                .content { background: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }
+                .documents { background: white; padding: 15px; border-left: 4px solid #3b82f6; margin: 20px 0; }
+                .footer { text-align: center; color: #64748b; font-size: 12px; margin-top: 20px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Welcome to CoatzadroneUSA</h1>
+                </div>
+                <div class="content">
+                    <p>Hello,</p>
+                    
+                    <p>Thank you for your interest in joining the CoatzadroneUSA elite drone operations crew. Before we proceed with setting up your official profile, please review and complete the following attached documents:</p>
+                    
+                    <div class="documents">
+                        <h3>Attached Documents:</h3>
+                        <pre>${documentNames}</pre>
+                    </div>
+                    
+                    <p>Please reply directly to this email with the completed forms.</p>
+                    
+                    <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
+                    
+                    <p>Best regards,<br><strong>CoatzadroneUSA Team</strong></p>
+                </div>
+                <div class="footer">
+                    <p>This is an automated message. Please do not reply to this email, except to return the forms.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    // Map the selected document templates to Nodemailer's attachment array format
+    const attachments = documents.map(doc => ({
+        filename: doc.filename,
+        path: doc.templateUrl,
+        contentType: 'application/pdf'
+    }));
+
+    try {
+        const info = await transporter.sendMail({
+            from: process.env.SMTP_FROM || '"Coatzadrone Admin" <admin@coatzadroneusa.com>',
+            to,
+            subject,
+            html,
+            attachments
+        });
+        console.log('Pre-onboarding documents sent: %s', info.messageId);
+        return info;
+    } catch (error) {
+        console.error('Error sending pre-onboarding documents:', error);
+        throw error;
+    }
+};

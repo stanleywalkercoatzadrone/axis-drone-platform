@@ -3,8 +3,17 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_EXPIRE = process.env.JWT_EXPIRE || '15m';
+// SECURITY: Secrets must be set via environment variables — never hardcoded.
+const _resolveSecret = (envKey) => {
+    const val = process.env[envKey];
+    if (!val && process.env.NODE_ENV === 'production') {
+        throw new Error(`FATAL: ${envKey} environment variable is not set. Cannot start in production.`);
+    }
+    return val || `dev-only-insecure-${envKey.toLowerCase()}`;
+};
+
+const JWT_SECRET = _resolveSecret('JWT_SECRET');
+const JWT_EXPIRE = process.env.JWT_EXPIRE || '2h';
 const JWT_REFRESH_EXPIRE = process.env.JWT_REFRESH_EXPIRE || '30d';
 
 const JWT_ISS = process.env.JWT_ISS || 'axis-drone-platform';
@@ -24,7 +33,7 @@ export const generateToken = (userId, authVersion = 1) => {
     );
 };
 
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
+const JWT_REFRESH_SECRET = _resolveSecret('JWT_REFRESH_SECRET');
 
 export const generateRefreshToken = (userId, authVersion = 1, familyId = null) => {
     return jwt.sign(

@@ -17,10 +17,3 @@ git commit -m "Deploy: Asset Grid Implementation - $TIMESTAMP"
 git push origin header:main 2>&1 || git push origin main 2>&1 || git push 2>&1
 
 echo "✅ Deployment push completed."
-
-# Wait a moment so the user can see the success message
-sleep 2
-
-# Close the terminal window automatically
-osascript -e 'tell application "Terminal" to close front window' &
-exit 0

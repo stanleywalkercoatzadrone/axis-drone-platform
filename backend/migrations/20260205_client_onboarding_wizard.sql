@@ -3,7 +3,7 @@
 
 -- 1. Client Onboarding Configs (For Pre-Wizard Setup)
 CREATE TABLE IF NOT EXISTS client_onboarding_configs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     template_name VARCHAR(100) NOT NULL,
     industry VARCHAR(50),
     config JSONB NOT NULL DEFAULT '{}'::jsonb, -- Store enabled/required field toggles

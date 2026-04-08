@@ -1,8 +1,14 @@
-[2026-02-19T01:31:18.938Z] error: invalid input syntax for type uuid: "demo-user"
-    at /Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/pg-pool/index.js:45:11
-    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at async query (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/config/database.js:88:21)
-    at async getMe (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/controllers/authController.js:230:24)
-Request: GET /api/auth/me
+[2026-02-25T11:02:54.181Z] Error: Not authorized. Use Bearer scheme.
+    at protect (file:///Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection%20(3)/backend/middleware/auth.js:18:19)
+    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:328:13)
+    at /Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:286:9
+    at Function.process_params (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:346:12)
+    at next (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:280:10)
+    at Function.handle (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:175:3)
+    at router (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:47:12)
+    at Layer.handle [as handle_request] (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/Users/Huvrs/Downloads/skylens-ai---enterprise-drone-inspection (3)/node_modules/express/lib/router/index.js:328:13)
+Request: GET /api/personnel
 Body: {}
 -------------------

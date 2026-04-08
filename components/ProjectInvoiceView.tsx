@@ -124,31 +124,24 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                             <th className="py-4 text-sm font-bold text-slate-600">#</th>
                             <th className="py-4 text-sm font-bold text-slate-600 px-4">Personnel</th>
                             <th className="py-4 text-sm font-bold text-slate-600">Service Description</th>
-                            <th className="py-4 text-sm font-bold text-slate-600 text-center">Days</th>
-                            <th className="py-4 text-sm font-bold text-slate-600 text-right">Total</th>
+                            <th className="py-4 text-sm font-bold text-slate-600 text-center">Qty (Days)</th>
+                            <th className="py-4 text-sm font-bold text-slate-600 text-right">Rate</th>
+                            <th className="py-4 text-sm font-bold text-slate-600 text-right">Bonus</th>
+                            <th className="py-4 text-sm font-bold text-slate-600 text-right">Amount</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                         {Array.from(new Set(logs.map(l => l.technicianId))).map((techId, index) => {
                             const techLogs = logs.filter(l => l.technicianId === techId);
-                            // Need name. logs might not have it if it's just ID. 
-                            // DeploymentTracker usually fetches logs with expanded info or we have to find it.
-                            // The log object in prop usually has `technician` object if joined, or just ID.
-                            // Let's check `types.ts` later properly, but usually we iterate over a summary in parent.
-                            // Actually `logs` passed here should ideally be the full log objects.
-                            // If `logs` has `technician` (UserAccount), we use it.
-                            // Failing that, we successfully used `l.technician.full_name` in DeploymentTracker?
-                            // Let's assume logs are populated.
-
-                            // Checking `DeploymentTracker.tsx` in my memory, it calculates costs based on `logs`.
-                            // It iterates `deployment.dailyLogs`.
-                            // Let's look at `types.ts` or just safe check.
-
                             const techName = (techLogs[0] as any).technician?.full_name ||
                                 (techLogs[0] as any).technician?.fullName ||
-                                personnel.find(p => p.id === techId)?.fullName ||
+                                personnel.find(p => String(p.id) === String(techId))?.fullName ||
                                 'Pilot';
-                            const techTotal = techLogs.reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
+                            const pilotRecord = personnel.find(p => String(p.id) === String(techId));
+                            const dailyRate = pilotRecord?.dailyPayRate || (techLogs[0]?.dailyPay || 0);
+                            const daysWorked = techLogs.length;
+                            const totalBonus = techLogs.reduce((sum, l) => sum + (l.bonusPay || 0), 0);
+                            const totalAmount = (dailyRate * daysWorked) + totalBonus;
 
                             return (
                                 <tr key={techId} className="group">
@@ -156,22 +149,28 @@ const ProjectInvoiceView: React.FC<ProjectInvoiceViewProps> = ({ deployment, log
                                     <td className="py-4 px-4 font-bold text-slate-900">
                                         <div>{techName}</div>
                                         <div className="text-[10px] text-slate-400 font-mono mt-0.5 uppercase">
-                                            {personnel.find(p => p.id === techId)?.bankName || 'Bank on file'}
+                                            {pilotRecord?.bankName || 'Bank on file'}
                                             <br />
-                                            R: {personnel.find(p => p.id === techId)?.routingNumber ? String(personnel.find(p => p.id === techId)?.routingNumber).replace(/\D/g, '') : '••••'} • A: {personnel.find(p => p.id === techId)?.accountNumber ? String(personnel.find(p => p.id === techId)?.accountNumber).replace(/\D/g, '') : '••••'}
+                                            R: {pilotRecord?.routingNumber ? String(pilotRecord.routingNumber).replace(/\D/g, '') : '••••'} • A: {pilotRecord?.accountNumber ? String(pilotRecord.accountNumber).replace(/\D/g, '') : '••••'}
                                         </div>
                                     </td>
                                     <td className="py-4 text-slate-500">
                                         Drone Inspection Services
-                                        {personnel.find(p => p.id === techId)?.swiftCode && (
+                                        {pilotRecord?.swiftCode && (
                                             <div className="text-[10px] text-slate-400 font-mono mt-0.5 uppercase italic">
-                                                SWIFT: {String(personnel.find(p => p.id === techId)?.swiftCode).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}
+                                                SWIFT: {String(pilotRecord.swiftCode).replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}
                                             </div>
                                         )}
                                     </td>
-                                    <td className="py-4 text-center text-slate-700 font-medium">{techLogs.length}</td>
+                                    <td className="py-4 text-center text-slate-700 font-medium">{daysWorked}</td>
+                                    <td className="py-4 text-right text-slate-700 font-medium">
+                                        ${dailyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </td>
+                                    <td className="py-4 text-right text-slate-500">
+                                        {totalBonus > 0 ? `$${totalBonus.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                    </td>
                                     <td className="py-4 text-right font-bold text-slate-900">
-                                        ${techTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </td>
                                 </tr>
                             );

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Eye, EyeOff, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { getRoleDisplayName } from '../utils/roleUtils';
 import apiClient from '../src/services/apiClient';
 
 const SetPassword: React.FC = () => {
@@ -23,7 +24,11 @@ const SetPassword: React.FC = () => {
                 setUserData(response.data.data);
             } catch (err: any) {
                 console.error('Token verification failed:', err);
-                setError(err.response?.data?.message || 'The invitation link is invalid or has expired.');
+                if (err.response?.status === 429) {
+                    setError('Too many attempts. Please wait 15 minutes before trying the link again.');
+                } else {
+                    setError(err.response?.data?.message || 'The invitation link is invalid or has expired.');
+                }
             } finally {
                 setLoading(false);
             }
@@ -121,7 +126,7 @@ const SetPassword: React.FC = () => {
                             <div className="space-y-1">
                                 <p className="text-sm font-semibold text-slate-900">{userData.fullName}</p>
                                 <p className="text-sm text-slate-500">{userData.email}</p>
-                                <p className="text-xs font-medium text-blue-600 mt-1 uppercase tracking-tight">{userData.role.replace(/_/g, ' ')}</p>
+                                <p className="text-xs font-medium text-blue-600 mt-1 uppercase tracking-tight">{getRoleDisplayName(userData.role)}</p>
                             </div>
                         </div>
                     )}

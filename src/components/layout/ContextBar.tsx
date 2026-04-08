@@ -5,7 +5,7 @@ import MissionSelectors from '../MissionSelectors';
 
 export const ContextBar: React.FC = () => {
     return (
-        <div className="sticky top-0 z-50 bg-slate-900 border-b border-slate-800 shadow-sm h-16 flex items-center justify-between px-6 transition-colors duration-200">
+        <div className="hidden md:flex sticky top-0 z-30 bg-slate-900 border-b border-slate-800 shadow-sm h-16 items-center justify-between px-6 transition-colors duration-200">
             {/* Left: Context Switchers */}
             <div className="flex items-center space-x-4">
                 <MissionSelectors />

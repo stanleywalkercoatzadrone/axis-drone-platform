@@ -4,6 +4,29 @@ import { hashPassword, generateInvitationToken } from '../services/tokenService.
 import { clearCachePattern } from '../config/redis.js';
 import { sendUserInvitationEmail } from '../services/emailService.js';
 
+/**
+ * Map frontend UserRole enum values → DB-valid uppercase role strings.
+ * DB constraint: ('ADMIN','USER','AUDITOR','OPERATIONS','ANALYST','FIELD_OPERATOR','SENIOR_INSPECTOR','CLIENT_USER','PILOT_TECHNICIAN')
+ */
+function normalizeRoleForDb(role) {
+    if (!role) return 'USER';
+    const upper = role.toUpperCase();
+    // Handle lowercase variants from the frontend enum
+    const map = {
+        'ADMIN': 'ADMIN',
+        'PILOT_TECHNICIAN': 'PILOT_TECHNICIAN',
+        'PILOT': 'PILOT_TECHNICIAN',
+        'FIELD_OPERATOR': 'FIELD_OPERATOR',
+        'SENIOR_INSPECTOR': 'SENIOR_INSPECTOR',
+        'AUDITOR': 'AUDITOR',
+        'OPERATIONS': 'OPERATIONS',
+        'ANALYST': 'ANALYST',
+        'CLIENT_USER': 'CLIENT_USER',
+        'USER': 'USER',
+    };
+    return map[upper] || 'USER';
+}
+
 export const getUsers = async (req, res, next) => {
     try {
         const result = await query(
@@ -83,9 +106,8 @@ export const createUser = async (req, res, next) => {
                     fullName,
                     companyName || null,
                     title || null,
-                    role || 'USER',
+                    role ? normalizeRoleForDb(role) : 'USER',
                     JSON.stringify(permissions || ['CREATE_REPORT']),
-                    req.user.tenantId,
                     req.user.tenantId,
                     invitationTokenHash,
                     invitationExpires
@@ -195,10 +217,10 @@ export const batchCreateUsers = async (req, res, next) => {
                     fullName,
                     companyName || null,
                     title || null,
-                    role || 'USER',
+                    role ? normalizeRoleForDb(role) : 'USER',
                     JSON.stringify(['CREATE_REPORT']),
                     req.user.tenantId,
-                    invitationToken,
+                    invitationTokenHash,
                     invitationExpires
                 ]
             );
@@ -271,7 +293,7 @@ export const updateUser = async (req, res, next) => {
            is_drive_blocked = COALESCE($8, is_drive_blocked)
        WHERE id = $9 AND tenant_id = $10
        RETURNING id, email, full_name, company_name, title, role, permissions, drive_linked, drive_folder, is_drive_blocked`,
-            [fullName || null, companyName || null, title || null, role || null, permissions ? JSON.stringify(permissions) : null, driveLinked ?? null, driveFolder || null, req.body.isDriveBlocked ?? null, id, req.user.tenantId]
+            [fullName || null, companyName || null, title || null, role ? role.toUpperCase() : null, permissions ? JSON.stringify(permissions) : null, driveLinked ?? null, driveFolder || null, req.body.isDriveBlocked ?? null, id, req.user.tenantId]
         );
 
         const user = result.rows[0];

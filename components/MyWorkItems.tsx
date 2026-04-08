@@ -69,23 +69,16 @@ const MyWorkItems: React.FC = () => {
         if (!assetFile) return;
 
         try {
-            // Upload file first (assuming you have an upload endpoint)
             const formData = new FormData();
             formData.append('file', assetFile);
 
-            const uploadResponse = await apiClient.post('/images/upload', formData);
-            const assetUrl = uploadResponse.data.url;
-
-            // Attach to work item
-            const response = await apiClient.post(`/work-items/${itemId}/assets`, {
-                assetUrl,
-                assetType: assetFile.type.startsWith('image/') ? 'photo' : 'document',
-                description: assetFile.name
-            });
+            // Our backend addWorkItemAsset now accepts multipart/form-data
+            const response = await apiClient.post(`/work-items/${itemId}/assets`, formData);
 
             if (response.data.success) {
                 setAssetFile(null);
                 alert('Asset attached successfully');
+                // Could refresh work items here or update local state to show the new attachment
             }
         } catch (error: any) {
             alert(error.response?.data?.error || 'Failed to attach asset');

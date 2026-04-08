@@ -2,6 +2,9 @@ import { query, transaction } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { canAccessMission } from '../services/permissionService.js';
 import { isAdmin, isPilot } from '../utils/roleUtils.js';
+import { uploadToS3, uploadLocal } from '../services/storageService.js';
+
+const USE_S3 = process.env.USE_S3 === 'true';
 
 export const getWorkItems = async (req, res, next) => {
     try {
@@ -153,7 +156,7 @@ export const getWorkItemUpdates = async (req, res, next) => {
 export const addWorkItemAsset = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { assetId, assetType, assetUrl, description } = req.body;
+        let { assetId, assetType, assetUrl, description } = req.body;
 
         // Verify work item exists and user has access
         const itemResult = await query('SELECT * FROM work_items WHERE id = $1', [id]);
@@ -185,6 +188,21 @@ export const addWorkItemAsset = async (req, res, next) => {
             if (isPilot(req.user) && asset.created_by_user_id !== req.user.id) {
                 throw new AppError('Pilots can only attach assets they uploaded', 403);
             }
+        }
+
+        // Handle file upload if present
+        if (req.file) {
+            const uploadResult = USE_S3
+                ? await uploadToS3(req.file, `work-items/${id}`)
+                : await uploadLocal(req.file, `work-items/${id}`);
+
+            assetUrl = uploadResult.url;
+            description = description || req.file.originalname;
+            assetType = assetType || (req.file.mimetype.startsWith('image/') ? 'photo' : 'document');
+        }
+
+        if (!assetId && !assetUrl) {
+            throw new AppError('Either an existing asset ID, an asset URL, or a file must be provided', 400);
         }
 
         // Create asset attachment record

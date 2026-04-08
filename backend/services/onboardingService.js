@@ -19,9 +19,10 @@ const generateToken = () => {
  * @param {string} personnelId 
  * @param {string} tenantId 
  * @param {string} userId - Admin who is sending
+ * @param {string[]} selectedDocs - Optional array of document types to include
  * @returns {object} Package with token
  */
-export const createOnboardingPackage = async (personnelId, tenantId, userId) => {
+export const createOnboardingPackage = async (personnelId, tenantId, userId, selectedDocs = null) => {
     const client = await db.connect();
 
     try {
@@ -64,16 +65,21 @@ export const createOnboardingPackage = async (personnelId, tenantId, userId) => 
             {
                 type: 'w9',
                 name: 'W-9 Tax Form',
-                templateUrl: null // Pilots can download from IRS.gov
+                templateUrl: '/uploads/fw9.pdf'
             },
             {
                 type: 'direct_deposit',
                 name: 'Direct Deposit Authorization',
-                templateUrl: null // TODO: Upload Direct Deposit form template
+                templateUrl: '/uploads/direct_deposit.pdf' // Now generated via pdf-lib
             }
         ];
 
-        for (const doc of documents) {
+        // Filter by selected documents if provided
+        const finalDocuments = selectedDocs && selectedDocs.length > 0
+            ? documents.filter(doc => selectedDocs.includes(doc.type))
+            : documents; // Default to all if none specified
+
+        for (const doc of finalDocuments) {
             await client.query(
                 `INSERT INTO onboarding_documents 
                 (package_id, document_type, document_name, template_url, status)

@@ -1,23 +1,14 @@
-import { query } from '../config/database.js';
+import { query, transaction } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { io } from '../app.js';
 import { uploadFile } from '../services/storageService.js';
 import { v4 as uuidv4 } from 'uuid';
-
-// Lazy io getter — avoids circular import (app.js → routes → controller → app.js)
-// io is resolved at call time, after all modules are fully initialized
-const getIo = async () => {
-    try {
-        const { io } = await import('../app.js');
-        return io;
-    } catch {
-        return null;
-    }
-};
+import { normalizeRole } from '../utils/roleUtils.js';
 
 // Helper to map DB columns to frontend camelCase
 const mapReportToFrontend = (row) => ({
     id: row.id,
-    rootId: row.id, // Assuming same for now
+    rootId: row.id,
     version: row.version,
     title: row.title,
     client: row.client,
@@ -40,9 +31,11 @@ const mapReportToFrontend = (row) => ({
     history: row.history || [],
     authorName: row.author_name
 });
+
 export const getReports = async (req, res, next) => {
     try {
         const { status, industry } = req.query;
+        const userRole = normalizeRole(req.user.role);
 
         let queryText = `
       SELECT r.*, u.full_name as author_name,
@@ -53,14 +46,31 @@ export const getReports = async (req, res, next) => {
     `;
         const params = [];
 
-        if (req.user.role !== 'ADMIN') {
+        // Mandatory Tenant Isolation (applies to all roles)
+        params.push(req.user.tenantId);
+        queryText += ` AND r.tenant_id = $${params.length}`;
+
+        if (userRole === 'admin') {
+            // Admin sees all reports within tenant
+        } else if (userRole === 'client') {
+            // PHASE 5: Client sees ONLY reports linked to their client_id
+            // Derive client_id from users table via their own user id
+            const clientLookup = await query(
+                `SELECT client_id FROM users WHERE id = $1`,
+                [req.user.id]
+            );
+            const clientId = clientLookup.rows[0]?.client_id;
+            if (!clientId) {
+                // Client has no linked client_id — return empty safely
+                return res.json({ success: true, count: 0, data: [] });
+            }
+            params.push(clientId);
+            queryText += ` AND r.client_id = $${params.length}`;
+        } else {
+            // All other roles: scope to their own reports
             params.push(req.user.id);
             queryText += ` AND r.user_id = $${params.length}`;
         }
-
-        // Mandatory Tenant Isolation
-        params.push(req.user.tenantId);
-        queryText += ` AND r.tenant_id = $${params.length}`;
 
         if (status) {
             params.push(status);
@@ -89,6 +99,7 @@ export const getReports = async (req, res, next) => {
 export const getReport = async (req, res, next) => {
     try {
         const { id } = req.params;
+        const userRole = normalizeRole(req.user.role);
 
         const result = await query(
             `SELECT r.*, u.full_name as author_name,
@@ -106,8 +117,21 @@ export const getReport = async (req, res, next) => {
 
         const report = result.rows[0];
 
-        if (req.user.role !== 'ADMIN' && report.user_id !== req.user.id) {
-            throw new AppError('Not authorized to access this report', 403);
+        // PHASE 5: Enforce client boundary at controller layer
+        if (userRole === 'client') {
+            const clientLookup = await query(
+                `SELECT client_id FROM users WHERE id = $1`,
+                [req.user.id]
+            );
+            const clientId = clientLookup.rows[0]?.client_id;
+            if (!clientId || report.client_id !== clientId) {
+                throw new AppError('Not authorized to access this report', 403);
+            }
+        } else if (userRole !== 'admin') {
+            // Non-admin, non-client: must own the report
+            if (report.user_id !== req.user.id) {
+                throw new AppError('Not authorized to access this report', 403);
+            }
         }
 
         res.json({
@@ -121,13 +145,11 @@ export const getReport = async (req, res, next) => {
 
 export const createReport = async (req, res, next) => {
     try {
-        console.log('[createReport] START - body:', JSON.stringify(req.body).substring(0, 200));
         const { title, client, industry, theme, config, branding, images, status } = req.body;
 
         if (!title || !client || !industry) {
             throw new AppError('Please provide title, client, and industry', 400);
         }
-        console.log('[createReport] validation passed, about to enter transaction');
 
         // --- Security Hardenings & Payload Limits ---
         const MAX_IMAGES = 50;
@@ -219,60 +241,59 @@ export const createReport = async (req, res, next) => {
                 }
             }
 
-            console.log('[createReport] running INSERT...');
-            const reportResult = await query(
-                `INSERT INTO reports (user_id, tenant_id, title, client, industry, theme, config, branding, status)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                 RETURNING *`,
-                [
-                    req.user.id,
-                    req.user.tenantId || 'default',
-                    title, client, industry,
-                    theme || 'TECHNICAL',
-                    JSON.stringify(config || {}),
-                    JSON.stringify(branding || {}),
-                    status || 'DRAFT'
-                ]
-            );
-            console.log('[createReport] INSERT done');
+            const report = await transaction(async (client) => {
+                // 3. Create Report (Tenant-Scoped)
+                const reportResult = await client.query(
+                    `INSERT INTO reports (user_id, tenant_id, title, client, industry, theme, config, branding, status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     RETURNING *`,
+                    [
+                        req.user.id,
+                        req.user.tenantId || 'default',
+                        title, client, industry,
+                        theme || 'TECHNICAL',
+                        JSON.stringify(config || {}),
+                        JSON.stringify(branding || {}),
+                        status || 'DRAFT'
+                    ]
+                );
 
-            const report = reportResult.rows[0];
+                const newReport = reportResult.rows[0];
 
-            // Handle Images (DB inserts)
-            if (processedImages.length > 0) {
-                for (const img of processedImages) {
-                    await query(
-                        `INSERT INTO images (report_id, storage_url, storage_key, annotations)
-                         VALUES ($1, $2, $3, $4)`,
-                        [report.id, img.url, img.key || null, JSON.stringify(img.annotations || [])]
-                    );
+                // 4. Handle Images (DB inserts)
+                if (processedImages.length > 0) {
+                    for (const img of processedImages) {
+                        await client.query(
+                            `INSERT INTO images (report_id, url, storage_key, annotations, summary)
+                             VALUES ($1, $2, $3, $4, $5)`,
+                            [newReport.id, img.url, img.key, JSON.stringify(img.annotations), img.summary || null]
+                        );
+                    }
                 }
+
+                // 5. Create initial history entry (using req.user.id/fullName from protect)
+                await client.query(
+                    `INSERT INTO report_history (report_id, version, author, author_id, summary)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [newReport.id, 1, req.user.fullName, req.user.id, 'Report created']
+                );
+
+                // 6. Log Audit
+                await client.query(
+                    `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [req.user.id, 'REPORT_CREATED', 'report', newReport.id, JSON.stringify({ title, industry })]
+                );
+
+                return newReport;
+            });
+
+            // Emit scoped real-time event
+            io.to(`user:${req.user.id}`).emit('report:created', { reportId: report.id });
+            if (req.user.tenantId) {
+                io.to(`tenant:${req.user.tenantId}`).emit('report:created', { reportId: report.id, author: req.user.fullName });
             }
 
-            // Create initial history entry
-            await query(
-                `INSERT INTO report_history (report_id, version, author, summary)
-                 VALUES ($1, $2, $3, $4)`,
-                [report.id, 1, req.user.fullName || req.user.email || 'Unknown', 'Report created']
-            );
-
-            // Log Audit (best-effort — don't fail the request if this fails)
-            query(
-                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [req.user.id, 'REPORT_CREATED', 'report', report.id, JSON.stringify({ title, industry })]
-            ).catch(e => console.error('Audit log failed (non-fatal):', e.message));
-
-            // Emit real-time event (non-blocking)
-            getIo().then(io => {
-                if (!io) return;
-                io.to(`user:${req.user.id}`).emit('report:created', { reportId: report.id });
-                if (req.user.tenantId) {
-                    io.to(`tenant:${req.user.tenantId}`).emit('report:created', { reportId: report.id, author: req.user.fullName });
-                }
-            }).catch(() => { });
-
-            console.log('[createReport] SUCCESS, returning report id:', report.id);
             res.status(201).json({
                 success: true,
                 data: mapReportToFrontend(report)
@@ -332,91 +353,111 @@ export const updateReport = async (req, res, next) => {
             }
         }
 
-        // 2. Check if finalized
-        const currentReport = await query('SELECT status, version FROM reports WHERE id = $1', [id]);
-        if (currentReport.rows.length === 0) {
-            throw new AppError('Report not found', 404);
-        }
-        const currentStatus = currentReport.rows[0].status;
-
-        if (currentStatus === 'FINALIZED') {
-            throw new AppError('Cannot edit a finalized report. Please create a new version.', 403);
-        }
-
-        // 2b. Enforce Status Flow & RBAC
-        if (status && status !== currentStatus) {
-            const role = req.user.role;
-            if (currentStatus === 'APPROVED' && status === 'DRAFT' && role !== 'ADMIN') {
-                throw new AppError('Only Admins can revert an Approved report to Draft.', 403);
+        const updatedReport = await transaction(async (client) => {
+            // 2. Check if finalized (Locking)
+            const currentReport = await client.query('SELECT status, version FROM reports WHERE id = $1', [id]);
+            if (currentReport.rows.length === 0) {
+                throw new AppError('Report not found', 404);
             }
-            if (status === 'FINALIZED') {
-                throw new AppError('Use the finalize endpoint to finalize reports.', 400);
+            const currentStatus = currentReport.rows[0].status;
+
+            if (currentStatus === 'FINALIZED') {
+                throw new AppError('Cannot edit a finalized report. Please create a new version.', 403);
             }
-        }
 
-        // 3. Update Report info & Increment Version
-        const result = await query(
-            `UPDATE reports
-             SET title = COALESCE($1, title),
-                 client = COALESCE($2, client),
-                 summary = COALESCE($3, summary),
-                 site_context = COALESCE($4, site_context),
-                 strategic_assessment = COALESCE($5, strategic_assessment),
-                 config = COALESCE($6, config),
-                 branding = COALESCE($7, branding),
-                 status = COALESCE($8, status),
-                 version = version + 1,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = $9 AND tenant_id = $12 AND (user_id = $10 OR $11 = 'ADMIN')
-             RETURNING *`,
-            [
-                title, client, summary,
-                siteContext ? JSON.stringify(siteContext) : null,
-                strategicAssessment ? JSON.stringify(strategicAssessment) : null,
-                config ? JSON.stringify(config) : null,
-                branding ? JSON.stringify(branding) : null,
-                status || null,
-                id, req.user.id, req.user.role, req.user.tenantId
-            ]
-        );
+            // 2b. Enforce Status Flow & RBAC
+            if (status && status !== currentStatus) {
+                const role = req.user.role;
 
-        if (result.rows.length === 0) {
-            throw new AppError('Report not found or not authorized', 404);
-        }
+                // Prevent backward transitions for non-admins (optional, but good practice)
+                if (currentStatus === 'APPROVED' && status === 'DRAFT' && role !== 'ADMIN') {
+                    throw new AppError('Only Admins can revert an Approved report to Draft.', 403);
+                }
 
-        const updatedReport = result.rows[0];
+                // DRAFT -> REVIEW
+                if (status === 'REVIEW') {
+                    // Allowed for everyone with edit access
+                }
 
-        // 4. Log History Entry (best-effort)
-        query(
-            `INSERT INTO report_history (report_id, version, author, summary)
-             VALUES ($1, $2, $3, $4)`,
-            [id, updatedReport.version, req.user.fullName || req.user.email || 'Unknown', 'Report updated']
-        ).catch(e => console.error('History log failed (non-fatal):', e.message));
+                // REVIEW -> APPROVED
+                if (status === 'APPROVED') {
+                    if (role !== 'ADMIN' && role !== 'SENIOR_INSPECTOR') {
+                        throw new AppError('Only Senior Inspectors or Admins can approve reports.', 403);
+                    }
+                }
 
-        // 5. Synchronize Images (using pre-processed list)
-        if (processedImages) {
-            await query('DELETE FROM images WHERE report_id = $1', [id]);
-            for (const img of processedImages) {
-                await query(
-                    `INSERT INTO images (report_id, storage_url, annotations)
-                     VALUES ($1, $2, $3)`,
-                    [id, img.url, JSON.stringify(img.annotations || [])]
-                );
+                // APPROVED -> FINALIZED
+                if (status === 'FINALIZED') {
+                    throw new AppError('Use the finalize endpoint to finalize reports.', 400);
+                }
             }
-        }
 
-        // 6. Log Audit (best-effort)
-        query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
-             VALUES ($1, $2, $3, $4)`,
-            [req.user.id, 'REPORT_UPDATED', 'report', id]
-        ).catch(e => console.error('Audit log failed (non-fatal):', e.message));
+            // 3. Update Report info & Increment Version
+            const result = await client.query(
+                `UPDATE reports
+                 SET title = COALESCE($1, title),
+                     client = COALESCE($2, client),
+                     summary = COALESCE($3, summary),
+                     site_context = COALESCE($4, site_context),
+                     strategic_assessment = COALESCE($5, strategic_assessment),
+                     config = COALESCE($6, config),
+                     branding = COALESCE($7, branding),
+                     status = COALESCE($8, status),
+                     version = version + 1,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $9 AND tenant_id = $12 AND (user_id = $10 OR $11 = 'ADMIN')
+                 RETURNING *`,
+                [
+                    title, client, summary,
+                    siteContext ? JSON.stringify(siteContext) : null,
+                    strategicAssessment ? JSON.stringify(strategicAssessment) : null,
+                    config ? JSON.stringify(config) : null,
+                    branding ? JSON.stringify(branding) : null,
+                    status,
+                    status,
+                    id, req.user.id, req.user.role, req.user.tenantId
+                ]
+            );
 
-        // Emit real-time event (non-blocking)
-        getIo().then(io => {
-            if (!io) return;
-            io.emit('report:updated', { reportId: id, userId: req.user.id });
-        }).catch(() => { });
+            if (result.rows.length === 0) {
+                throw new AppError('Report not found or not authorized', 404);
+            }
+
+            const report = result.rows[0];
+
+            // 4. Log History Entry
+            await client.query(
+                `INSERT INTO report_history (report_id, version, author, summary)
+                 VALUES ($1, $2, $3, $4)`,
+                [id, report.version, req.user.full_name, 'Report updated']
+            );
+
+            // 5. Synchronize Images (using pre-processed list)
+            if (processedImages) {
+                // Clear existing
+                await client.query('DELETE FROM images WHERE report_id = $1', [id]);
+
+                // Insert new/kept
+                for (const img of processedImages) {
+                    await client.query(
+                        `INSERT INTO images (report_id, url, annotations, summary)
+                         VALUES ($1, $2, $3, $4)`,
+                        [id, img.url, JSON.stringify(img.annotations), img.summary || null]
+                    );
+                }
+            }
+
+            // 3. Log Audit
+            await client.query(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id)
+                 VALUES ($1, $2, $3, $4)`,
+                [req.user.id, 'REPORT_UPDATED', 'report', id]
+            );
+
+            return report;
+        });
+
+        io.emit('report:updated', { reportId: id, userId: req.user.id });
 
         res.json({
             success: true,
@@ -443,64 +484,67 @@ export const finalizeReport = async (req, res, next) => {
             throw new AppError('Tenant context is required to finalize reports', 400);
         }
 
-        const check = await query(
-            `SELECT status, user_id FROM reports WHERE id = $1 AND tenant_id = $2`,
-            [id, req.user.tenantId]
-        );
+        const updated = await transaction(async (client) => {
+            const check = await client.query(
+                `SELECT status, user_id
+         FROM reports
+         WHERE id = $1 AND tenant_id = $2`,
+                [id, req.user.tenantId]
+            );
 
-        if (check.rows.length === 0) throw new AppError('Report not found or tenant mismatch', 404);
+            if (check.rows.length === 0) throw new AppError('Report not found or tenant mismatch', 404);
 
-        const current = check.rows[0];
+            const current = check.rows[0];
 
-        if (!canFinalizeAny && current.user_id !== req.user.id) {
-            throw new AppError('Not authorized to finalize this report', 403);
-        }
-
-        if (!['DRAFT', 'REVIEW', 'APPROVED'].includes(current.status)) {
-            throw new AppError(`Cannot finalize report in ${current.status} status`, 400);
-        }
-
-        const updateResult = await query(
-            `UPDATE reports
-             SET status = 'FINALIZED',
-                 finalized_at = CURRENT_TIMESTAMP,
-                 version = version + 1
-             WHERE id = $1
-               AND tenant_id = $2
-               AND status IN ('DRAFT', 'REVIEW', 'APPROVED')
-             RETURNING *`,
-            [id, req.user.tenantId]
-        );
-
-        if (updateResult.rows.length === 0) {
-            console.warn(`P1: FINALIZE_CONFLICT user=${req.user.id} report=${id} tenant=${req.user.tenantId} status=${current.status}`);
-            throw new AppError('Finalization conflict (it may have been updated by another process)', 409);
-        }
-
-        const updated = updateResult.rows[0];
-
-        // Sync Version History (best-effort)
-        query(
-            `INSERT INTO report_history (report_id, version, author, summary)
-             VALUES ($1, $2, $3, $4)`,
-            [id, updated.version, req.user.fullName || req.user.email || 'Unknown', 'Report finalized']
-        ).catch(e => console.error('History log failed (non-fatal):', e.message));
-
-        // Log Audit (best-effort)
-        query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [req.user.id, 'REPORT_FINALIZED', 'report', id, JSON.stringify({ version: updated.version })]
-        ).catch(e => console.error('Audit log failed (non-fatal):', e.message));
-
-        // Scoped real-time events (non-blocking)
-        getIo().then(io => {
-            if (!io) return;
-            io.to(`user:${req.user.id}`).emit('report:finalized', { reportId: id, version: updated.version });
-            if (req.user.tenantId) {
-                io.to(`tenant:${req.user.tenantId}`).emit('report:finalized', { reportId: id, author: req.user.fullName, version: updated.version });
+            if (!canFinalizeAny && current.user_id !== req.user.id) {
+                throw new AppError('Not authorized to finalize this report', 403);
             }
-        }).catch(() => { });
+
+            if (!['REVIEW', 'APPROVED'].includes(current.status)) {
+                throw new AppError(`Cannot finalize report in ${current.status} status`, 400);
+            }
+
+            const updateResult = await client.query(
+                `UPDATE reports
+         SET status = 'FINALIZED',
+             finalized_at = CURRENT_TIMESTAMP,
+             version = version + 1
+         WHERE id = $1
+           AND tenant_id = $2
+           AND status IN ('REVIEW', 'APPROVED')
+         RETURNING *`,
+                [id, req.user.tenantId]
+            );
+
+            if (updateResult.rows.length === 0) {
+                console.warn(`P1: FINALIZE_CONFLICT user=${req.user.id} report=${id} tenant=${req.user.tenantId} status=${current.status}`);
+                throw new AppError('Finalization conflict (it may have been updated by another process)', 409);
+            }
+
+            const report = updateResult.rows[0];
+
+            // 5. Sync Version History (Transactional)
+            await client.query(
+                `INSERT INTO report_history (report_id, version, author, author_id, summary)
+         VALUES ($1, $2, $3, $4, $5)`,
+                [id, report.version, req.user.fullName, req.user.id, 'Report finalized']
+            );
+
+            // 6. Log Audit (Transactional)
+            await client.query(
+                `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+                [req.user.id, 'REPORT_FINALIZED', 'report', id, JSON.stringify({ version: report.version })]
+            );
+
+            return report;
+        });
+
+        // 7. Scoped real-time events
+        io.to(`user:${req.user.id}`).emit('report:finalized', { reportId: id, version: updated.version });
+        if (req.user.tenantId) {
+            io.to(`tenant:${req.user.tenantId}`).emit('report:finalized', { reportId: id, author: req.user.fullName, version: updated.version });
+        }
 
         res.json({
             success: true,

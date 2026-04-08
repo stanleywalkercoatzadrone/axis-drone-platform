@@ -19,9 +19,9 @@ import {
   Loader2
 } from 'lucide-react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
-import { useAuth } from '../src/context/AuthContext';
-import { useCountry } from '../src/context/CountryContext';
-import { reportService } from '../src/services/reportService';
+import { useAuth } from '../context/AuthContext';
+import { useCountry } from '../context/CountryContext';
+import { reportService } from '../services/reportService';
 
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge, Heading, Text } from '../src/stitch/components';
 
@@ -97,7 +97,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
 
   const StatCard = ({ label, value, trend, trendGood, icon: Icon }: any) => (
     <Card variant="glass" className="hover:shadow-cyan-900/20 transition-all group border-slate-800/50">
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex flex-wrap gap-3 items-start mb-4">
         <div className="p-2 bg-slate-800/80 rounded-lg group-hover:bg-cyan-900/30 transition-colors">
           <Icon className="w-5 h-5 text-cyan-400" />
         </div>
@@ -119,7 +119,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
 
       {!isArchiveView && (
         <>
-          <div className="flex items-end justify-between mb-2">
+          <div className="flex flex-wrap gap-2 items-center mb-2">
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <Heading level={2} className="text-white">Mission Control</Heading>
@@ -154,13 +154,13 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Fleet Status */}
             <Card className="lg:col-span-2 border-slate-800 overflow-hidden bg-slate-900/50">
-              <CardHeader className="px-6 py-4 border-b border-slate-800 flex flex-row justify-between items-center bg-slate-900/80">
+              <CardHeader className="px-4 md:px-6 py-3 md:py-4 border-b border-slate-800 flex flex-row justify-between items-center gap-2 bg-slate-900/80">
                 <CardTitle className="text-sm font-semibold text-white">Active Fleet {activeCountryId ? `(${activeCountryId})` : ''}</CardTitle>
                 <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-400/30">Live Telemetry</Badge>
               </CardHeader>
               <div className="divide-y divide-slate-800/50">
                 {filteredDrones.map(drone => (
-                  <div key={drone.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+                  <div key={drone.id} className="px-3 md:px-6 py-4 flex flex-wrap items-center gap-2 justify-between hover:bg-slate-800/30 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className={`w-2 h-2 rounded-full ${drone.status === 'In Mission' ? 'bg-emerald-500 animate-pulse' : drone.status === 'Returning' ? 'bg-amber-500' : 'bg-slate-600'}`} />
                       <div>
@@ -171,12 +171,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
                         <Text variant="small" className="text-[11px] text-slate-500">{drone.task}</Text>
                       </div>
                     </div>
-                    <div className="flex items-center gap-6">
+                    <div className="flex flex-wrap items-center gap-3 md:gap-6">
                       <div className="flex items-center gap-2 text-[11px] font-medium text-slate-400">
                         <MapPin className="w-3.5 h-3.5 text-slate-500" />
                         {drone.location}
                       </div>
-                      <div className="flex items-center gap-2 text-xs font-medium text-slate-400 w-24">
+                      <div className="flex items-center gap-2 text-xs font-medium text-slate-400 w-20 md:w-24">
                         <Battery className={`w-3.5 h-3.5 ${drone.battery < 20 ? 'text-red-500' : 'text-slate-500'}`} />
                         <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                           <div className={`h-full rounded-full ${drone.battery < 20 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${drone.battery}%` }} />
@@ -239,7 +239,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
 
       {/* Reports Table */}
       <Card className="border-slate-800 overflow-hidden bg-slate-900/40">
-        <CardHeader className="px-6 py-4 border-b border-slate-800 flex flex-row justify-between items-center gap-4 bg-slate-900/80">
+        <CardHeader className="px-4 md:px-6 py-3 md:py-4 border-b border-slate-800 flex flex-row justify-between items-center gap-2 bg-slate-900/80">
           <div>
             <CardTitle className="text-sm font-semibold text-white">Inspection Data</CardTitle>
             <Text variant="small" className="text-[11px] text-slate-500 mt-0.5">Showing {filteredReports.length} records</Text>
@@ -287,11 +287,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
               <tbody className="divide-y divide-slate-800/50">
                 {filteredReports.map((report) => (
                   <tr key={report.id} className="hover:bg-slate-800/30 transition-colors group">
-                    <td className="px-6 py-3">
+                    <td className="px-3 md:px-6 py-3">
                       <Text variant="small" className="font-medium text-white">{report.title}</Text>
                       <Text variant="small" className="text-[10px] text-slate-500 font-mono">{report.id.split('-').pop()}</Text>
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-3 md:px-6 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400">
                           {report.client.substring(0, 2).toUpperCase()}
@@ -299,12 +299,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
                         <Text variant="small" className="text-slate-400">{report.client}</Text>
                       </div>
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-3 md:px-6 py-3">
                       <Badge variant="secondary" className="px-2 py-0 text-[10px]">
                         {report.industry}
                       </Badge>
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-3 md:px-6 py-3">
                       {report.status === 'FINALIZED' ? (
                         <Badge variant="success" className="gap-1.5 px-2 py-0 border-none bg-emerald-950/30 text-emerald-500">
                           <span className="w-1 h-1 rounded-full bg-emerald-500" />
@@ -322,7 +322,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
                         </Badge>
                       )}
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-3 md:px-6 py-3">
                       <Text variant="small" className="text-slate-500">{new Date(report.date).toLocaleDateString()}</Text>
                     </td>
                     <td className="px-6 py-3 text-right">

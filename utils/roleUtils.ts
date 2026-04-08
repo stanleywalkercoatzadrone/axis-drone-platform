@@ -23,7 +23,7 @@ export function normalizeRole(roleString: string | undefined | null): string | n
         return 'admin';
     }
 
-    if (['pilot_technician', 'pilot', 'technician', 'pilot-technician'].includes(normalized)) {
+    if (['pilot_technician', 'pilot', 'technician', 'pilot-technician', 'field_operator'].includes(normalized)) {
         return 'pilot_technician';
     }
 

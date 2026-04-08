@@ -28,6 +28,7 @@ import {
     Mail
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
+import { getRoleDisplayName } from '../utils/roleUtils';
 import apiClient from '../src/services/apiClient';
 import { Input } from '../src/stitch/components/Input';
 import { cn } from '../src/stitch/utils/cn';
@@ -380,7 +381,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                     >
                         <option value="all">ALL PRIVILEGE TIERS</option>
                         {Object.values(UserRole).map(role => (
-                            <option key={role} value={role}>{role.toUpperCase().replace('_', ' ')}</option>
+                            <option key={role} value={role}>{getRoleDisplayName(role).toUpperCase()}</option>
                         ))}
                     </select>
                 </div>
@@ -443,7 +444,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                                                     (user.role === UserRole.FIELD_OPERATOR || (user.role as string) === 'pilot_technician') ? "bg-orange-50 text-orange-700" :
                                                         "bg-blue-50 text-blue-700"
                                             )}>
-                                                {(user.role as string).replace('_', ' ')}
+                                                {getRoleDisplayName(user.role as string)}
                                             </span>
                                         </td>
                                         <td className="px-10 py-8">
@@ -542,7 +543,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                                     className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] text-xs font-bold focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500/50 outline-none transition-all appearance-none cursor-pointer"
                                     style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2364748b\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 1.5rem center', backgroundSize: '1rem' }}
                                 >
-                                    {Object.values(UserRole).map(r => <option key={r} value={r}>{r.toUpperCase().replace('_', ' ')}</option>)}
+                                    {Object.values(UserRole).map(r => <option key={r} value={r}>{getRoleDisplayName(r).toUpperCase()}</option>)}
                                 </select>
                             </div>
 
@@ -772,7 +773,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                                                         <td className="px-8 py-4 font-bold text-slate-500 font-mono text-xs">{user.email}</td>
                                                         <td className="px-8 py-4">
                                                             <span className="px-3 py-1 bg-slate-900 text-white text-[8px] font-black rounded-full uppercase tracking-widest">
-                                                                {(user.role as string).replace('_', ' ')}
+                                                                {getRoleDisplayName(user.role as string)}
                                                             </span>
                                                         </td>
                                                         <td className="px-8 py-4">

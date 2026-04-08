@@ -14,6 +14,9 @@ import { saveReport } from '../utils/reportStorage';
 
 interface SolarReportGeneratorProps {
     section: ReportSection;
+    initialSiteName?: string;
+    initialClientName?: string;
+    initialFlightAltitude?: string;
 }
 
 interface SolarFinding {
@@ -57,12 +60,20 @@ const inputStyle: React.CSSProperties = {
 };
 const inputCls = 'w-full px-3 py-2.5 rounded-xl text-sm placeholder-slate-500 focus:outline-none transition-all focus:border-orange-500/50';
 
-const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section }) => {
+const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, initialSiteName, initialClientName, initialFlightAltitude }) => {
     const [step, setStep] = useState(0);
     const [form, setForm] = useState<SolarForm>({
-        siteName: '', siteId: '', clientName: '', installedKw: '', panelCount: '',
-        panelMake: '', inspectionDate: '', pilotName: '', flightAltitude: '',
-        weatherConditions: '', notes: ''
+        siteName: initialSiteName || '',
+        siteId: '',
+        clientName: initialClientName || '',
+        installedKw: '',
+        panelCount: '',
+        panelMake: '',
+        inspectionDate: new Date().toISOString().slice(0, 10),
+        pilotName: '',
+        flightAltitude: initialFlightAltitude || '',
+        weatherConditions: '',
+        notes: ''
     });
     const [uploadedImages, setUploadedImages] = useState<File[]>([]);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -98,62 +109,49 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section }) 
     const runAnalysis = async () => {
         setAnalyzing(true);
         try {
-            // For now, generate mock solar findings
-            // In production this would upload images → Gemini Vision → structured findings
-            await new Promise(r => setTimeout(r, 2500));
-            const mockFindings: SolarFinding[] = [
-                {
-                    id: '1', type: 'Thermal Hotspot', severity: 'Critical',
-                    location: 'Array A, Row 3', panelId: 'P-0047', stringId: 'S-04',
-                    temperature: 87, efficiency: 34,
-                    description: 'Diode failure causing severe hotspot at 87°C. Panel operating at 34% efficiency.',
-                    recommendation: 'Immediate bypass diode replacement. Risk of fire if left unaddressed.',
-                    estimatedKwhLoss: 420, estimatedCostMin: 280, estimatedCostMax: 450,
-                },
-                {
-                    id: '2', type: 'Soiling — Heavy', severity: 'High',
-                    location: 'Array B, Rows 1–5', panelId: undefined, stringId: 'S-07,S-08',
-                    description: 'Dense bird droppings and dust accumulation across 22 panels. Estimated 18% production loss.',
-                    recommendation: 'Schedule panel cleaning. Estimated 2 technician-hours.',
-                    estimatedKwhLoss: 890, estimatedCostMin: 180, estimatedCostMax: 320,
-                },
-                {
-                    id: '3', type: 'Micro-Crack', severity: 'Medium',
-                    location: 'Array C, Row 7', panelId: 'P-0129',
-                    temperature: 52, efficiency: 71,
-                    description: 'EL imaging-detectable micro-crack pattern. Currently at 71% efficiency with degradation risk.',
-                    recommendation: 'Monitor quarterly. Replace within 12 months.',
-                    estimatedKwhLoss: 180, estimatedCostMin: 350, estimatedCostMax: 550,
-                },
-                {
-                    id: '4', type: 'String Underperformance', severity: 'High',
-                    location: 'Array A', stringId: 'S-02',
-                    efficiency: 58,
-                    description: 'String S-02 producing 58% of expected output. Likely partial shading or connection issue.',
-                    recommendation: 'Inspect MC4 connectors and string fuse. Check for physical obstructions.',
-                    estimatedKwhLoss: 320, estimatedCostMin: 90, estimatedCostMax: 200,
-                },
-            ];
-            setFindings(mockFindings);
-            setAiSummary(`AI inspection of ${form.siteName || 'this solar site'} identified ${mockFindings.length} findings across the ${form.installedKw || '—'} kW installation. ` +
-                `One critical thermal hotspot at Panel P-0047 requires immediate attention due to fire risk. ` +
-                `Total estimated annual production loss is approximately 1,810 kWh. ` +
-                `Recommended corrective actions are prioritized by ROI impact.`);
-            setAnalysisComplete(true);
-            setStep(3);
+            const res = await apiClient.post('/ai/solar-analyze', {
+                form,
+                images: imagePreviews.map((dataUrl, i) => ({
+                    name: uploadedImages[i]?.name || `image-${i}`,
+                    dataUrl,
+                })),
+            });
 
-            // ── Auto-archive this report so it appears in AI Reports tab immediately ──
-            try {
-                const slug = (form.siteName || 'solar').replace(/[^a-z0-9]/gi, '-').toLowerCase();
-                const filename = `solar-report-${slug}-analysis.pdf`;
-                // Encode a tiny stub PDF so the archive entry is valid
-                const stubText = `Solar AI Report\nSite: ${form.siteName || 'Unknown'}\nDate: ${new Date().toISOString()}\nFindings: ${mockFindings.length}`;
-                const encoder = new TextEncoder();
-                const stubBuf = encoder.encode(stubText).buffer as ArrayBuffer;
-                saveReport('solar', form.siteName || 'Solar Inspection', filename, stubBuf);
-            } catch { /* non-fatal */ }
-        } catch (e) {
-            console.error(e);
+            if (res.data.success) {
+                const aiFindings: SolarFinding[] = (res.data.findings || []).map((f: any, idx: number) => ({
+                    id: f.id ?? String(idx + 1),
+                    type: f.type ?? 'Unknown',
+                    severity: f.severity ?? 'Medium',
+                    location: f.location ?? '—',
+                    panelId: f.panelId || undefined,
+                    stringId: f.stringId || undefined,
+                    temperature: f.temperature ?? undefined,
+                    efficiency: f.efficiency ?? undefined,
+                    description: f.description ?? '',
+                    recommendation: f.recommendation ?? '',
+                    estimatedKwhLoss: f.estimatedKwhLoss ?? 0,
+                    estimatedCostMin: f.estimatedCostMin ?? 0,
+                    estimatedCostMax: f.estimatedCostMax ?? 0,
+                }));
+                setFindings(aiFindings);
+                setAiSummary(res.data.aiSummary || `AI inspection of ${form.siteName || 'this solar site'} identified ${aiFindings.length} findings.`);
+                setAnalysisComplete(true);
+                setStep(3);
+
+                // Archive the report
+                try {
+                    const slug = (form.siteName || 'solar').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+                    const filename = `solar-report-${slug}-analysis.pdf`;
+                    const stub = `Solar AI Report\nSite: ${form.siteName || 'Unknown'}\nDate: ${new Date().toISOString()}\nFindings: ${aiFindings.length}`;
+                    const buf = new TextEncoder().encode(stub).buffer as ArrayBuffer;
+                    saveReport('solar', form.siteName || 'Solar Inspection', filename, buf);
+                } catch { /* non-fatal */ }
+            } else {
+                throw new Error(res.data.message || 'AI analysis failed');
+            }
+        } catch (e: any) {
+            console.error('AI analysis error:', e);
+            alert(`AI analysis failed: ${e?.response?.data?.message || e?.message || 'Unknown error'}. Please try again.`);
         } finally {
             setAnalyzing(false);
         }
@@ -314,39 +312,63 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section }) 
 
                 {/* ── STEP 2: AI Analysis ── */}
                 {step === 2 && (
-                    <div className="max-w-2xl text-center py-8">
+                    <div className="max-w-3xl text-center py-12 px-6">
                         {analyzing ? (
-                            <>
-                                <div className="w-20 h-20 mx-auto mb-6 rounded-full border-4 border-amber-400 border-t-transparent animate-spin" />
-                                <h2 className="text-xl font-black text-white mb-2">AI Analysis Running...</h2>
-                                <p className="text-slate-400">Scanning {uploadedImages.length || 0} images for thermal anomalies, soiling, micro-cracks, and string performance issues</p>
-                            </>
-                        ) : (
-                            <>
-                                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
-                                    <Sun className="w-10 h-10 text-amber-400" />
+                            <div className="relative isolate">
+                                <div className="absolute inset-0 bg-amber-500/10 blur-[100px] -z-10 rounded-full" />
+                                <div className="relative w-32 h-32 mx-auto mb-8 flex items-center justify-center">
+                                    <div className="absolute inset-0 rounded-full border border-amber-500/20 shadow-[0_0_50px_rgba(245,158,11,0.2)] animate-pulse" />
+                                    <div className="absolute inset-4 rounded-full border-t-2 border-amber-400 border-r-2 border-transparent animate-spin duration-1000" />
+                                    <div className="absolute inset-8 rounded-full border-b-2 border-orange-500 border-l-2 border-transparent animate-[spin_1.5s_linear_reverse]" />
+                                    <Zap className="w-8 h-8 text-amber-400 animate-pulse" />
                                 </div>
-                                <h2 className="text-xl font-black text-white mb-2">Ready for AI Analysis</h2>
-                                <p className="text-slate-400 mb-2">
+                                <h2 className="text-2xl font-black text-white mb-3 tracking-tight">Neural Analysis Running...</h2>
+                                <p className="text-amber-500/80 font-mono text-sm tracking-widest uppercase mb-8 animate-pulse">
+                                    Processing {uploadedImages.length || 0} Radiometric Datasets
+                                </p>
+                                
+                                {/* Mock scan feed */}
+                                <div className="max-w-md mx-auto text-left bg-slate-950/80 border border-slate-800/80 rounded-xl p-5 shadow-inner backdrop-blur-sm overflow-hidden relative">
+                                    <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-amber-500/50 to-transparent animate-[shimmer_2s_infinite]" />
+                                    <div className="space-y-3 font-mono text-[10px] text-slate-400 uppercase">
+                                        <div className="flex justify-between items-center"><span className="text-amber-500">_sys.ingest:</span> <span>Aligning geospatial coordinates...</span></div>
+                                        <div className="flex justify-between items-center"><span className="text-amber-500">_vision.ai:</span> <span>Isolating irradiance values...</span></div>
+                                        <div className="flex justify-between items-center"><span className="text-amber-500">_diag.net:</span> <span className="text-white animate-pulse">Scanning for thermal anomalies...</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-[#0B1121] border border-slate-800/80 rounded-3xl p-10 shadow-2xl relative overflow-hidden isolate max-w-2xl mx-auto">
+                                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-30" />
+                                <div className="w-24 h-24 mx-auto mb-8 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/5 border border-amber-500/30 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.15)]">
+                                    <Sun className="w-12 h-12 text-amber-400" />
+                                </div>
+                                <h2 className="text-2xl font-black text-white mb-3 tracking-tight drop-shadow-md">Awaiting Neural Pipeline</h2>
+                                <p className="text-slate-400 mb-6 font-medium text-[15px]">
                                     {uploadedImages.length > 0
-                                        ? `${uploadedImages.length} image${uploadedImages.length !== 1 ? 's' : ''} queued for analysis`
-                                        : 'No images uploaded — AI will generate a structural template report'}
+                                        ? `${uploadedImages.length} dataset${uploadedImages.length !== 1 ? 's' : ''} successfully queued in the ingestion buffer.`
+                                        : 'No raw datasets provided. System will default to a structural template generation.'}
                                 </p>
-                                <p className="text-slate-500 text-sm mb-8">
-                                    The AI will identify thermal hotspots, soiling, micro-cracks, module degradation, and string underperformance.
-                                </p>
-                                <div className="flex gap-3 justify-center">
-                                    <button onClick={() => setStep(1)} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all flex items-center gap-2">
-                                        <ChevronLeft className="w-4 h-4" /> Back
+                                <div className="bg-slate-900/50 rounded-xl p-4 mb-10 text-left border border-slate-800/50">
+                                    <p className="text-[11px] font-bold text-amber-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                        <Cpu className="w-3.5 h-3.5" /> Pipeline Objectives
+                                    </p>
+                                    <p className="text-slate-500 text-[13px] leading-relaxed font-medium">
+                                        The convolutional neural network will immediately scan for sub-module defects, diode failures, severe soiling, micro-cracks, and aggregate estimated kWh loss and financial impact.
+                                    </p>
+                                </div>
+                                <div className="flex gap-4 justify-center">
+                                    <button onClick={() => setStep(1)} className="px-6 py-3.5 bg-[#111827] hover:bg-slate-800 border border-slate-700 hover:border-slate-600 text-slate-300 font-bold rounded-xl transition-all flex items-center gap-2 shadow-sm">
+                                        <ChevronLeft className="w-4 h-4" /> Go Back
                                     </button>
                                     <button
                                         onClick={runAnalysis}
-                                        className="px-8 py-3 bg-amber-500 hover:bg-amber-400 text-white font-bold rounded-xl transition-all flex items-center gap-2 text-base"
+                                        className="px-8 py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-black rounded-xl transition-all flex items-center gap-2 text-[15px] shadow-[0_10px_20px_rgba(245,158,11,0.3)] hover:shadow-[0_15px_30px_rgba(245,158,11,0.4)] hover:-translate-y-0.5 border border-white/10"
                                     >
-                                        <Zap className="w-5 h-5" /> Run Solar AI Analysis
+                                        <Zap className="w-5 h-5" /> Execute AI Pipeline
                                     </button>
                                 </div>
-                            </>
+                            </div>
                         )}
                     </div>
                 )}

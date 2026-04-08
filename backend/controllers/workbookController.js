@@ -1,20 +1,43 @@
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { query, transaction } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { findUserBySearch } from '../services/userService.js';
+
+/**
+ * Parse an uploaded spreadsheet buffer into an array of plain objects.
+ * Uses exceljs (no known CVEs) instead of the vulnerable xlsx package.
+ */
+async function parseSpreadsheetBuffer(buffer) {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return [];
+
+    const rows = [];
+    let headers = [];
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        const values = row.values.slice(1); // exceljs row.values is 1-indexed
+        if (rowNumber === 1) {
+            headers = values.map(v => String(v ?? '').trim());
+        } else {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = values[i] ?? null; });
+            rows.push(obj);
+        }
+    });
+    return rows;
+}
 
 export const uploadWorkbook = async (req, res, next) => {
     try {
         if (!req.file) throw new AppError('No file uploaded', 400);
 
-        const { scopeType, scopeId, mappingTemplateId } = req.body;
+        const { mappingTemplateId } = req.body;
 
-        // Parse workbook
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        // Parse workbook using exceljs (no known CVEs)
+        const rows = await parseSpreadsheetBuffer(req.file.buffer);
 
-        if (rows.length === 0) throw new AppError('Spreadsheet is empty', 400);
+        if (rows.length === 0) throw new AppError('Spreadsheet is empty or has no data rows', 400);
 
         // Fetch mapping template if provided
         let mapping = null;

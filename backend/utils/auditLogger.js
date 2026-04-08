@@ -13,12 +13,12 @@ import { query } from '../config/database.js';
 export const logAudit = async (userId, action, resourceType, resourceId, details, tenantId) => {
     try {
         await query(
-            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details, tenant_id)
+            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata, tenant_id)
              VALUES ($1, $2, $3, $4, $5, $6)`,
             [userId, action, resourceType, resourceId, JSON.stringify(details), tenantId]
         );
     } catch (error) {
-        console.error('Audit Log Error:', error);
+        console.error('Audit Log Error:', error.message);
         // Don't throw, we don't want to break the main flow if audit logging fails
     }
 };

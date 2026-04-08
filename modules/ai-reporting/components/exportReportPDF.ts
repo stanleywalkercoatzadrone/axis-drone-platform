@@ -138,105 +138,78 @@ const buildFullReport = (report: ClaimsReport): string => {
 
     // ── PAGE 1: COVER ──────────────────────────────────────────────────────────
     pages += `
-    <div class="pdf-page" style="${pageStyle}">
-        <!-- Dark cover header -->
-        <div style="background:linear-gradient(160deg,#0f172a 0%,#1e1b4b 45%,#1e3a5f 100%);height:420px;padding:48px 56px;position:relative;overflow:hidden;">
-            <!-- Background decoration -->
-            <div style="position:absolute;top:-60px;right:-60px;width:300px;height:300px;border-radius:50%;background:rgba(249,115,22,0.06);"></div>
-            <div style="position:absolute;bottom:-80px;left:40px;width:200px;height:200px;border-radius:50%;background:rgba(99,102,241,0.08);"></div>
-
-            <!-- Logo -->
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:48px;">
-                <div style="width:40px;height:40px;background:#f97316;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:22px;">A</div>
-                <div>
-                    <p style="font-size:11px;font-weight:800;letter-spacing:3px;color:#f97316;text-transform:uppercase;margin:0;">Prism Axis</p>
-                    <p style="font-size:9px;color:rgba(255,255,255,0.4);margin:0;letter-spacing:1px;">${report.industry || 'Enterprise'} Solutions</p>
-                </div>
-            </div>
-
-            <!-- Report type badge -->
-            <div style="display:inline-block;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.3);border-radius:6px;padding:4px 12px;margin-bottom:16px;">
-                <span style="font-size:9px;font-weight:700;letter-spacing:2px;color:#f97316;text-transform:uppercase;">AI-Powered ${report.industry || 'Enterprise'} Inspection Report</span>
-            </div>
-
-            <h1 style="font-size:30px;font-weight:900;color:#fff;margin:0 0 10px;line-height:1.2;">${report.title || 'Property Inspection Report'}</h1>
-            <p style="font-size:14px;color:rgba(255,255,255,0.6);margin:0;">${report.propertyAddress || ''}</p>
-
-            <!-- Key identifiers -->
-            <div style="display:flex;gap:32px;margin-top:32px;">
-                ${report.claimNumber ? `<div><p style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin:0 0 3px;">Claim Number</p><p style="font-size:14px;font-weight:800;color:#fff;font-family:monospace;margin:0;">${report.claimNumber}</p></div>` : ''}
-                ${report.policyNumber ? `<div><p style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin:0 0 3px;">Policy Number</p><p style="font-size:14px;font-weight:800;color:#fff;font-family:monospace;margin:0;">${report.policyNumber}</p></div>` : ''}
-                <div><p style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin:0 0 3px;">Report Date</p><p style="font-size:14px;font-weight:800;color:#fff;margin:0;">${today()}</p></div>
-                <div><p style="font-size:9px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;margin:0 0 3px;">Status</p><p style="font-size:14px;font-weight:800;color:#34d399;margin:0;">${report.status || 'Draft'}</p></div>
-            </div>
+    <div class="pdf-page" style="${pageStyle} background: #0B1121;">
+        <!-- High-End Isometric Cover Background -->
+        <div style="position:absolute;top:0;left:0;right:0;height:100%;overflow:hidden;z-index:0;">
+            <!-- Ambient Glows -->
+            <div style="position:absolute;top:-150px;right:-100px;width:700px;height:700px;border-radius:50%;background:rgba(249,115,22,0.12);filter:blur(90px);"></div>
+            <div style="position:absolute;bottom:0px;left:-200px;width:800px;height:800px;border-radius:50%;background:rgba(99,102,241,0.08);filter:blur(120px);"></div>
+            <!-- Isometric Grid Map Pattern Background -->
+            <div style="position:absolute;top:0;left:0;right:0;height:100%;background-image:linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);background-size:40px 40px;transform:rotateX(60deg) scale(2);transform-origin:top;"></div>
+            <div style="position:absolute;top:0;left:0;right:0;height:100%;background:linear-gradient(to bottom, transparent 10%, #0B1121 90%);"></div>
         </div>
 
-        <!-- Stats strip -->
-        <div style="background:#fff;padding:0 56px;display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-bottom:2px solid #f3f4f6;">
-            ${[
-            { label: 'Images Analyzed', value: images.length.toString(), color: '#6366f1' },
-            { label: 'Total Findings', value: allAnnotations.length.toString(), color: '#374151' },
-            { label: 'Critical Issues', value: criticals.length.toString(), color: '#dc2626' },
-            { label: 'Storm-Related', value: stormRelated.length.toString(), color: '#ea580c' },
-            { label: 'Est. Damage', value: totalMin > 0 ? `${$(totalMin)}–${$(totalMax)}` : '—', color: '#111827' },
-        ].map((s, i) => `
-            <div style="padding:20px 0;text-align:center;${i > 0 ? 'border-left:1px solid #f3f4f6;' : ''}">
-                <p style="font-size:${s.value.length > 8 ? '14px' : '22px'};font-weight:900;color:${s.color};margin:0;">${s.value}</p>
-                <p style="font-size:9px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:4px 0 0;">${s.label}</p>
-            </div>`).join('')}
-        </div>
-
-        <!-- Claim info grid -->
-        <div style="padding:28px 56px 0;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
-                <!-- Left: Claim Details -->
-                <div style="background:#f9fafb;border-radius:12px;padding:20px;">
-                    <p style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#9ca3af;margin:0 0 14px;">Claim Details</p>
-                    ${[
-            ['Insurance Carrier', report.carrier],
-            ['Inspection Type', report.inspectionType],
-            ['Property Type', report.propertyType],
-            ['Adjuster', report.adjusterName],
-            ['Adjuster Email', report.adjusterEmail],
-        ].filter(r => r[1]).map(([label, val]) => `
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e5e7eb;">
-                        <span style="font-size:10px;color:#6b7280;">${label}</span>
-                        <span style="font-size:10px;font-weight:700;color:#111827;">${val}</span>
-                    </div>`).join('')}
-                </div>
-
-                <!-- Right: Risk Assessment -->
-                <div style="background:#f9fafb;border-radius:12px;padding:20px;">
-                    <p style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#9ca3af;margin:0 0 14px;">Risk Assessment</p>
-                    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
-                        <div style="width:72px;height:72px;border-radius:50%;border:5px solid ${rc};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                            <span style="font-size:22px;font-weight:900;color:${rc};">${score}</span>
-                        </div>
-                        <div style="flex:1;">
-                            <p style="font-size:18px;font-weight:900;color:${rc};margin:0 0 6px;">${riskLabel(score)}</p>
-                            <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">
-                                <div style="height:100%;width:${score}%;background:${rc};border-radius:4px;"></div>
-                            </div>
-                            <p style="font-size:9px;color:#9ca3af;margin:4px 0 0;">Risk Score: ${score} / 100</p>
-                        </div>
+        <div style="position:relative;z-index:10;display:flex;flex-direction:column;height:100%;padding:60px;">
+            <!-- Header -->
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                <div style="display:flex;align-items:center;gap:14px;">
+                    <div style="width:44px;height:44px;background:linear-gradient(135deg, #f97316, #dc2626);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:24px;box-shadow:0 10px 20px rgba(249,115,22,0.3);">A</div>
+                    <div>
+                        <p style="font-size:14px;font-weight:900;letter-spacing:4px;color:#fff;margin:0;">PRISM AXIS</p>
+                        <p style="font-size:10px;color:#f97316;letter-spacing:1px;margin:0;font-weight:700;">ENTERPRISE CLAIMS AI</p>
                     </div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                        ${[
-            ['Critical', criticals.length, '#dc2626'],
-            ['High', highs.length, '#ea580c'],
-            ['Medium', mediums.length, '#ca8a04'],
-            ['Low', lows.length, '#16a34a'],
-        ].map(([label, count, color]) => `
-                        <div style="background:#fff;border-radius:8px;padding:8px 12px;border:1px solid #e5e7eb;">
-                            <p style="font-size:16px;font-weight:900;color:${color};margin:0;">${count}</p>
-                            <p style="font-size:9px;color:#9ca3af;margin:2px 0 0;">${label}</p>
-                        </div>`).join('')}
+                </div>
+                <div style="text-align:right;">
+                    <p style="font-size:10px;font-weight:800;letter-spacing:2px;color:#e2e8f0;margin:0;text-transform:uppercase;">Confidential</p>
+                    <p style="font-size:9px;color:#94a3b8;font-family:monospace;letter-spacing:1px;">CLAIM ID: ${report.claimNumber || 'PENDING'}</p>
+                </div>
+            </div>
+
+            <!-- Title Area -->
+            <div style="margin-top:auto;margin-bottom:60px;">
+                <div style="display:inline-block;border:1px solid rgba(249,115,22,0.4);border-radius:100px;padding:6px 16px;background:rgba(249,115,22,0.1);color:#fbcfe8;font-size:10px;font-weight:800;letter-spacing:2px;color:#f97316;text-transform:uppercase;margin-bottom:20px;">
+                    Neural Claims Report — Level ${riskLabel(score)}
+                </div>
+                <h1 style="font-size:42px;font-weight:900;color:#fff;margin:0 0 16px;line-height:1.1;letter-spacing:-1px;">${report.title || 'Property Damage Inspection'}</h1>
+                <p style="font-size:18px;color:#cbd5e1;font-weight:500;margin:0;">Location: <span style="color:#fff;font-weight:800;">${report.propertyAddress || 'TBD'}</span></p>
+            </div>
+
+            <!-- Dashboard Glass Panel -->
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(20px); border-radius: 16px; padding: 24px; display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:24px;">
+                <!-- Summary Text -->
+                <div style="border-right:1px solid rgba(255,255,255,0.1);padding-right:24px;">
+                    <p style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Executive Summary</p>
+                    <p style="font-size:12px;color:#cbd5e1;line-height:1.6;margin:0;">${report.executiveSummary || 'AI analysis completed across asset. Damage parameters established.'}</p>
+                </div>
+                
+                <!-- Financial Impact -->
+                <div style="border-right:1px solid rgba(255,255,255,0.1);padding-right:24px;display:flex;flex-direction:column;justify-content:center;">
+                    <p style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Est. Total Claim Value</p>
+                    <p style="font-size:24px;font-weight:900;color:#f97316;font-family:monospace;margin:0;letter-spacing:-1px;">${report.totalDamageEstimate > 0 ? `${$(report.totalDamageEstimate)}` : '$—'}</p>
+                    <p style="font-size:10px;color:#64748b;margin-top:2px;">AI Baseline Estimate</p>
+                </div>
+
+                <!-- SVG Donut Chart for Score -->
+                <div style="display:flex;align-items:center;gap:16px;">
+                    <svg width="64" height="64" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r="16" fill="transparent" stroke="rgba(255,255,255,0.1)" stroke-width="4"></circle>
+                        <circle cx="18" cy="18" r="16" fill="transparent" stroke="${rc}" stroke-width="4" stroke-dasharray="${score} 100" stroke-dashoffset="-25"></circle>
+                        <text x="18" y="21.5" fill="#fff" font-size="10" font-weight="900" font-family="Arial" text-anchor="middle">${score}</text>
+                    </svg>
+                    <div>
+                        <p style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin:0 0 2px;">Risk Score</p>
+                        <p style="font-size:16px;font-weight:900;color:${rc};margin:0;text-transform:uppercase;">${riskLabel(score)}</p>
                     </div>
                 </div>
             </div>
-        </div>
 
-        ${footerBar(report)}
+            <!-- Footer Meta -->
+            <div style="margin-top:24px;display:flex;justify-content:space-between;color:#64748b;font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">
+                <p>CARRIER: ${report.carrier || 'N/A'}</p>
+                <p>ADJUSTER: ${report.adjusterName || 'N/A'}</p>
+                <p>GENERATED: ${today()}</p>
+            </div>
+        </div>
     </div>`;
 
     // ── PAGE 2: EXECUTIVE SUMMARY + RECOMMENDATIONS ────────────────────────────

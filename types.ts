@@ -94,6 +94,7 @@ export interface UserAccount {
   isDriveBlocked?: boolean;
   effectiveRoles?: string[];
   bindings?: UserBinding[];
+  forcePasswordReset?: boolean;
 }
 
 export interface UserBinding {
@@ -340,6 +341,7 @@ export interface Personnel {
   state?: string;
   zipCode?: string;
   country?: string;
+  countryId?: string; // FK to countries.id — scopes pilot to a country
   taxClassification?: string;
   bankName?: string;
   routingNumber?: string;
@@ -351,6 +353,7 @@ export interface Personnel {
   onboarding_sent_at?: string;
   onboarding_completed_at?: string;
   complianceStatus?: 'compliant' | 'expired' | 'expiring_soon' | 'pending';
+  documents?: any[];
   latitude?: number;
   longitude?: number;
   town?: string;
@@ -508,5 +511,6 @@ export interface BankingInfo {
   currency: string;
   countryId?: string;
   iban?: string;
+  dailyRate?: number | null;
   updatedAt?: string;
 }

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PilotSchedule from './PilotSchedule';
-import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, ShieldCheck, MapPin, Upload, Package, X, Loader2, Download, Trash2, Plus, Zap } from 'lucide-react';
+import { BadgeCheck, HardHat, Mail, Phone, Search, UserPlus, Filter, MoreHorizontal, FileText, DollarSign, Map, Send, CheckCircle2, ShieldCheck, MapPin, Upload, Package, X, Loader2, Download, Trash2, Plus, Zap, Eye, Pencil, User2, Briefcase, Building2 } from 'lucide-react';
 import { Personnel, PersonnelRole, BankingInfo, Country } from '../types';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { MAJOR_US_BANKS } from '../src/utils/bankData';
 import { Button } from '../src/stitch/components/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../src/stitch/components/Card';
@@ -10,10 +10,12 @@ import { Input } from '../src/stitch/components/Input';
 import { Badge } from '../src/stitch/components/Badge';
 import { Heading, Text } from '../src/stitch/components/Typography';
 
-import { useIndustry } from '../src/context/IndustryContext';
+import { useIndustry } from '../context/IndustryContext';
+import { useCountry } from '../context/CountryContext';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AxisPerformanceTab } from '../src/components/personnel/AxisPerformanceTab';
+import { PilotDocumentsPanel } from './PilotDocumentsPanel';
 import L from 'leaflet';
 
 // Fix Leaflet default icon issue
@@ -29,10 +31,55 @@ let DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
+// ── Semantic badge helpers ──────────────────────────────────────────────────
+function roleBadge(role: string) {
+    switch ((role || '').toLowerCase()) {
+        case 'pilot':       return 'bg-blue-500/15 text-blue-300 border border-blue-500/25';
+        case 'technician':  return 'bg-violet-500/15 text-violet-300 border border-violet-500/25';
+        case 'both':        return 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/25';
+        default:            return 'bg-white/8 text-slate-300 border border-white/10';
+    }
+}
+function statusBadge(status: string) {
+    switch ((status || '').toLowerCase()) {
+        case 'active':    return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25';
+        case 'inactive':  return 'bg-white/8 text-slate-400 border border-white/10';
+        case 'on leave':  return 'bg-amber-500/15 text-amber-300 border border-amber-500/25';
+        default:          return 'bg-white/8 text-slate-400 border border-white/10';
+    }
+}
+function complianceBadgeClass(person: Personnel) {
+    const docs = person.documents || [];
+    const missing = ['Part 107 Certificate', 'Government ID', 'W-9 Tax Form'].filter(
+        req => !docs.some((d: any) => d.document_type === req)
+    );
+    if (missing.length === 0) return 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25';
+    if (missing.length <= 1)  return 'bg-amber-500/15 text-amber-300 border border-amber-500/25';
+    return 'bg-rose-500/15 text-rose-300 border border-rose-500/25';
+}
+function complianceLabel(person: Personnel) {
+    const docs = person.documents || [];
+    const missing = ['Part 107 Certificate', 'Government ID', 'W-9 Tax Form'].filter(
+        req => !docs.some((d: any) => d.document_type === req)
+    );
+    if (missing.length === 0) return 'Complete';
+    if (missing.length <= 1)  return 'Partial';
+    return 'Pending Docs';
+}
+function onboardingPct(status?: string) {
+    switch (status) {
+        case 'completed':    return 100;
+        case 'in_progress':  return 60;
+        case 'sent':         return 25;
+        default:             return 5;
+    }
+}
+
 
 const PersonnelTracker: React.FC = () => {
 
     const { tLabel } = useIndustry();
+    const { activeCountryId, countries: enabledCountries } = useCountry();
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
     const [searchQuery, setSearchQuery] = useState(() => sessionStorage.getItem('pt_searchQuery') || '');
     const [roleFilter, setRoleFilter] = useState<'All' | PersonnelRole>(() => (sessionStorage.getItem('pt_roleFilter') as any) || 'All');
@@ -59,6 +106,7 @@ const PersonnelTracker: React.FC = () => {
         state: '',
         zipCode: '',
         country: 'US',
+        countryId: activeCountryId || undefined,
         emergencyContactName: '',
         emergencyContactPhone: '',
         taxClassification: 'Individual/Sole Proprietor',
@@ -69,8 +117,14 @@ const PersonnelTracker: React.FC = () => {
     const [addFile, setAddFile] = useState<File | null>(null);
     const [sendingOnboarding, setSendingOnboarding] = useState(false);
 
-    const [onboardingPromptOpen, setOnboardingPromptOpen] = useState<{ isOpen: boolean; personnelId?: string; name?: string; }>({ isOpen: false });
+    const [onboardingPromptOpen, setOnboardingPromptOpen] = useState<{ isOpen: boolean; personnelId?: string; name?: string; email?: string; }>({ isOpen: false });
     const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
+    // Pre-Onboarding Document Sender State
+    const [isSendDocsModalOpen, setIsSendDocsModalOpen] = useState(false);
+    const [sendDocsEmail, setSendDocsEmail] = useState('');
+    const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+    const [sendingDocs, setSendingDocs] = useState(false);
 
     // Banking State
     const [modalTab, setModalTab] = useState<'details' | 'banking' | 'documents' | 'performance' | 'schedule'>('details');
@@ -81,10 +135,12 @@ const PersonnelTracker: React.FC = () => {
     // Document State
     const [analyzingDoc, setAnalyzingDoc] = useState(false);
     const [uploadingDoc, setUploadingDoc] = useState(false);
-    const [docType, setDocType] = useState('License');
     const [docExpiration, setDocExpiration] = useState(''); // New state
     const [uploadingPhoto, setUploadingPhoto] = useState(false);
     const [documents, setDocuments] = useState<any[]>([]);
+    const [viewingDoc, setViewingDoc] = useState<any | null>(null);
+    const [viewingDocBlobUrl, setViewingDocBlobUrl] = useState<string | null>(null);
+    const [loadingView, setLoadingView] = useState(false);
     const [documentSearch, setDocumentSearch] = useState('');
     const [loadingDocuments, setLoadingDocuments] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -110,11 +166,11 @@ const PersonnelTracker: React.FC = () => {
         }
     };
 
-    const handleSendOnboarding = async (id: string) => {
+    const handleSendOnboarding = async (id: string, email: string) => {
         try {
-            const res = await apiClient.post('/onboarding/send', { personnelId: id });
+            const res = await apiClient.post('/candidates/send', { candidate_email: email, payload: { personnelId: id } });
             if (res.data.success) {
-                alert('Onboarding package sent!');
+                alert(`Onboarding package sent to ${email}!\n\nMagic Link (Admin Copy):\n${res.data.data.magicLink}`);
                 setPersonnel(prev => prev.map(p => p.id === id ? { ...p, onboarding_status: 'sent' } : p));
                 if (selectedPerson?.id === id) {
                     setSelectedPerson(prev => prev ? { ...prev, onboarding_status: 'sent' } : null);
@@ -123,6 +179,49 @@ const PersonnelTracker: React.FC = () => {
         } catch (error: any) {
             console.error('Failed to send onboarding:', error);
             alert(error.response?.data?.message || 'Failed to send onboarding package');
+        }
+    };
+
+    const handleProvisionAccount = async (id: string, email: string) => {
+        try {
+            const res = await apiClient.post(`/personnel/${id}/provision`);
+            if (res.data.success) {
+                alert(`Account provisioned successfully for ${email}!\n\nPilot Login Link (Admin Copy):\n${res.data.data.invitationUrl}`);
+            }
+        } catch (error: any) {
+            console.error('Failed to provision account:', error);
+            alert(error.response?.data?.message || 'Failed to provision pilot account');
+        }
+    };
+
+    const handleSendDocs = async () => {
+        if (!sendDocsEmail) {
+            alert('Please enter an email address.');
+            return;
+        }
+        if (selectedDocs.length === 0) {
+            alert('Please select at least one document to send.');
+            return;
+        }
+
+        try {
+            setSendingDocs(true);
+            const res = await apiClient.post('/candidates/send-docs', {
+                candidate_email: sendDocsEmail,
+                documents: selectedDocs
+            });
+
+            if (res.data.success) {
+                alert(`Documents successfully sent to ${sendDocsEmail}!`);
+                setIsSendDocsModalOpen(false);
+                setSendDocsEmail('');
+                setSelectedDocs([]);
+            }
+        } catch (error: any) {
+            console.error('Failed to send documents:', error);
+            alert(error.response?.data?.message || 'Failed to send documents');
+        } finally {
+            setSendingDocs(false);
         }
     };
 
@@ -242,7 +341,8 @@ const PersonnelTracker: React.FC = () => {
             setOnboardingPromptOpen({
                 isOpen: true,
                 personnelId: data.data.id,
-                name: data.data.fullName
+                name: data.data.fullName,
+                email: newPersonnel.email
             });
 
         } catch (err: any) {
@@ -259,7 +359,8 @@ const PersonnelTracker: React.FC = () => {
         setNewPersonnel(prev => ({
             ...prev,
             routingNumber: routing,
-            bankName: bank ? bank.name : prev.bankName
+            bankName: bank ? bank.name : prev.bankName,
+            swiftCode: bank ? (bank as any).swiftCode : prev.swiftCode
         }));
     };
 
@@ -364,7 +465,6 @@ const PersonnelTracker: React.FC = () => {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('pilotId', selectedPerson.id);
-        formData.append('documentType', docType);
         formData.append('countryId', selectedPerson.country === 'US' ? 'US' : 'CA'); // Simple default logic
         if (docExpiration) formData.append('expirationDate', docExpiration);
 
@@ -395,6 +495,47 @@ const PersonnelTracker: React.FC = () => {
         } finally {
             setUploadingDoc(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    const handleDeleteDocument = async (docId: string) => {
+        if (!selectedPerson) return;
+        if (!confirm('Are you sure you want to delete this document?')) return;
+        try {
+            const res = await apiClient.delete(`/personnel/${selectedPerson.id}/documents/${docId}`);
+            if (res.data.success) {
+                setDocuments(prev => prev.filter(d => d.id !== docId));
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('Failed to delete document.');
+        }
+    };
+
+    const handleViewDocument = async (doc: any) => {
+        if (!selectedPerson) return;
+        setViewingDoc(doc);
+        setLoadingView(true);
+        try {
+            const response = await apiClient.get(`/personnel/${selectedPerson.id}/documents/${doc.id}/view`, {
+                responseType: 'blob'
+            });
+            const blobUrl = URL.createObjectURL(response.data);
+            setViewingDocBlobUrl(blobUrl);
+        } catch (error) {
+            console.error('Error fetching document view:', error);
+            alert('Failed to load document preview.');
+            handleCloseViewer();
+        } finally {
+            setLoadingView(false);
+        }
+    };
+
+    const handleCloseViewer = () => {
+        setViewingDoc(null);
+        if (viewingDocBlobUrl) {
+            URL.revokeObjectURL(viewingDocBlobUrl);
+            setViewingDocBlobUrl(null);
         }
     };
 
@@ -434,149 +575,366 @@ const PersonnelTracker: React.FC = () => {
     const filteredPersonnel = personnel.filter(p => {
         const matchesSearch = p.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || p.email.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesRole = roleFilter === 'All' || p.role === roleFilter || p.role === PersonnelRole.BOTH;
-        return matchesSearch && matchesRole;
+        // Country scope: if an active country is selected, only show pilots assigned to that country
+        const matchesCountry = !activeCountryId || (p as any).countryId === activeCountryId;
+        return matchesSearch && matchesRole && matchesCountry;
     });
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500 text-slate-200">
-            <div className="flex items-end justify-between">
-                <div>
-                    <Heading level={2} className="text-white tracking-widest">{tLabel('stakeholder').toUpperCase()}S</Heading>
-                    <Text variant="small" className="text-slate-500 font-medium">Manage pilots, technicians, and operational staff.</Text>
-                </div>
-                <div className="flex gap-2">
-                    <div className="bg-slate-900/50 p-1 rounded-lg flex border border-slate-800">
-                        <button onClick={() => setViewMode('list')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'list' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>LIST</button>
-                        <button onClick={() => setViewMode('map')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'map' ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>MAP</button>
+        <div className="min-h-screen bg-transparent text-white">
+            <div className="mx-auto max-w-[1600px] px-4 py-6 lg:px-6">
+
+                {/* ── Page header ─────────────────────────────────────────── */}
+                <div className="mb-5 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg backdrop-blur-sm">
+                    <div className="flex flex-col gap-4 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="space-y-1">
+                            <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                                Pilot / Technicians
+                            </div>
+                            <h1 className="text-2xl font-semibold tracking-tight text-white lg:text-3xl">Personnel Management</h1>
+                            <p className="text-sm text-slate-400">Manage pilots, technicians, onboarding, provisioning, and compliance.</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={() => setIsSendDocsModalOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+                            >
+                                <Send className="h-4 w-4" /> Send Docs
+                            </button>
+                            <button
+                                onClick={() => setIsAddModalOpen(true)}
+                                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-500"
+                            >
+                                <Plus className="h-4 w-4" /> Add Personnel
+                            </button>
+                        </div>
                     </div>
-                    <Button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white border-none shadow-lg shadow-cyan-900/20">
-                        <UserPlus className="w-4 h-4" /> Add Personnel
-                    </Button>
+                </div>
+
+                {/* ── Filters + stats bar ──────────────────────────────────── */}
+                <div className="mb-5 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 p-4 shadow-lg backdrop-blur-sm">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
+                            <div className="relative w-full max-w-sm">
+                                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                                <input
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    placeholder="Search name, email..."
+                                    className="h-10 w-full rounded-xl border border-white/10 bg-white/5 pl-10 pr-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
+                                />
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {(['All', PersonnelRole.PILOT, PersonnelRole.TECHNICIAN, PersonnelRole.BOTH] as string[]).map(role => (
+                                    <button
+                                        key={role}
+                                        onClick={() => setRoleFilter(role as any)}
+                                        className={`rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                                            roleFilter === role
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {role}
+                                    </button>
+                                ))}
+                                {/* Map toggle */}
+                                <div className="ml-2 flex gap-1 rounded-xl border border-white/10 bg-white/5 p-0.5">
+                                    {(['list', 'map'] as const).map(m => (
+                                        <button key={m} onClick={() => setViewMode(m)}
+                                            className={`rounded-lg px-3 py-1.5 text-xs font-bold uppercase transition ${
+                                                viewMode === m ? 'bg-slate-700 shadow text-white' : 'text-slate-500 hover:text-slate-300'
+                                            }`}>{m}</button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        {/* Stat chips */}
+                        <div className="grid grid-cols-4 gap-2">
+                            {[
+                                { label: 'Total',   value: personnel.length },
+                                { label: 'Active',  value: personnel.filter(p => (p.status || '').toLowerCase() === 'active').length },
+                                { label: 'Pending', value: personnel.filter(p => complianceLabel(p) === 'Pending Docs').length },
+                                { label: 'On Leave',value: personnel.filter(p => (p.status || '').toLowerCase() === 'on leave').length },
+                            ].map(stat => (
+                                <div key={stat.label} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-center">
+                                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{stat.label}</div>
+                                    <div className="mt-0.5 text-lg font-bold text-white">{stat.value}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── Main split grid ──────────────────────────────────────── */}
+                <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
+
+                    {/* Left — table */}
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg backdrop-blur-sm">
+                        <div className="border-b border-white/10 px-6 py-4">
+                            <h2 className="text-base font-semibold text-white">Team Directory</h2>
+                            <p className="mt-0.5 text-xs text-slate-400">Click a row to preview. Click Open for the full profile.</p>
+                        </div>
+
+                        {viewMode === 'list' ? (
+                            <div className="overflow-x-auto">
+                                {loading && (
+                                    <div className="flex items-center justify-center gap-3 py-16 text-slate-500">
+                                        <Loader2 className="h-5 w-5 animate-spin" />
+                                        <span className="text-sm">Loading personnel...</span>
+                                    </div>
+                                )}
+                                {!loading && error && (
+                                    <div className="flex items-center justify-center gap-2 py-16 text-rose-400 text-sm">
+                                        ⚠️ {error}
+                                    </div>
+                                )}
+                                {!loading && !error && filteredPersonnel.length === 0 && (
+                                    <div className="flex flex-col items-center justify-center gap-2 py-16 text-slate-500">
+                                        <span className="text-3xl">👥</span>
+                                        <span className="text-sm font-medium">No personnel found</span>
+                                        <span className="text-xs opacity-70">{searchQuery ? 'Try a different search' : 'Add your first personnel'}</span>
+                                    </div>
+                                )}
+                                {!loading && filteredPersonnel.length > 0 && (
+                                    <table className="min-w-full text-left">
+                                        <thead className="sticky top-0 z-10 bg-slate-950/60 backdrop-blur-sm">
+                                            <tr className="border-b border-white/10">
+                                                <th className="px-6 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Name</th>
+                                                <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role</th>
+                                                <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Status</th>
+                                                <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compliance</th>
+                                                <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Open</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5">
+                                            {filteredPersonnel.map(person => {
+                                                const isSelected = selectedPerson?.id === person.id;
+                                                return (
+                                                    <tr
+                                                        key={person.id}
+                                                        onClick={() => setSelectedPerson(person)}
+                                                        className={`cursor-pointer transition ${
+                                                            isSelected ? 'bg-blue-600/10 border-l-2 border-l-blue-500' : 'hover:bg-white/5'
+                                                        }`}
+                                                    >
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-700 text-sm font-semibold text-white shadow-sm overflow-hidden">
+                                                                    {person.photoUrl
+                                                                        ? <img src={person.photoUrl} className="w-full h-full object-cover" />
+                                                                        : (person.fullName?.[0] ?? '?')}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="text-sm font-semibold text-white">{person.fullName}</div>
+                                                                    <div className="text-xs text-slate-400">{person.email || 'No email'}</div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-4">
+                                                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${roleBadge(person.role)}`}>
+                                                                {person.role}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-4">
+                                                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadge(person.status)}`}>
+                                                                {person.status}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-4">
+                                                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${complianceBadgeClass(person)}`}>
+                                                                {complianceLabel(person)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-4">
+                                                            <button
+                                                                className="rounded-lg border border-white/10 px-3 py-1 text-xs font-medium text-slate-300 hover:bg-white/10 transition"
+                                                                onClick={e => { e.stopPropagation(); handleViewDetails(person); }}
+                                                            >
+                                                                Open
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="h-[600px] w-full">
+                                <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '100%', width: '100%' }}>
+                                    <TileLayer
+                                        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                                    />
+                                    {filteredPersonnel.filter(p => p.latitude && p.longitude).map(person => (
+                                        <React.Fragment key={person.id}>
+                                            <Marker position={[person.latitude!, person.longitude!]}>
+                                                <Popup>
+                                                    <div className="text-center">
+                                                        <div className="font-bold">{person.fullName}</div>
+                                                        <div className="text-xs text-zinc-500">{person.role}</div>
+                                                        <div className="text-xs mt-1">Travel: {person.maxTravelDistance || 0} mi</div>
+                                                    </div>
+                                                </Popup>
+                                            </Marker>
+                                            {person.maxTravelDistance && person.maxTravelDistance > 0 && (
+                                                <Circle
+                                                    center={[person.latitude!, person.longitude!]}
+                                                    pathOptions={{ fillColor: 'blue', color: 'blue', opacity: 0.2, fillOpacity: 0.1 }}
+                                                    radius={person.maxTravelDistance * 1609.34}
+                                                />
+                                            )}
+                                        </React.Fragment>
+                                    ))}
+                                </MapContainer>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right — preview panel */}
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg backdrop-blur-sm">
+                        {selectedPerson ? (
+                            <>
+                                {/* Preview header */}
+                                <div className="border-b border-white/10 px-6 py-6">
+                                    <div className="flex items-start gap-4">
+                                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-700 text-lg font-semibold text-white shadow-sm overflow-hidden">
+                                            {selectedPerson.photoUrl
+                                                ? <img src={selectedPerson.photoUrl} className="w-full h-full object-cover" />
+                                                : selectedPerson.fullName?.[0]}
+                                        </div>
+                                        <div className="min-w-0">
+                                            <h2 className="text-lg font-semibold text-white truncate">{selectedPerson.fullName}</h2>
+                                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${roleBadge(selectedPerson.role)}`}>{selectedPerson.role}</span>
+                                                <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadge(selectedPerson.status)}`}>{selectedPerson.status}</span>
+                                                <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${complianceBadgeClass(selectedPerson)}`}>{complianceLabel(selectedPerson)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Quick actions */}
+                                    <div className="mt-4 grid grid-cols-2 gap-2">
+                                        {selectedPerson.onboarding_status !== 'completed' && (
+                                            <button
+                                                onClick={() => handleSendOnboarding(selectedPerson.id, selectedPerson.email)}
+                                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-blue-500 transition whitespace-nowrap"
+                                            >
+                                                <Send className="h-3.5 w-3.5" /> Send Onboarding
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleProvisionAccount(selectedPerson.id, selectedPerson.email)}
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs font-medium text-slate-200 hover:bg-white/10 transition whitespace-nowrap"
+                                        >
+                                            <ShieldCheck className="h-3.5 w-3.5" /> Provision Account
+                                        </button>
+                                    </div>
+
+                                    {/* Onboarding progress */}
+                                    {selectedPerson.onboarding_status !== 'completed' && (
+                                        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
+                                            <div className="mb-1.5 flex items-center justify-between">
+                                                <span className="text-xs font-medium text-slate-400">Onboarding Progress</span>
+                                                <span className="text-xs font-bold text-white">{onboardingPct(selectedPerson.onboarding_status)}%</span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                                                <div
+                                                    className="h-full rounded-full bg-blue-500 transition-all"
+                                                    style={{ width: `${onboardingPct(selectedPerson.onboarding_status)}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Detail sections */}
+                                <div className="space-y-3 px-6 py-5">
+                                    {[
+                                        {
+                                            icon: <User2 className="h-3.5 w-3.5 text-slate-500" />,
+                                            title: 'Contact',
+                                            rows: [
+                                                <><Mail className="h-3.5 w-3.5 text-slate-500" /><span>{selectedPerson.email || 'N/A'}</span></>,
+                                                <><Phone className="h-3.5 w-3.5 text-slate-500" /><span>{selectedPerson.phone || 'N/A'}</span></>,
+                                            ]
+                                        },
+                                        {
+                                            icon: <MapPin className="h-3.5 w-3.5 text-slate-500" />,
+                                            title: 'Address',
+                                            rows: [
+                                                <span>{[selectedPerson.homeAddress, selectedPerson.city, selectedPerson.state, selectedPerson.zipCode, selectedPerson.country].filter(Boolean).join(', ') || 'N/A'}</span>
+                                            ]
+                                        },
+                                        {
+                                            icon: <ShieldCheck className="h-3.5 w-3.5 text-slate-500" />,
+                                            title: 'Emergency',
+                                            rows: [
+                                                <span>{selectedPerson.emergencyContactName || 'N/A'}</span>,
+                                                ...(selectedPerson.emergencyContactPhone ? [<span>{selectedPerson.emergencyContactPhone}</span>] : [])
+                                            ]
+                                        },
+                                        {
+                                            icon: <Briefcase className="h-3.5 w-3.5 text-slate-500" />,
+                                            title: 'Professional',
+                                            rows: [
+                                                <span>Max Travel: <strong className="text-white">{selectedPerson.maxTravelDistance ?? 0} mi</strong></span>,
+                                                <span>Company: <strong className="text-white">{selectedPerson.companyName || 'N/A'}</strong></span>,
+                                            ]
+                                        },
+                                    ].map(section => (
+                                        <div key={section.title} className="rounded-xl border border-white/8 bg-white/4 p-3">
+                                            <div className="mb-2 flex items-center gap-1.5">
+                                                {section.icon}
+                                                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{section.title}</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                {section.rows.map((row, i) => (
+                                                    <div key={i} className="flex items-center gap-2 text-sm text-slate-300">{row}</div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="flex flex-wrap gap-2 border-t border-white/10 px-6 py-4">
+                                    <button
+                                        onClick={() => handleViewDetails(selectedPerson)}
+                                        className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 transition"
+                                    >
+                                        Open Full Profile
+                                    </button>
+                                    <button
+                                        onClick={() => { handleViewDetails(selectedPerson); setIsEditMode(true); }}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200 hover:bg-white/10 transition"
+                                    >
+                                        <Pencil className="h-3.5 w-3.5" /> Edit
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeletePersonnel(selectedPerson.id)}
+                                        className="inline-flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-medium text-rose-400 hover:bg-rose-500/20 transition"
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex min-h-[500px] items-center justify-center px-8 text-center">
+                                <div className="max-w-xs">
+                                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5">
+                                        <Building2 className="h-6 w-6 text-slate-500" />
+                                    </div>
+                                    <h3 className="text-base font-semibold text-white">Select a team member</h3>
+                                    <p className="mt-1 text-sm text-slate-400">Click a row to preview profile, contact info, and quick actions.</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
-
-            <Card className="border-slate-800 overflow-hidden bg-slate-900/40">
-                <div className="px-6 py-4 border-b border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-900/80">
-                    <div className="flex items-center bg-slate-950/50 p-1 rounded-lg border border-slate-800">
-                        {['All', PersonnelRole.PILOT, PersonnelRole.TECHNICIAN, PersonnelRole.BOTH].map((role) => (
-                            <button
-                                key={role}
-                                onClick={() => setRoleFilter(role as any)}
-                                className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${roleFilter === role ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}
-                            >
-                                {role}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="relative w-full sm:w-72">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                        <input
-                            type="text"
-                            placeholder="Search fleet personnel..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:bg-slate-800 transition-all placeholder:text-slate-600"
-                        />
-                    </div>
-                </div>
-
-
-
-                {viewMode === 'list' ? (
-                    <div className="overflow-x-auto">
-                        {loading && (
-                            <div className="flex items-center justify-center py-16 text-slate-500 gap-3">
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                <span className="text-sm font-medium">Loading personnel...</span>
-                            </div>
-                        )}
-                        {!loading && error && (
-                            <div className="flex items-center justify-center py-16 text-red-400 gap-2 text-sm">
-                                <span>⚠️ {error}</span>
-                            </div>
-                        )}
-                        {!loading && !error && filteredPersonnel.length === 0 && (
-                            <div className="flex flex-col items-center justify-center py-16 text-slate-500 gap-2">
-                                <span className="text-3xl">👥</span>
-                                <span className="text-sm font-medium">No personnel found</span>
-                                <span className="text-xs opacity-60">{searchQuery ? 'Try a different search' : 'Add your first personnel to get started'}</span>
-                            </div>
-                        )}
-                        {!loading && filteredPersonnel.length > 0 && (
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-950/30 border-b border-slate-800">
-                                    <tr>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Name</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Role</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
-                                        <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Compliance</th>
-                                        <th className="px-6 py-4 text-right text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800/50">
-                                    {filteredPersonnel.map((person) => (
-                                        <tr key={person.id} onClick={() => handleViewDetails(person)} className="hover:bg-slate-800/20 cursor-pointer group transition-colors">
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-black overflow-hidden shadow-inner">
-                                                        {person.photoUrl ? <img src={person.photoUrl} className="w-full h-full object-cover" /> : (person.fullName?.[0] ?? '?')}
-                                                    </div>
-                                                    <Text variant="small" className="font-bold text-white group-hover:text-cyan-400 transition-colors uppercase tracking-tight">{person.fullName}</Text>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <Badge variant="secondary" className="bg-slate-800/50 border-slate-700 text-xs py-0 px-2">{person.role}</Badge>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <Badge variant={person.status === 'Active' ? 'success' : 'default'} className="text-[10px] py-0 px-2">{person.status}</Badge>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="scale-90 origin-left">
-                                                    {getComplianceBadge(person)}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleDeletePersonnel(person.id); }} className="hover:bg-red-950/30">
-                                                    <Trash2 className="w-4 h-4 text-slate-500 group-hover:text-red-500 transition-colors" />
-                                                </Button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
-                ) : (
-                    <div className="h-[600px] w-full">
-                        <MapContainer center={[39.8283, -98.5795]} zoom={4} style={{ height: '100%', width: '100%' }}>
-                            <TileLayer
-                                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                            />
-                            {filteredPersonnel.filter(p => p.latitude && p.longitude).map(person => (
-                                <React.Fragment key={person.id}>
-                                    <Marker position={[person.latitude!, person.longitude!]}>
-                                        <Popup>
-                                            <div className="text-center">
-                                                <div className="font-bold">{person.fullName}</div>
-                                                <div className="text-xs text-slate-500">{person.role}</div>
-                                                <div className="text-xs mt-1">Travel Radius: {person.maxTravelDistance || 0} miles</div>
-                                            </div>
-                                        </Popup>
-                                    </Marker>
-                                    {person.maxTravelDistance && person.maxTravelDistance > 0 && (
-                                        <Circle
-                                            center={[person.latitude!, person.longitude!]}
-                                            pathOptions={{ fillColor: 'blue', color: 'blue', opacity: 0.2, fillOpacity: 0.1 }}
-                                            radius={person.maxTravelDistance * 1609.34} // Convert miles to meters
-                                        />
-                                    )}
-                                </React.Fragment>
-                            ))}
-                        </MapContainer>
-                    </div>
-                )}
-            </Card>
 
             {isAddModalOpen && (
                 <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-md">
@@ -614,7 +972,22 @@ const PersonnelTracker: React.FC = () => {
                                     <Input label="City" value={newPersonnel.city || ''} onChange={e => setNewPersonnel({ ...newPersonnel, city: e.target.value })} />
                                     <Input label="State" value={newPersonnel.state || ''} onChange={e => setNewPersonnel({ ...newPersonnel, state: e.target.value })} />
                                     <Input label="Zip Code" value={newPersonnel.zipCode || ''} onChange={e => setNewPersonnel({ ...newPersonnel, zipCode: e.target.value })} />
-                                    <Input label="Country" value={newPersonnel.country || 'US'} onChange={e => setNewPersonnel({ ...newPersonnel, country: e.target.value })} />
+                                    <Input label="Country Code" value={newPersonnel.country || 'US'} onChange={e => setNewPersonnel({ ...newPersonnel, country: e.target.value })} />
+                                </div>
+                                {/* Assigned Country (FK to countries table) */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">Assigned Country</label>
+                                    <select
+                                        className="w-full p-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        value={(newPersonnel as any).countryId || ''}
+                                        onChange={e => setNewPersonnel({ ...newPersonnel, countryId: e.target.value || undefined } as any)}
+                                    >
+                                        <option value="">— No country assignment —</option>
+                                        {enabledCountries.map((c: any) => (
+                                            <option key={c.id} value={c.id}>{c.name} ({c.iso_code})</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-slate-400">This scopes the pilot to the selected country's dashboard view.</p>
                                 </div>
                             </div>
 
@@ -748,9 +1121,9 @@ const PersonnelTracker: React.FC = () => {
             {
                 isDetailModalOpen && selectedPerson && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] text-slate-900">
                             {/* Header */}
-                            <div className="px-6 py-5 border-b flex justify-between items-center bg-slate-50">
+                            <div className="px-6 py-5 border-b bg-slate-50 flex flex-wrap gap-y-3 justify-between items-center">
                                 <div className="flex items-center gap-4">
                                     <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer relative group" onClick={() => photoInputRef.current?.click()}>
                                         <input type="file" ref={photoInputRef} className="hidden" accept="image/*" onChange={handlePhotoUpload} />
@@ -759,7 +1132,7 @@ const PersonnelTracker: React.FC = () => {
                                     </div>
                                     <div>
                                         <Heading level={3} className="text-slate-900">{selectedPerson.fullName}</Heading>
-                                        <div className="flex gap-2 mt-1 items-center">
+                                        <div className="flex gap-2 mt-1 items-center flex-wrap">
                                             <Badge variant="outline">{selectedPerson.role}</Badge>
                                             <Badge variant={selectedPerson.status === 'Active' ? 'success' : 'default'}>{selectedPerson.status}</Badge>
                                             {selectedPerson.onboarding_status && (
@@ -770,18 +1143,27 @@ const PersonnelTracker: React.FC = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                                     {selectedPerson.onboarding_status !== 'completed' && (
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
-                                            onClick={() => handleSendOnboarding(selectedPerson.id)}
+                                            className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 whitespace-nowrap"
+                                            onClick={() => handleSendOnboarding(selectedPerson.id, selectedPerson.email)}
                                         >
                                             <Send className="w-4 h-4 mr-2" />
                                             Send Onboarding
                                         </Button>
                                     )}
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 whitespace-nowrap"
+                                        onClick={() => handleProvisionAccount(selectedPerson.id, selectedPerson.email)}
+                                    >
+                                        <ShieldCheck className="w-4 h-4 mr-2" />
+                                        Provision Account
+                                    </Button>
                                     <Button variant="ghost" size="icon" onClick={() => setIsDetailModalOpen(false)}><X /></Button>
                                 </div>
                             </div>
@@ -811,11 +1193,11 @@ const PersonnelTracker: React.FC = () => {
                             )}
 
                             {/* Tabs */}
-                            <div className="flex border-b border-slate-800 bg-slate-950/50 px-4 pt-2">
+                            <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-2">
                                 {['details', 'performance', 'schedule', 'banking', 'documents'].map(tab => (
                                     <button
                                         key={tab}
-                                        className={`px-6 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${modalTab === tab ? 'text-cyan-400 border-cyan-400' : 'text-slate-500 border-transparent hover:text-slate-300'}`}
+                                        className={`px-6 py-4 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all ${modalTab === tab ? 'text-blue-600 border-blue-600' : 'text-slate-500 border-transparent hover:text-slate-800'}`}
                                         onClick={() => setModalTab(tab as any)}
                                     >
                                         {tab === 'details' ? 'Profile' : tab}
@@ -824,7 +1206,7 @@ const PersonnelTracker: React.FC = () => {
                             </div>
 
                             {/* Content */}
-                            <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-white">
+                            <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-white text-slate-900">
                                 {modalTab === 'performance' && selectedPerson && (
                                     <AxisPerformanceTab pilotId={selectedPerson.id} />
                                 )}
@@ -882,17 +1264,17 @@ const PersonnelTracker: React.FC = () => {
                                             </div>
                                         ) : (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
-                                                <div><Text variant="small" className="font-bold text-slate-500">Contact</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.email}</Text><Text>{selectedPerson.phone}</Text><Text className="text-slate-400">{selectedPerson.secondaryPhone}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Contact</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.email}</Text><Text className="text-slate-900 font-medium">{selectedPerson.phone}</Text><Text className="text-slate-500">{selectedPerson.secondaryPhone}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Address</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.homeAddress}</Text><Text>{selectedPerson.city}, {selectedPerson.state} {selectedPerson.zipCode}</Text><Text>{selectedPerson.country}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Address</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.homeAddress}</Text><Text className="text-slate-900 font-medium">{selectedPerson.city}, {selectedPerson.state} {selectedPerson.zipCode}</Text><Text className="text-slate-900 font-medium">{selectedPerson.country}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Emergency</Text>
-                                                    <div className="mt-1"><Text>{selectedPerson.emergencyContactName || 'N/A'}</Text><Text>{selectedPerson.emergencyContactPhone}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Emergency</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactName || 'N/A'}</Text><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactPhone}</Text></div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500">Professional</Text>
-                                                    <div className="mt-1"><Text>Max Travel: {selectedPerson.maxTravelDistance} miles</Text><Text>Company: {selectedPerson.companyName || 'N/A'}</Text></div>
+                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Professional</Text>
+                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">Max Travel: {selectedPerson.maxTravelDistance} miles</Text><Text className="text-slate-900 font-medium">Company: {selectedPerson.companyName || 'N/A'}</Text></div>
                                                 </div>
                                             </div>
                                         )}
@@ -920,7 +1302,16 @@ const PersonnelTracker: React.FC = () => {
                                                 </div>
                                                 <Input label="Bank Name" value={editedBankingInfo.bankName || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, bankName: e.target.value }))} />
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <Input label="Routing" value={editedBankingInfo.routingNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, routingNumber: e.target.value }))} />
+                                                    <Input label="Routing" value={editedBankingInfo.routingNumber || ''} onChange={e => {
+                                                        const routing = e.target.value;
+                                                        const bank = MAJOR_US_BANKS.find(b => b.routingNumber === routing);
+                                                        setEditedBankingInfo(prev => ({
+                                                            ...prev,
+                                                            routingNumber: routing,
+                                                            bankName: bank ? bank.name : prev.bankName,
+                                                            swiftCode: bank ? (bank as any).swiftCode : prev.swiftCode
+                                                        }));
+                                                    }} />
                                                     <div className="space-y-2">
                                                         <label className="text-sm font-medium text-slate-700">Account Type</label>
                                                         <select
@@ -935,24 +1326,58 @@ const PersonnelTracker: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-4">
-                                                    <Input label="Account" type="password" value={editedBankingInfo.accountNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, accountNumber: e.target.value }))} />
+                                                    <Input label="Account" type="text" value={editedBankingInfo.accountNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, accountNumber: e.target.value }))} />
                                                     <Input label="Swift Code" value={editedBankingInfo.swiftCode || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, swiftCode: e.target.value }))} />
+                                                </div>
+                                                <div className="space-y-2 pt-4 border-t">
+                                                    <label className="text-sm font-medium text-slate-700">Daily Rate ($)</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        className="w-full p-2 border rounded-lg bg-white text-slate-900 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                        placeholder="e.g. 450.00"
+                                                        value={editedBankingInfo.dailyRate || ''}
+                                                        onChange={e => setEditedBankingInfo(prev => ({ ...prev, dailyRate: parseFloat(e.target.value) || null }))}
+                                                    />
+                                                    <p className="text-xs text-slate-400">Standard daily rate of pay for this personnel</p>
                                                 </div>
                                             </>
                                         ) : (
                                             <div className="space-y-4">
                                                 <div className="bg-slate-50 p-4 rounded-lg border">
                                                     <Text variant="small" className="font-bold text-slate-500 uppercase mb-2">Tax Info</Text>
-                                                    <Text>{selectedPerson.taxClassification || 'Not set'}</Text>
+                                                    <Text className="text-slate-900 font-medium">{selectedPerson.taxClassification || 'Not set'}</Text>
                                                 </div>
                                                 <div className="bg-slate-50 p-4 rounded-lg border">
                                                     <Text variant="small" className="font-bold text-slate-500 uppercase mb-2">Banking</Text>
                                                     <div className="grid grid-cols-2 gap-4">
-                                                        <div><Text variant="small" className="text-slate-500">Bank</Text><Text>{bankingInfo?.bankName || 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Account Type</Text><Badge variant="outline">{bankingInfo?.accountType || 'Checking'}</Badge></div>
-                                                        <div><Text variant="small" className="text-slate-500">Routing</Text><Text>{bankingInfo?.routingNumber ? '****' + bankingInfo.routingNumber.slice(-4) : 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Account</Text><Text>{bankingInfo?.accountNumber ? '****' + bankingInfo.accountNumber.slice(-4) : 'Not set'}</Text></div>
-                                                        <div><Text variant="small" className="text-slate-500">Swift Code</Text><Text>{bankingInfo?.swiftCode || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Bank</Text><Text className="text-slate-900 font-medium">{bankingInfo?.bankName || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Account Type</Text><Badge variant="outline" className="border-slate-300 text-slate-700">{bankingInfo?.accountType || 'Checking'}</Badge></div>
+                                                        <div>
+                                                            <Text variant="small" className="text-slate-500 mb-1">Routing</Text>
+                                                            <div className="flex items-center gap-2">
+                                                                <Text className="text-slate-900 font-mono font-medium">{bankingInfo?.routingNumber || 'Not set'}</Text>
+                                                                {bankingInfo?.routingNumber && (
+                                                                    <button onClick={() => navigator.clipboard.writeText(bankingInfo.routingNumber!)} className="text-slate-400 hover:text-blue-600 transition-colors" title="Copy routing number">
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <Text variant="small" className="text-slate-500 mb-1">Account</Text>
+                                                            <div className="flex items-center gap-2">
+                                                                <Text className="text-slate-900 font-mono font-medium">{bankingInfo?.accountNumber || 'Not set'}</Text>
+                                                                {bankingInfo?.accountNumber && (
+                                                                    <button onClick={() => navigator.clipboard.writeText(bankingInfo.accountNumber!)} className="text-slate-400 hover:text-blue-600 transition-colors" title="Copy account number">
+                                                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Swift Code</Text><Text className="text-slate-900 font-medium">{bankingInfo?.swiftCode || 'Not set'}</Text></div>
+                                                        <div><Text variant="small" className="text-slate-500 mb-1">Daily Rate</Text><Text className="font-semibold text-green-700">{bankingInfo?.dailyRate ? `$${bankingInfo.dailyRate.toFixed(2)}` : 'Not set'}</Text></div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -960,63 +1385,11 @@ const PersonnelTracker: React.FC = () => {
                                     </div>
                                 )}
 
-                                {modalTab === 'documents' && (
-                                    <div className="space-y-6">
-                                        <div className="bg-slate-50 p-4 rounded-lg border space-y-4">
-                                            <Heading level={4}>Upload Document</Heading>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <label className="text-sm font-medium text-slate-700">Document Type</label>
-                                                    <select className="w-full p-2 border rounded-lg bg-white" value={docType} onChange={e => setDocType(e.target.value)}>
-                                                        <option value="License">License (Driver/FAA)</option>
-                                                        <option value="W9">W9 Form</option>
-                                                        <option value="Insurance">Insurance</option>
-                                                        <option value="Other">Other</option>
-                                                    </select>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-sm font-medium text-slate-700">Expiration Date (Optional)</label>
-                                                    <input type="date" className="w-full p-2 border rounded-lg bg-white" value={docExpiration} onChange={e => setDocExpiration(e.target.value)} />
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploadingDoc} className="flex-1 items-center justify-center">
-                                                    {uploadingDoc ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
-                                                    Select File
-                                                </Button>
-                                                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Heading level={4}>Current Documents</Heading>
-                                            <div className="border rounded-lg divide-y">
-                                                {documents.length === 0 && <div className="p-4 text-center text-slate-500 text-sm">No documents found.</div>}
-                                                {documents.map(doc => (
-                                                    <div key={doc.id} className="p-3 flex justify-between items-center hover:bg-slate-50">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="bg-blue-100 p-2 rounded text-blue-600"><FileText className="w-4 h-4" /></div>
-                                                            <div>
-                                                                <Text className="font-medium">{doc.document_type}</Text>
-                                                                <Text variant="small" className="text-slate-500">{new Date(doc.created_at).toLocaleDateString()} {doc.expiration_date && `• Exp: ${new Date(doc.expiration_date).toLocaleDateString()}`}</Text>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <Badge variant={doc.validation_status === 'VALID' ? 'success' : 'outline'}>{doc.validation_status}</Badge>
-                                                            <a
-                                                                href={doc.file_url}
-                                                                target="_blank"
-                                                                className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600 transition-colors"
-                                                                title="Download Document"
-                                                            >
-                                                                <Download className="w-4 h-4" />
-                                                            </a>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
+                                {modalTab === 'documents' && selectedPerson && (
+                                    <PilotDocumentsPanel
+                                        personnelId={selectedPerson.id}
+                                        personnelName={selectedPerson.fullName}
+                                    />
                                 )}
                             </div>
 
@@ -1046,13 +1419,150 @@ const PersonnelTracker: React.FC = () => {
                             <Text className="mb-6">Send onboarding documents to {onboardingPromptOpen.name}?</Text>
                             <div className="flex gap-3 justify-center">
                                 <Button variant="ghost" onClick={() => setOnboardingPromptOpen({ isOpen: false })}>Later</Button>
-                                <Button onClick={() => onboardingPromptOpen.personnelId && handleSendOnboarding(onboardingPromptOpen.personnelId)}>Send Now</Button>
+                                <Button onClick={() => onboardingPromptOpen.personnelId && onboardingPromptOpen.email && handleSendOnboarding(onboardingPromptOpen.personnelId, onboardingPromptOpen.email)}>Send Now</Button>
                             </div>
                         </div>
                     </div>
                 )
             }
-        </div >
+            {/* Document Viewer Modal */}
+            {viewingDoc && (
+                <div className="fixed inset-0 z-[100] flex justify-center items-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" style={{ height: '90vh' }}>
+                        <div className="flex justify-between items-center p-4 border-b bg-slate-50">
+                            <div>
+                                <Heading level={3} className="text-slate-800">{viewingDoc.document_type || 'Document Viewer'}</Heading>
+                                <Text variant="small" className="text-slate-500">Uploaded on {new Date(viewingDoc.uploaded_at || viewingDoc.created_at).toLocaleDateString()}</Text>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <a
+                                    href={viewingDoc.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm flex items-center transition-colors shadow-sm"
+                                >
+                                    <Download className="w-4 h-4 mr-2" /> Download
+                                </a>
+                                <button
+                                    onClick={handleCloseViewer}
+                                    className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 bg-slate-200 p-2 md:p-6 overflow-hidden flex justify-center items-center">
+                            {/* Secure document viewer via backend proxy */}
+                            {loadingView ? (
+                                <div className="flex flex-col items-center justify-center text-slate-500 space-y-4">
+                                    <Loader2 className="w-8 h-8 animate-spin" />
+                                    <p>Loading document...</p>
+                                </div>
+                            ) : viewingDoc.file_url.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/) ? (
+                                <img
+                                    src={viewingDocBlobUrl || viewingDoc.file_url}
+                                    alt="Document Viewer"
+                                    className="max-w-full max-h-full object-contain rounded shadow-sm bg-white"
+                                />
+                            ) : viewingDocBlobUrl ? (
+                                <iframe
+                                    src={viewingDocBlobUrl}
+                                    className="w-full h-full rounded shadow-sm bg-white border-0"
+                                    title="Document Viewer"
+                                />
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full bg-white text-slate-500 space-y-4 p-8">
+                                    <FileText className="w-12 h-12 text-slate-300" />
+                                    <p className="text-slate-500">Failed to load document preview.</p>
+                                    <a href={viewingDoc.file_url} target="_blank" rel="noreferrer" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                        Open in New Tab
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Send Pre-Onboarding Documents Modal */}
+            {isSendDocsModalOpen && (
+                <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+                    <Card variant="glass" className="border-slate-800 w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+                        <CardHeader className="px-6 py-5 border-b border-slate-800 flex flex-row justify-between items-center bg-slate-900/50">
+                            <CardTitle className="text-xl font-black text-white uppercase tracking-widest">Send Documents</CardTitle>
+                            <Button variant="ghost" size="icon" onClick={() => setIsSendDocsModalOpen(false)} className="text-slate-400 hover:text-white"><X /></Button>
+                        </CardHeader>
+
+                        <div className="p-6 space-y-6 flex-1">
+                            <Text className="text-slate-400 text-sm">
+                                Send standalone onboarding documents directly to a candidate's email without creating a system profile.
+                            </Text>
+
+                            <Input
+                                label="Candidate Email"
+                                type="email"
+                                value={sendDocsEmail}
+                                onChange={e => setSendDocsEmail(e.target.value)}
+                                placeholder="candidate@example.com"
+                            />
+
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-medium text-slate-300">Select Documents to Attach:</label>
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={() => setSelectedDocs(['nda', 'pilot_agreement', 'onboarding_guide', 'w9', 'direct_deposit'])}
+                                            className="text-xs text-cyan-500 hover:text-cyan-400 font-bold uppercase tracking-wider"
+                                        >
+                                            Select All
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedDocs([])}
+                                            className="text-xs text-slate-500 hover:text-slate-400 font-bold uppercase tracking-wider"
+                                        >
+                                            None
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 bg-slate-900/50 p-4 border border-slate-800 rounded-lg">
+                                    {[
+                                        { id: 'nda', label: 'Non-Disclosure Agreement (NDA)' },
+                                        { id: 'pilot_agreement', label: 'Pilot Services Agreement' },
+                                        { id: 'onboarding_guide', label: 'Pilot Onboarding Guide' },
+                                        { id: 'w9', label: 'W-9 Tax Form' },
+                                        { id: 'direct_deposit', label: 'Direct Deposit Authorization' }
+                                    ].map(doc => (
+                                        <label key={doc.id} className="flex items-center gap-3 cursor-pointer group">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-cyan-600 focus:ring-cyan-600/50 focus:ring-offset-slate-900"
+                                                checked={selectedDocs.includes(doc.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedDocs(prev => [...prev, doc.id]);
+                                                    } else {
+                                                        setSelectedDocs(prev => prev.filter(id => id !== doc.id));
+                                                    }
+                                                }}
+                                            />
+                                            <span className="text-sm text-slate-300 group-hover:text-white transition-colors">{doc.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-5 bg-slate-950/80 border-t border-slate-800 flex justify-end gap-3 z-10">
+                            <Button variant="outline" onClick={() => setIsSendDocsModalOpen(false)} className="border-slate-700 text-slate-400">Cancel</Button>
+                            <Button onClick={handleSendDocs} disabled={sendingDocs || selectedDocs.length === 0 || !sendDocsEmail} className="bg-cyan-600 hover:bg-cyan-500 text-white border-none px-6 font-black tracking-widest uppercase flex items-center gap-2 disabled:opacity-50">
+                                {sendingDocs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                SEND EMAILS
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            )}
+        </div>
     );
 };
 

@@ -4,10 +4,27 @@ import { generateToken, generateRefreshToken, hashPassword, comparePassword, ver
 import { setCache, deleteCache } from '../config/redis.js';
 import jwt from 'jsonwebtoken';
 
+// ── Auth cookie helpers ───────────────────────────────────────────────────────
+const COOKIE_OPTIONS = {
+    httpOnly: true,              // Not accessible to JavaScript — prevents XSS token theft
+    secure: process.env.NODE_ENV === 'production',  // HTTPS only in prod
+    sameSite: 'Strict',         // Blocks CSRF cross-site requests
+    path: '/',
+};
+
+const setAuthCookies = (res, token, refreshToken) => {
+    res.cookie('access_token', token, { ...COOKIE_OPTIONS, maxAge: 2 * 60 * 60 * 1000 });          // 2h
+    res.cookie('refresh_token', refreshToken, { ...COOKIE_OPTIONS, maxAge: 30 * 24 * 60 * 60 * 1000 }); // 30d
+};
+
+const clearAuthCookies = (res) => {
+    res.clearCookie('access_token',  { ...COOKIE_OPTIONS });
+    res.clearCookie('refresh_token', { ...COOKIE_OPTIONS });
+};
+
+
 export const register = async (req, res, next) => {
     try {
-        console.log('DEBUG: Register Endpoint Hit');
-        console.log('DEBUG: Payload:', JSON.stringify(req.body, null, 2));
         const { email, password, fullName, companyName, title, role, adminSecret } = req.body;
 
         // Validation
@@ -16,23 +33,19 @@ export const register = async (req, res, next) => {
         }
 
         // Determine Role & Permissions
+        const normalizedInputRole = role ? role.toUpperCase() : 'USER';
         let userRole = 'USER';
         let userPermissions = ['CREATE_REPORT', 'EDIT_REPORT'];
 
-        if (role && (role.toUpperCase() === 'ADMIN')) {
-            console.log(`DEBUG: Admin role requested. Secret provided: ${adminSecret ? 'YES' : 'NO'}`);
-            if (adminSecret === 'SKYLENS-ADMIN-2025') {
+        if (normalizedInputRole === 'ADMIN') {
+            if (adminSecret && adminSecret === process.env.ADMIN_REGISTRATION_SECRET) {
                 userRole = 'ADMIN';
                 // Full Access for Admin
                 userPermissions = ['CREATE_REPORT', 'EDIT_REPORT', 'DELETE_REPORT', 'RELEASE_REPORT', 'MANAGE_USERS', 'MANAGE_SETTINGS', 'VIEW_MASTER_VAULT'];
-                console.log('DEBUG: Admin Access Granted');
             } else {
-                console.log(`DEBUG: Admin Secret Mismatch. Received: '${adminSecret}'`);
-                // If they tried to be admin but failed secret, reject or downgrade? 
-                // Better to reject for security clarity
                 throw new AppError('Invalid Admin Authorization Token', 403);
             }
-        } else if (role === 'SENIOR_INSPECTOR') {
+        } else if (normalizedInputRole === 'SENIOR_INSPECTOR') {
             userRole = 'SENIOR_INSPECTOR';
             userPermissions = ['CREATE_REPORT', 'EDIT_REPORT', 'RELEASE_REPORT'];
         }
@@ -77,7 +90,8 @@ export const register = async (req, res, next) => {
         const token = generateToken(user.id, 1);
         const refreshToken = generateRefreshToken(user.id, 1);
 
-        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
+        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
+            || (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-refresh-secret' : (() => { throw new Error('JWT_REFRESH_SECRET not set'); })());
         const decodedRefresh = verifyToken(refreshToken, JWT_REFRESH_SECRET);
 
         // Persist refresh token family
@@ -86,6 +100,9 @@ export const register = async (req, res, next) => {
              VALUES ($1, $2, $3, $4, $5)`,
             [decodedRefresh.jti, user.id, decodedRefresh.family_id, 'active', new Date(decodedRefresh.exp * 1000)]
         );
+
+        // Set HttpOnly cookies — tokens no longer need to be stored in localStorage
+        setAuthCookies(res, token, refreshToken);
 
         res.status(201).json({
             success: true,
@@ -136,9 +153,12 @@ export const login = async (req, res, next) => {
             companyName: user.company_name,
             title: user.title,
             role: user.role,
-            permissions: user.permissions,
+            profilePictureUrl: user.profile_picture_url,
+            driveLinked: user.drive_linked,
+            driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             authVersion: user.auth_version,
+            forcePasswordReset: user.force_password_reset ?? false,
             createdAt: user.created_at,
             lastLogin: new Date()
         };
@@ -156,7 +176,8 @@ export const login = async (req, res, next) => {
         const token = generateToken(user.id, user.auth_version);
         const refreshToken = generateRefreshToken(user.id, user.auth_version);
 
-        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
+        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
+            || (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-refresh-secret' : (() => { throw new Error('JWT_REFRESH_SECRET not set'); })());
         const decodedRefresh = verifyToken(refreshToken, JWT_REFRESH_SECRET);
 
         // Persist refresh token family
@@ -170,6 +191,9 @@ export const login = async (req, res, next) => {
             console.error('🔥 CRITICAL DB ERROR on Refresh Token Insert:', insertError);
             throw new AppError(`DB Insert Failed: ${insertError.message}`, 500);
         }
+
+        // Set HttpOnly cookies — tokens no longer need to be stored in localStorage
+        setAuthCookies(res, token, refreshToken);
 
         res.json({
             success: true,
@@ -194,7 +218,8 @@ export const logout = async (req, res, next) => {
 
             try {
                 // Determine TTL from token remaining lifetime
-                const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+                const JWT_SECRET = process.env.JWT_SECRET
+                    || (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-jwt-secret' : (() => { throw new Error('JWT_SECRET not set'); })());
                 const decoded = jwt.verify(token, JWT_SECRET);
                 const ttlSeconds = Math.max(1, decoded.exp - Math.floor(Date.now() / 1000));
 
@@ -208,6 +233,9 @@ export const logout = async (req, res, next) => {
 
         // Clear user cache
         await deleteCache(`user:${req.user.id}`);
+
+        // Clear HttpOnly auth cookies
+        clearAuthCookies(res);
 
         // Log audit event
         await query(
@@ -247,7 +275,8 @@ export const getMe = async (req, res, next) => {
             driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             createdAt: user.created_at,
-            lastLogin: user.last_login
+            lastLogin: user.last_login,
+            forcePasswordReset: user.force_password_reset ?? false
         };
 
         res.json({
@@ -264,14 +293,17 @@ export const updateMe = async (req, res, next) => {
         const userId = req.user.id;
         const { fullName, companyName, title, driveFolder, role, adminSecret } = req.body;
 
+        const normalizedInputRole = role ? role.toUpperCase() : null;
+
         // Allow role upgrade only with correct secret
         let roleValue = null;
-        if (role === 'ADMIN' && adminSecret === 'SKYLENS-ADMIN-2025') {
+        // SECURITY: Role escalation requires ADMIN_REGISTRATION_SECRET from env — never hardcode
+        if (normalizedInputRole === 'ADMIN' && adminSecret === process.env.ADMIN_REGISTRATION_SECRET && process.env.ADMIN_REGISTRATION_SECRET) {
             roleValue = 'ADMIN';
-        } else if (role && role !== 'ADMIN') {
+        } else if (normalizedInputRole && normalizedInputRole !== 'ADMIN') {
             // Allow downgrading or changing to other roles if already admin?
             // For now, simpler: only allow if already admin or secret provided
-            if (req.user.role === 'ADMIN') roleValue = role;
+            if (req.user.role === 'ADMIN') roleValue = normalizedInputRole;
         }
 
         const result = await query(
@@ -305,7 +337,8 @@ export const updateMe = async (req, res, next) => {
             driveFolder: user.drive_folder,
             tenantId: user.tenant_id,
             createdAt: user.created_at,
-            lastLogin: user.last_login
+            lastLogin: user.last_login,
+            forcePasswordReset: user.force_password_reset ?? false
         };
 
         // Cache user data
@@ -332,11 +365,12 @@ export const refreshAccessToken = async (req, res, next) => {
         const { refreshToken } = req.body;
         if (!refreshToken) throw new AppError('Refresh token required', 400);
 
-        // Strict verify (do this BEFORE DB work)
-        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key';
+        const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
+            || (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-refresh-secret' : (() => { throw new Error('JWT_REFRESH_SECRET not set'); })());
         const JWT_ISS = process.env.JWT_ISS || 'axis-drone-platform';
         const JWT_AUD = process.env.JWT_AUD || 'axis-drone-client';
 
+        // Wrap jwt.verify so expired/malformed tokens return 401, not 500
         let decoded;
         try {
             decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET, {
@@ -344,7 +378,7 @@ export const refreshAccessToken = async (req, res, next) => {
                 issuer: JWT_ISS,
                 audience: JWT_AUD,
             });
-        } catch (err) {
+        } catch (jwtErr) {
             throw new AppError('Invalid or expired refresh token', 401);
         }
 
@@ -362,6 +396,34 @@ export const refreshAccessToken = async (req, res, next) => {
             );
 
             if (consumeResult.rows.length === 0) {
+                // Check if this is a benign concurrent refresh within a 30s grace window
+                // (e.g. two browser tabs both hit a 401 at the same moment)
+                const recentResult = await client.query(
+                    `SELECT user_id, family_id FROM refresh_tokens
+                     WHERE jti = $1 AND status = 'used' AND updated_at > NOW() - INTERVAL '30 seconds'`,
+                    [decoded.jti]
+                );
+
+                if (recentResult.rows.length > 0) {
+                    // Safe concurrent refresh — mint a fresh pair for this family
+                    const { user_id, family_id } = recentResult.rows[0];
+                    const userResult = await client.query(
+                        'SELECT auth_version FROM users WHERE id = $1',
+                        [user_id]
+                    );
+                    const authVersion = userResult.rows[0].auth_version;
+                    const newToken = generateToken(user_id, authVersion);
+                    const newRefreshToken = generateRefreshToken(user_id, authVersion, family_id);
+                    const newDecoded = verifyToken(newRefreshToken, JWT_REFRESH_SECRET);
+                    if (!newDecoded?.jti) throw new AppError('Refresh mint failed (missing jti)', 500);
+                    await client.query(
+                        `INSERT INTO refresh_tokens (jti, user_id, family_id, status, expires_at) VALUES ($1,$2,$3,$4,$5)`,
+                        [newDecoded.jti, user_id, family_id, 'active', new Date(newDecoded.exp * 1000)]
+                    );
+                    console.log(`[auth] Concurrent refresh grace: user=${user_id} jti=${decoded.jti}`);
+                    return { token: newToken, refreshToken: newRefreshToken };
+                }
+
                 // TOKEN REUSE DETECTED or invalid token context
                 // Security: Lookup the real family/user by JTI instead of trusting decoded payload
                 const existing = await client.query(
@@ -429,6 +491,9 @@ export const refreshAccessToken = async (req, res, next) => {
             return { token: newToken, refreshToken: newRefreshToken };
         });
 
+        // Set refreshed HttpOnly cookies
+        setAuthCookies(res, authResult.token, authResult.refreshToken);
+
         res.json({ success: true, data: authResult });
     } catch (error) {
         next(error);
@@ -467,12 +532,9 @@ export const updatePassword = async (req, res, next) => {
 
         // Update password
         await query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
+            'UPDATE users SET password_hash = $1, force_password_reset = false WHERE id = $2',
             [newPasswordHash, userId]
         );
-
-        // Invalidate cache
-        await deleteCache(`user:${userId}`);
 
         // Log audit event
         await query(
@@ -567,6 +629,7 @@ export const setPasswordWithToken = async (req, res, next) => {
                  invitation_token_hash = NULL, 
                  invitation_expires_at = NULL,
                  auth_version = auth_version + 1,
+                 force_password_reset = false,
                  updated_at = NOW()
              WHERE id = $2`,
             [passwordHash, userId]

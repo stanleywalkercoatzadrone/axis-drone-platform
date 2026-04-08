@@ -16,7 +16,7 @@ import { query } from '../config/database.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-const MODEL_VERSION = 'gemini-1.5-pro';
+const MODEL_VERSION = 'gemini-2.0-flash';
 const PROMPT_VERSION = '1.0.0';
 
 // Initialize Gemini client
@@ -228,20 +228,15 @@ class AIService {
             });
 
             // Execute LLM call with retry
-            const { text, usage } = await executeWithRetry(async () => {
-                const result = await this.model.generateContent(prompt);
-                const response = await result.response;
-                return {
-                    text: response.text(),
-                    usage: response.usageMetadata
-                };
+            const result = await executeWithRetry(async () => {
+                const response = await this.model.generateContent(prompt);
+                return response.response.text();
             });
 
             // Parse structured response
-            const structured = parseStructuredResponse(text);
+            const structured = parseStructuredResponse(result);
 
             const processingTime = Date.now() - startTime;
-            const tokenCount = usage?.totalTokenCount || 0;
 
             // Log decision
             const requestId = await logDecision(
@@ -251,23 +246,21 @@ class AIService {
                 structured,
                 {
                     processingTime,
-                    tokenCount,
                     promptVersion: template.version,
                     modelVersion: MODEL_VERSION
                 }
             );
 
             // Update usage metrics
-            await updateUsageMetrics(userId, endpoint, tokenCount, processingTime);
+            await updateUsageMetrics(userId, endpoint, null, processingTime);
 
             return {
                 requestId,
                 data: structured,
                 metadata: {
-                    model_version: MODEL_VERSION,
-                    token_count: tokenCount,
-                    provider: 'Google Gemini',
-                    latency: processingTime
+                    processingTime,
+                    modelVersion: MODEL_VERSION,
+                    promptVersion: template.version
                 }
             };
         } catch (error) {

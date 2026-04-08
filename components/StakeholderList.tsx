@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
 import StakeholderForm from './StakeholderForm';
-import { Mail, Phone, User, Plus } from 'lucide-react';
+import { Mail, Phone, User, Plus, UserCheck } from 'lucide-react';
 
 interface Stakeholder {
     id: string;
@@ -14,75 +13,109 @@ interface Stakeholder {
 }
 
 const StakeholderList: React.FC<{ clientId: string }> = ({ clientId }) => {
-    const { tLabel } = useIndustry();
     const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
 
-    useEffect(() => {
-        const fetchStakeholders = async () => {
-            setIsLoading(true);
-            try {
-                const response = await apiClient.get(`/clients/${clientId}/stakeholders`);
-                if (response.data.success) {
-                    setStakeholders(response.data.data);
-                }
-            } catch (error) {
-                console.error('Error fetching stakeholders:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchStakeholders();
-    }, [clientId]);
+    const fetchStakeholders = async () => {
+        setIsLoading(true);
+        try {
+            const response = await apiClient.get(`/clients/${clientId}/stakeholders`);
+            if (response.data.success) setStakeholders(response.data.data);
+        } catch (error) {
+            console.error('Error fetching POCs:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-    if (isLoading) return <div className="py-10 text-center text-sm text-slate-500">Loading {tLabel('stakeholder').toLowerCase()}s...</div>;
+    useEffect(() => { fetchStakeholders(); }, [clientId]);
+
+    if (isLoading) return (
+        <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
+            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mr-2" />
+            Loading contacts…
+        </div>
+    );
 
     return (
-        <div>
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-slate-900">{tLabel('stakeholder')}s</h3>
+        <div className="space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h3 className="text-base font-bold text-white">Point of Contact</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Key contacts assigned to this client account.</p>
+                </div>
                 <button
                     onClick={() => setIsCreating(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 text-sm font-medium transition-colors"
+                    className="inline-flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/20 transition-all"
                 >
-                    <Plus className="w-4 h-4" />
-                    Add {tLabel('stakeholder')}
+                    <Plus className="w-3.5 h-3.5" />
+                    Add POC
                 </button>
             </div>
 
+            {/* List */}
             {stakeholders.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-lg border border-dashed border-slate-200">
-                    <User className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-500 text-sm">No {tLabel('stakeholder').toLowerCase()}s added yet.</p>
+                <div className="flex flex-col items-center justify-center py-14 rounded-2xl border border-dashed border-white/10 text-slate-600">
+                    <UserCheck className="w-10 h-10 mb-3 opacity-20" />
+                    <p className="text-sm font-semibold text-slate-500">No POCs added yet</p>
+                    <p className="text-xs text-slate-600 mt-1">Add a point of contact for this client.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {stakeholders.map((person) => (
-                        <div key={person.id} className="bg-white p-4 rounded-lg border border-slate-200 flex items-start gap-4 hover:border-blue-300 transition-colors">
-                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
-                                <User className="w-5 h-5" />
-                            </div>
-                            <div>
-                                <h4 className="font-semibold text-slate-900">{person.full_name}</h4>
-                                <p className="text-xs text-slate-500 font-medium mb-2">{person.title} • {person.type}</p>
-                                <div className="space-y-1">
-                                    {person.email && (
-                                        <div className="flex items-center gap-2 text-xs text-slate-600">
-                                            <Mail className="w-3 h-3 text-slate-400" />
-                                            <a href={`mailto:${person.email}`} className="hover:text-blue-600 truncate">{person.email}</a>
+                    {stakeholders.map(person => {
+                        const initials = person.full_name
+                            ? person.full_name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+                            : '?';
+                        return (
+                            <div
+                                key={person.id}
+                                className="rounded-2xl border border-white/10 bg-slate-900/70 p-5 hover:border-blue-500/25 hover:bg-slate-900/90 transition-all"
+                            >
+                                <div className="flex items-start gap-3">
+                                    {/* Avatar */}
+                                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-sm font-black text-blue-300 flex-shrink-0">
+                                        {initials}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-white text-sm truncate">{person.full_name}</p>
+                                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                            {person.title && (
+                                                <span className="text-[10px] text-slate-400 font-semibold">{person.title}</span>
+                                            )}
+                                            {person.type && (
+                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-400 uppercase tracking-wider">
+                                                    {person.type}
+                                                </span>
+                                            )}
                                         </div>
-                                    )}
-                                    {person.phone && (
-                                        <div className="flex items-center gap-2 text-xs text-slate-600">
-                                            <Phone className="w-3 h-3 text-slate-400" />
-                                            <span>{person.phone}</span>
-                                        </div>
-                                    )}
+                                    </div>
                                 </div>
+
+                                {/* Contact details */}
+                                {(person.email || person.phone) && (
+                                    <div className="mt-3 pt-3 border-t border-white/5 space-y-1.5">
+                                        {person.email && (
+                                            <a
+                                                href={`mailto:${person.email}`}
+                                                className="flex items-center gap-2 text-xs text-slate-400 hover:text-blue-300 transition-colors"
+                                            >
+                                                <Mail className="w-3 h-3 flex-shrink-0" />
+                                                <span className="truncate">{person.email}</span>
+                                            </a>
+                                        )}
+                                        {person.phone && (
+                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                                <Phone className="w-3 h-3 flex-shrink-0" />
+                                                <span>{person.phone}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
@@ -92,8 +125,7 @@ const StakeholderList: React.FC<{ clientId: string }> = ({ clientId }) => {
                     onClose={() => setIsCreating(false)}
                     onSuccess={() => {
                         setIsCreating(false);
-                        // Trigger refresh - simpler to force reload or re-fetch if I exposed refetch
-                        window.location.reload(); // Quick dirty refresh or need to lift state
+                        fetchStakeholders();
                     }}
                 />
             )}

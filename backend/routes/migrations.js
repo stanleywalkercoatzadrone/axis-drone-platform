@@ -1,16 +1,22 @@
 import express from 'express';
 import { runMigration } from '../controllers/migrationController.js';
+import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Emergency Migration Route - uses secret key instead of token
-router.post('/run', async (req, res, next) => {
-    // Check for secret key in query or headers
-    const secret = req.query.secret || req.headers['x-migration-secret'];
+// ── All migration routes require authentication + admin role ──────────────────
+// SECURITY: Removed hardcoded secret 'axis2026' — anyone with the secret could
+// run arbitrary migrations or reset any user's password.
+// Now enforced via JWT protect + admin RBAC like all other sensitive routes.
+router.use(protect);
+router.use(authorize('admin', 'ADMIN'));
 
-    if (secret !== 'axis2026') {
-        return res.status(401).json({ success: false, message: 'Unauthorized: Invalid secret' });
-    }
-    next();
-}, runMigration);
+// POST /api/migrations/run  — Execute a named migration
+router.post('/run', runMigration);
+
+// NOTE: The /reset-user-pass endpoint has been permanently removed.
+// Reason: It allowed arbitrary user password resets via a hardcoded query-param
+// secret, leaked all user emails on failed lookups, and had no rate limiting.
+// Use the Admin Dashboard → Users panel to manage user passwords.
+
 export default router;

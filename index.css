@@ -8,12 +8,26 @@
     --background-end-rgb: 255, 255, 255;
 }
 
+/* Checklist item 4: layout overflow and height */
+html, body { height: 100%; }
+
 body {
+    margin: 0;
+    overflow-x: hidden;
     color: rgb(var(--foreground-rgb));
     background: linear-gradient(to bottom,
             transparent,
             rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
 }
+
+/* Force dark text only on explicitly light-themed forms.
+   Dark-themed UIs (slate-900 bg) should let inputs inherit or set their own color. */
+.form-light input,
+.form-light select,
+.form-light textarea {
+    color: #0f172a;
+}
+/* Inputs without a parent .form-light inherit body color — dark UIs can use text-white class. */
 
 /* Custom transitions and glassmorphism helpers */
 .glass {
@@ -42,23 +56,28 @@ body {
     .mission-cost-report,
     .mission-cost-report *,
     .printable-invoice,
-    .printable-invoice * {
+    .printable-invoice *,
+    #axis-print-root,
+    #axis-print-root * {
         visibility: visible;
     }
 
     .mission-cost-report,
-    .printable-invoice {
+    .printable-invoice,
+    #axis-print-root {
         visibility: visible !important;
-        position: absolute;
-        left: 0;
-        top: 0;
+        display: block !important;
+        position: fixed;
+        inset: 0;
         width: 100%;
+        height: auto;
         margin: 0;
-        padding: 40px;
+        padding: 32px;
         background: white;
-        z-index: 9999;
+        z-index: 99999;
         box-shadow: none !important;
         border: none !important;
+        overflow: visible !important;
     }
 
     .no-print,

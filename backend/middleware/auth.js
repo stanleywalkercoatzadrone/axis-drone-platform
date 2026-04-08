@@ -5,7 +5,16 @@ import crypto from 'crypto';
 import { resolveEffectivePermissions, can } from '../services/permissionService.js';
 import { normalizeRole, isAdmin } from '../utils/roleUtils.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// SECURITY: JWT_SECRET must be set via environment variable in production.
+// A weak fallback here would allow any attacker to forge tokens.
+const JWT_SECRET = (() => {
+    const secret = process.env.JWT_SECRET;
+    if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('FATAL: JWT_SECRET environment variable is not set. Cannot start in production without it.');
+    }
+    return secret || 'dev-only-insecure-jwt-secret-do-not-use-in-prod';
+})();
+
 const JWT_ISS = process.env.JWT_ISS || 'axis-drone-platform';
 const JWT_AUD = process.env.JWT_AUD || 'axis-drone-client';
 
@@ -13,30 +22,18 @@ const sha256 = (content) => crypto.createHash('sha256').update(content).digest('
 
 export const protect = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization;
-
-        // Log Authorization header to server for debugging
-        if (req.originalUrl?.includes('/personnel') || req.url?.includes('/personnel')) {
-            console.log(`[AUTH DEBUG] Request to ${req.originalUrl || req.url} - Header: ${authHeader ? authHeader.substring(0, 20) + '...' : 'MISSING'}`);
+        // SECURITY: Prefer HttpOnly cookie (XSS-safe) over Authorization header.
+        // Bearer header is kept as fallback for API clients, Postman, and mobile apps.
+        let token = req.cookies?.access_token;
+        if (!token) {
+            const authHeader = req.headers.authorization;
+            if (authHeader?.startsWith('Bearer ')) {
+                token = authHeader.slice(7);
+            }
         }
 
-        if (!authHeader?.startsWith('Bearer ')) {
-            throw new AppError('Not authorized. Use Bearer scheme.', 401);
-        }
-        const token = authHeader.slice(7).trim();
-
-        // Demo/Sandbox bypass
-        if (token === 'DEMO_TOKEN_UNRESTRICTED' || token === 'DEMO_TOKEN') {
-            req.user = {
-                id: 'demo-user',
-                email: 'demo@axis.ai',
-                fullName: 'Demo Principal',
-                role: 'admin',
-                effectiveRoles: ['admin'],
-                permissions: ['CREATE_REPORT', 'EDIT_REPORT', 'DELETE_REPORT', 'RELEASE_REPORT', 'MANAGE_USERS', 'MANAGE_SETTINGS', 'VIEW_MASTER_VAULT'],
-                tenantId: 'demo-tenant'
-            };
-            return next();
+        if (!token) {
+            throw new AppError('Not authorized. No token provided.', 401);
         }
 
         // Use SHA256 of token for blacklist key to prevent abuse
@@ -159,5 +156,3 @@ export const checkScopedPermission = (permission, scopeIdParam = 'id', scopeType
         next();
     };
 };
-
-export const restrictTo = authorize;

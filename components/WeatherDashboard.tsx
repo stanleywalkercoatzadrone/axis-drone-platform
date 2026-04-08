@@ -573,36 +573,89 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
     // ── Leaflet live map ──────────────────────────────────────────────────
     useEffect(() => {
         if (!geo || !mapRef.current) return;
+
+        let isMounted = true;
+
         const initMap = () => {
+            if (!isMounted) return;
             const L = (window as any).L;
             if (!L) return;
-            if (leafletMapRef.current) {
-                leafletMapRef.current.setView([geo.lat, geo.lon], 12);
-                leafletMarkerRef.current?.setLatLng([geo.lat, geo.lon]);
-                return;
+
+            // Strict cleanup of container to prevent "Map container is already initialized"
+            if (mapRef.current) {
+                // Remove existing map instance if it was tracked
+                if (leafletMapRef.current) {
+                    leafletMapRef.current.off();
+                    leafletMapRef.current.remove();
+                    leafletMapRef.current = null;
+                    leafletMarkerRef.current = null;
+                }
+
+                // Nuclear option: clear DOM if Leaflet left artifacts
+                const container = mapRef.current;
+                while (container.firstChild) {
+                    container.removeChild(container.firstChild);
+                }
             }
-            const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false });
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            map.setView([geo.lat, geo.lon], 12);
-            const marker = L.marker([geo.lat, geo.lon]).addTo(map)
-                .bindPopup(`<b>${geo.city}</b><br>${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`).openPopup();
-            leafletMapRef.current = map;
-            leafletMarkerRef.current = marker;
+
+            try {
+                const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false });
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                map.setView([geo.lat, geo.lon], 12);
+
+                const marker = L.marker([geo.lat, geo.lon]).addTo(map)
+                    .bindPopup(`<b>${geo.city}</b><br>${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`).openPopup();
+
+                leafletMapRef.current = map;
+                leafletMarkerRef.current = marker;
+
+                // Fix for gray tiles when rendered inside flex/grid containers
+                setTimeout(() => {
+                    if (isMounted && leafletMapRef.current) {
+                        leafletMapRef.current.invalidateSize();
+                    }
+                }, 250);
+            } catch (err) {
+                console.error("Leaflet initialization error:", err);
+            }
         };
-        if ((window as any).L) { initMap(); return; }
-        if (!document.getElementById('leaflet-css')) {
-            const link = document.createElement('link');
-            link.id = 'leaflet-css';
-            link.rel = 'stylesheet';
-            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-            document.head.appendChild(link);
+
+        if ((window as any).L) {
+            initMap();
+        } else {
+            if (!document.getElementById('leaflet-css')) {
+                const link = document.createElement('link');
+                link.id = 'leaflet-css';
+                link.rel = 'stylesheet';
+                link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                document.head.appendChild(link);
+            }
+
+            if (!document.getElementById('leaflet-js')) {
+                const script = document.createElement('script');
+                script.id = 'leaflet-js';
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.onload = () => {
+                    if (isMounted) initMap();
+                };
+                document.head.appendChild(script);
+            } else {
+                // Script tag exists but window.L might not be ready yet
+                const existingScript = document.getElementById('leaflet-js') as HTMLScriptElement;
+                existingScript.addEventListener('load', initMap);
+            }
         }
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = initMap;
-        document.head.appendChild(script);
+
         return () => {
-            if (leafletMapRef.current) { leafletMapRef.current.remove(); leafletMapRef.current = null; }
+            isMounted = false;
+            if (leafletMapRef.current) {
+                leafletMapRef.current.off();
+                leafletMapRef.current.remove();
+                leafletMapRef.current = null;
+            }
+            if (mapRef.current) {
+                mapRef.current.innerHTML = '';
+            }
         };
     }, [geo]);
 

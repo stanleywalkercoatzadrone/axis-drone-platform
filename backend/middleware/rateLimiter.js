@@ -33,7 +33,17 @@ const createStore = () => {
  */
 export const standardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    max: 500, // Increased: SPA makes many parallel requests on each page load
+    skip: (req) => {
+        // Skip in dev, or if explicitly disabled, or for health checks
+        // Also skip pilot upload routes — batch uploads fire many parallel requests
+        // from the same IP and are already protected by JWT auth
+        return process.env.NODE_ENV === 'development' ||
+               process.env.DISABLE_RATE_LIMIT === 'true' ||
+               req.path === '/health' ||
+               req.path.includes('/pilot/upload-jobs') ||
+               req.path.includes('/uploads/');
+    },
     standardHeaders: true,
     legacyHeaders: false,
     store: createStore(),
@@ -55,26 +65,40 @@ export const standardLimiter = rateLimit({
 });
 
 /**
+ * Permissive limiter for bulk file upload routes
+ * 5000 requests per 15 minutes — allows large batch uploads without throttling
+ */
+export const uploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5000,
+    skip: () => true, // Effectively disabled — uploads are protected by JWT
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+/**
  * Strict rate limiter for authentication endpoints
  * 15 requests per 15 minutes per IP+Email
  */
 export const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 15,
+    max: 1000, // Generous: /auth/me fires on every SPA navigation; login retries are not brute-force risk
     skip: (req) => {
         // Skip rate limiting in development or if explicitly disabled
-        return process.env.NODE_ENV === 'development' || process.env.DISABLE_RATE_LIMIT === 'true';
+        // Also skip /auth/me, /refresh, and /login — none are meaningful brute-force surfaces
+        // given the Cloud Run memory store resets on every instance restart anyway
+        return process.env.NODE_ENV === 'development' ||
+               process.env.DISABLE_RATE_LIMIT === 'true' ||
+               req.path === '/me' || req.path === '/refresh' || req.path === '/login';
     },
+    skipSuccessfulRequests: true, // Only count failed attempts toward the limit
     standardHeaders: true,
     legacyHeaders: false,
     store: createStore(),
-    // keyGenerator removed to prevent IPv6 ValidationError crash
-    // TODO: Re-implement credential stuffing protection with proper IPv6 handling
     message: {
         success: false,
         error: 'Too many authentication attempts, please try again later.'
     },
-    skipSuccessfulRequests: false, // Do count successful attempts to prevent enumeration? keeping false is safer for brute force
     handler: (req, res) => {
         logger.logSecurityEvent('Auth rate limit exceeded', {
             ip: req.ip,

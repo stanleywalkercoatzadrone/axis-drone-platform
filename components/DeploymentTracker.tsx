@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { isoToFlag } from '../src/utils/countryFlag';
 import { useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard,
@@ -22,7 +23,7 @@ import {
     Square,
     Check,
     X,
-    ArrowRight, Briefcase, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, MapPin, MoreVertical, Receipt, Search, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail, UserPlus, UserCheck, BrainCircuit, RotateCcw
+    ArrowRight, Briefcase, Building2, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, Layers, MapPin, MoreVertical, Receipt, Search, Target, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail, UserPlus, UserCheck, BrainCircuit, RotateCcw, ClipboardList
 } from 'lucide-react';
 import ProjectInvoiceView from './ProjectInvoiceView';
 import { Deployment, DeploymentStatus, DeploymentType, DailyLog, Personnel, DeploymentFile, UserAccount, Country } from '../types';
@@ -31,10 +32,27 @@ import AssetTracker from './AssetTracker';
 import WorkItemChecklist from './WorkItemChecklist';
 import ClientForm from './ClientForm';
 import StakeholderForm from './StakeholderForm';
-import apiClient from '../src/services/apiClient';
-import { useAuth } from '../src/context/AuthContext';
+import apiClient from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
 import IndustryReportsHub from '../modules/ai-reporting/IndustryReportsHub';
 import { isAdmin } from '../src/utils/roleUtils';
+import AxisIntelligencePanel from './admin/AxisIntelligencePanel';
+import { FlightDataUpload } from './FlightDataUpload';
+import WeatherDashboard from './WeatherDashboard';
+import MissionForecastPanel from './MissionForecastPanel';
+import PilotPerformanceSnapshot from './PilotPerformanceSnapshot';
+import ClientCompletionTimeline from './ClientCompletionTimeline';
+import { useMission } from '../src/context/MissionContext';
+import { useIndustry } from '../context/IndustryContext';
+import { MissionSessionPanel } from './MissionSessionPanel';
+import { SolarBlockMap } from './SolarBlockMap';
+import LBDBlockTracker from './LBDBlockTracker';
+import { ThermalHotspotMap } from './ThermalHotspotMap';
+import DailyFieldReportsTab from './DailyFieldReportsTab';
+import AssignmentsTab from './AssignmentsTab';
+import { ProcessingJobs } from './orthomosaic/ProcessingJobs';
+import type { OrthoJob } from './orthomosaic/types';
+import { orthoApi } from './orthomosaic/api';
 
 const calculateDistance = (loc1?: string, loc2?: string) => {
     if (!loc1 || !loc2) return null;
@@ -59,9 +77,11 @@ const calculateDistance = (loc1?: string, loc2?: string) => {
     return null;
 };
 
-const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFilter?: string }> = ({ forcedStatus, industryFilter }) => {
+const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFilter?: string; countryFilter?: string | null; countryIsoCode?: string | null }> = ({ forcedStatus, industryFilter, countryFilter, countryIsoCode }) => {
     const navigate = useNavigate();
     const { user, hasPermission } = useAuth();
+    const { mission } = useMission();
+    const { currentIndustry } = useIndustry();
     const [deployments, setDeployments] = useState<Deployment[]>([]);
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
     const [countries, setCountries] = useState<Country[]>([]);
@@ -75,7 +95,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     const [isStakeholderFormOpen, setIsStakeholderFormOpen] = useState(false);
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(null);
-    const [viewMode, setViewMode] = useState<'list' | 'calendar'>(() => (sessionStorage.getItem('dt_viewMode') as any) || 'list');
+    const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'kanban'>(() => (sessionStorage.getItem('dt_viewMode') as any) || 'kanban');
 
     // Lifecycle Transition Logic
     const getNextAllowedStatuses = (current: DeploymentStatus): DeploymentStatus[] => {
@@ -111,9 +131,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     // Invoicing State
     const [selectedPersonnelForInvoice, setSelectedPersonnelForInvoice] = useState<Set<string>>(new Set());
     const [sendToPilots, setSendToPilots] = useState(true);
+    const [invoiceNote, setInvoiceNote] = useState('');
+    const [showInvoiceNoteModal, setShowInvoiceNoteModal] = useState(false);
+    const [pendingInvoiceIds, setPendingInvoiceIds] = useState<string[] | undefined>(undefined);
 
-    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'checklist' | 'ai-reports'>('logs');
+    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'assignments' | 'checklist' | 'ai-reports' | 'weather' | 'axis-intel' | 'forecast' | 'sessions' | 'solar' | 'thermal' | 'field-reports' | 'orthomosaic'>('logs');
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
     const [generatedLink, setGeneratedLink] = useState<string | null>(null);
     const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
     const [clients, setClients] = useState<any[]>([]);
@@ -232,6 +256,45 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         }
     };
 
+    const handleAddPilotToAllDays = async () => {
+        if (!selectedDeployment || !newLog.technicianId || newLog.dailyPay == null) return;
+        const allDays = getDeploymentDays(selectedDeployment);
+        const existingDays = new Set(
+            (selectedDeployment.dailyLogs || [])
+                .filter(l => String(l.technicianId) === String(newLog.technicianId))
+                .map(l => String(l.date).split('T')[0])
+        );
+        const daysToAdd = allDays.filter(day => !existingDays.has(day));
+        if (daysToAdd.length === 0) {
+            alert('This pilot is already assigned to all days.');
+            return;
+        }
+        if (!confirm(`Add ${personnel.find(p => String(p.id) === String(newLog.technicianId))?.fullName || 'Pilot'} to ${daysToAdd.length} remaining day(s) at $${newLog.dailyPay}/day?`)) return;
+        try {
+            let updatedDeployment = { ...selectedDeployment };
+            for (const day of daysToAdd) {
+                const payload = {
+                    ...newLog,
+                    date: new Date(day + 'T12:00:00').toISOString(),
+                    deploymentId: selectedDeployment.id
+                };
+                const response = await apiClient.post(`/deployments/${selectedDeployment.id}/daily-logs`, payload);
+                const addedLog = response.data.data;
+                updatedDeployment = {
+                    ...updatedDeployment,
+                    dailyLogs: [...(updatedDeployment.dailyLogs || []), addedLog]
+                };
+            }
+            setSelectedDeployment(updatedDeployment);
+            setDeployments(prev => prev.map(d => d.id === selectedDeployment.id ? updatedDeployment : d));
+            setNewLog({ technicianId: '', date: '', dailyPay: 0, bonusPay: 0, notes: '' });
+            alert(`Successfully added pilot to ${daysToAdd.length} day(s).`);
+        } catch (err: any) {
+            console.error('Error adding pilot to all days:', err);
+            alert('Failed to add pilot to some days: ' + (err.response?.data?.message || err.message));
+        }
+    };
+
     const startEditLog = (log: any) => {
         setEditingLogId(log.id);
         setEditForm({
@@ -305,13 +368,16 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     // Fetch deployments and personnel on mount
     useEffect(() => {
+        // Wait for IndustryContext to hydrate from localStorage (it starts as null)
+        // before fetching, so we don't get a flash of all missions then filter.
+        if (currentIndustry === null) return;
         fetchDeployments();
         fetchPersonnel();
         fetchAllUsers();
         fetchClients();
         fetchSites();
         fetchCountries();
-    }, []);
+    }, [currentIndustry]);
 
     const fetchCountries = async () => {
         try {
@@ -325,7 +391,8 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     const fetchDeployments = async () => {
         try {
             setLoading(true);
-            const url = industryFilter ? `/deployments?industryKey=${industryFilter}` : '/deployments';
+            // Filter by active industry so each terminal only shows its own missions
+            const url = currentIndustry ? `/deployments?industryKey=${currentIndustry}` : '/deployments';
             const response = await apiClient.get(url);
             setDeployments(response.data.data || []);
             setError(null);
@@ -413,17 +480,21 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     };
 
     const handleViewDetails = async (deployment: Deployment) => {
-        // Fetch fresh deployment data with daily logs AND files
+        // Fetch fresh deployment data with daily logs AND files AND pilot reports
         try {
-            const [deployResponse, filesResponse] = await Promise.all([
+            const [deployResponse, filesResponse, pilotReportsResponse, assignmentsResponse] = await Promise.all([
                 apiClient.get(`/deployments/${deployment.id}`),
-                apiClient.get(`/deployments/${deployment.id}/files`)
+                apiClient.get(`/deployments/${deployment.id}/files`),
+                apiClient.get(`/deployments/${deployment.id}/pilot-reports`).catch(() => ({ data: { data: [] } })),
+                apiClient.get(`/deployments/${deployment.id}/assignments`).catch(() => ({ data: { data: [] } })),
             ]);
 
             const freshDeployment = deployResponse.data.data;
             setSelectedDeployment({
                 ...freshDeployment,
-                files: filesResponse.data.data
+                files: filesResponse.data.data,
+                pilotReports: pilotReportsResponse.data.data || [],
+                assignments: assignmentsResponse.data.data || [],
             });
 
             // If the deployment has a siteId, pre-fetch assets
@@ -436,7 +507,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                 fetchClientStakeholders(freshDeployment.clientId);
             }
 
-            setActiveModalTab('logs');
+            setActiveModalTab(user?.role === 'pilot_technician' ? 'files' : 'logs');
             setIsLogModalOpen(true);
         } catch (err: any) {
             console.error('Error fetching deployment details:', err);
@@ -458,27 +529,61 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     };
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file || !selectedDeployment) return;
+        const files = event.target.files;
+        if (!files || files.length === 0 || !selectedDeployment) return;
 
-        const formData = new FormData();
-        formData.append('image', file); // API expects 'image' key from uploadSingle
+        setUploading(true);
+        setUploadProgress({ current: 0, total: files.length });
+        let currentDeployment = selectedDeployment;
 
         try {
-            setUploading(true);
-            const response = await apiClient.post(`/deployments/${selectedDeployment.id}/files`, formData);
+            // Because backend uses uploadSingle, we upload sequentially
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('image', file);
 
-            const newFile = response.data.data;
-            setSelectedDeployment(prev => prev ? ({
-                ...prev,
-                files: [newFile, ...(prev.files || [])]
-            }) : null);
+                // Use native fetch instead of apiClient to guarantee multipart/form-data content-type.
+                // apiClient has a default Content-Type: application/json that survives axios interceptors
+                // in the production bundle — native fetch auto-sets the correct multipart boundary.
+                const token = localStorage.getItem('skylens_token');
+                const fetchResponse = await fetch(`/api/deployments/${selectedDeployment.id}/files`, {
+                    method: 'POST',
+                    headers: {
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    },
+                    body: formData
+                });
+                if (!fetchResponse.ok) {
+                    const errData = await fetchResponse.json().catch(() => ({ message: `HTTP ${fetchResponse.status}` }));
+                    throw new Error(errData.message || `HTTP ${fetchResponse.status}`);
+                }
+                const responseData = await fetchResponse.json();
+                if (responseData.success) {
+                    const newFile = responseData.data;
+                    currentDeployment = {
+                        ...currentDeployment,
+                        files: [newFile, ...(currentDeployment.files || [])]
+                    };
+                }
+                setUploadProgress({ current: i + 1, total: files.length });
+            }
+
+            // Sync final state after all uploads complete
+            setSelectedDeployment(currentDeployment);
+            setDeployments(prev => prev.map(d =>
+                d.id === selectedDeployment.id ? { ...d, fileCount: (d.fileCount || 0) + files.length } : d
+            ));
 
         } catch (err: any) {
             console.error('Error uploading file:', err);
-            alert('Upload failed: ' + err.message);
+            alert('Upload failed for some or all files: ' + err.message);
         } finally {
             setUploading(false);
+            setUploadProgress(null);
+            if (event.target) {
+                event.target.value = ''; // Reset input to allow selecting same files again
+            }
         }
     };
 
@@ -502,11 +607,14 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         if (!selectedDeployment) return;
         try {
             await apiClient.post(`/deployments/${selectedDeployment.id}/personnel`, { personnelId });
-            setSelectedDeployment({
-                ...selectedDeployment,
-                technicianIds: [...(selectedDeployment.technicianIds || []), personnelId]
-            });
-            fetchDeployments(); // Refresh list to update counts
+            // Re-fetch this specific deployment so technicianIds reflects deployment_personnel correctly
+            const [depRes, filesRes] = await Promise.all([
+                apiClient.get(`/deployments/${selectedDeployment.id}`),
+                apiClient.get(`/deployments/${selectedDeployment.id}/files`)
+            ]);
+            const fresh = depRes.data.data;
+            setSelectedDeployment({ ...fresh, files: filesRes.data.data });
+            setDeployments(prev => prev.map(d => d.id === fresh.id ? { ...d, technicianIds: fresh.technicianIds } : d));
         } catch (err: any) {
             console.error('Error assigning personnel:', err);
             alert(err.message);
@@ -517,11 +625,14 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         if (!selectedDeployment) return;
         try {
             await apiClient.delete(`/deployments/${selectedDeployment.id}/personnel/${personnelId}`);
-            setSelectedDeployment({
-                ...selectedDeployment,
-                technicianIds: (selectedDeployment.technicianIds || []).filter(id => id !== personnelId)
-            });
-            fetchDeployments();
+            // Re-fetch to reflect removal
+            const [depRes, filesRes] = await Promise.all([
+                apiClient.get(`/deployments/${selectedDeployment.id}`),
+                apiClient.get(`/deployments/${selectedDeployment.id}/files`)
+            ]);
+            const fresh = depRes.data.data;
+            setSelectedDeployment({ ...fresh, files: filesRes.data.data });
+            setDeployments(prev => prev.map(d => d.id === fresh.id ? { ...d, technicianIds: fresh.technicianIds } : d));
         } catch (err: any) {
             console.error('Error unassigning personnel:', err);
             alert(err.message);
@@ -638,7 +749,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         }
     };
 
-    const handleGenerateInvoice = async (personnelId: string) => {
+    const handleGenerateInvoice = async (personnelId: string, openEdit: boolean = false) => {
         if (!selectedDeployment) return;
         try {
             const response = await apiClient.post('/invoices', {
@@ -650,7 +761,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             // Assuming the link returned by backend is relative /invoice/token
             // We want to show full URL
             const fullLink = `${window.location.origin}${link}`;
-            setGeneratedLink(fullLink);
+
+            if (openEdit) {
+                window.open(`${fullLink}?edit=true`, '_blank');
+            } else {
+                setGeneratedLink(fullLink);
+            }
         } catch (err: any) {
             console.error('Error creating invoice:', err);
             alert(err.message);
@@ -724,6 +840,43 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
 
+    // City autocomplete state
+    const [citySuggestions, setCitySuggestions] = useState<Array<{ name: string; admin1: string; country_code: string; lat: number; lon: number }>>([]);
+    const [citySearching, setCitySearching] = useState(false);
+    const citySearchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const handleCityInput = (value: string) => {
+        setNewDeployment({ ...newDeployment, location: value, latitude: undefined as any, longitude: undefined as any } as any);
+        if (citySearchTimer.current) clearTimeout(citySearchTimer.current);
+        if (value.length < 2) { setCitySuggestions([]); return; }
+        citySearchTimer.current = setTimeout(async () => {
+            setCitySearching(true);
+            try {
+                const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(value)}&count=6&language=en&format=json`);
+                const data = await res.json();
+                setCitySuggestions((data.results || []).map((r: any) => ({
+                    name: r.name,
+                    admin1: r.admin1 || '',
+                    country_code: r.country_code || '',
+                    lat: r.latitude,
+                    lon: r.longitude,
+                })));
+            } catch { setCitySuggestions([]); }
+            finally { setCitySearching(false); }
+        }, 300);
+    };
+
+    const handleCitySelect = (city: { name: string; admin1: string; country_code: string; lat: number; lon: number }) => {
+        setNewDeployment({
+            ...newDeployment,
+            location: city.name,
+            state: city.admin1,
+            latitude: city.lat,
+            longitude: city.lon,
+        } as any);
+        setCitySuggestions([]);
+    };
+
     const [newDeployment, setNewDeployment] = useState<Partial<Deployment>>({
         type: DeploymentType.ROUTINE,
         status: DeploymentStatus.SCHEDULED,
@@ -732,8 +885,26 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         countryId: '' // Add country support
     });
 
-    const handleEditMission = (deployment: Deployment) => {
+    const handleEditMission = async (deployment: Deployment) => {
         setEditingDeploymentId(deployment.id);
+        let initLat = (deployment as any).latitude ?? undefined;
+        let initLon = (deployment as any).longitude ?? undefined;
+
+        // Auto-geocode from existing location text if no coords stored
+        if ((!initLat || !initLon) && deployment.location) {
+            try {
+                const searchTerm = String(deployment.location).split(',')[0].trim();
+                if (searchTerm.length >= 2) {
+                    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchTerm)}&count=1&language=en&format=json`);
+                    const geoData = await geoRes.json();
+                    if (geoData.results?.length > 0) {
+                        initLat = geoData.results[0].latitude;
+                        initLon = geoData.results[0].longitude;
+                    }
+                }
+            } catch (_) { /* non-fatal */ }
+        }
+
         setNewDeployment({
             title: deployment.title,
             type: deployment.type,
@@ -744,16 +915,11 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             notes: deployment.notes,
             daysOnSite: deployment.daysOnSite,
             clientId: deployment.clientId,
-            countryId: deployment.countryId
-        });
+            countryId: deployment.countryId,
+            latitude: initLat,
+            longitude: initLon,
+        } as any);
         setIsAddModalOpen(true);
-        // We can keep the details modal open or close it. 
-        // If we keep it open, we need to make sure z-index is handled or close it.
-        // Let's close the details modal to avoid stacking issues for now, or just stack them.
-        // Stacking might be confusing. Let's close details? 
-        // Actually, user might want to go back. 
-        // Let's keep details open but maybe hide it? 
-        // Simplest: Edit is triggered from details modal.
     };
 
     const handleAddDeployment = async () => {
@@ -773,7 +939,9 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     daysOnSite: newDeployment.daysOnSite,
                     clientId: newDeployment.clientId,
                     countryId: newDeployment.countryId,
-                    industry: newDeployment.industry || industryFilter || null,
+                    industryKey: currentIndustry || null,
+                    latitude: (newDeployment as any).latitude || undefined,
+                    longitude: (newDeployment as any).longitude || undefined,
                 });
 
                 const updated = response.data.data;
@@ -800,7 +968,9 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     daysOnSite: newDeployment.daysOnSite,
                     clientId: newDeployment.clientId,
                     countryId: newDeployment.countryId,
-                    industry: newDeployment.industry || industryFilter || null,
+                    industryKey: currentIndustry || null,
+                    latitude: (newDeployment as any).latitude || undefined,
+                    longitude: (newDeployment as any).longitude || undefined,
                 });
 
                 const data = response.data;
@@ -833,20 +1003,29 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const handleEmailInvoices = async (specificPersonnelIds?: string[]) => {
         if (!selectedDeployment) return;
+        // Show note modal first
+        setPendingInvoiceIds(specificPersonnelIds || []);
+        setShowInvoiceNoteModal(true);
+    };
 
-        const idsToUse = specificPersonnelIds || Array.from(selectedPersonnelForInvoice);
-        const count = idsToUse.length > 0 ? idsToUse.length : 'ALL';
+    const handleConfirmSendInvoices = async () => {
+        if (!selectedDeployment) return;
+        setShowInvoiceNoteModal(false);
+
+        // Determine the target list exactly like the previous logic did
+        const idsToUse = pendingInvoiceIds && pendingInvoiceIds.length > 0
+            ? pendingInvoiceIds
+            : Array.from(selectedPersonnelForInvoice);
+
         const isSelective = idsToUse.length > 0;
-
-        const actionDescription = sendToPilots ? 'send invoices to' : 'generate invoices for';
-        if (!confirm(`Are you sure you want to ${actionDescription} ${isSelective ? count : 'ALL'} pilots?${sendToPilots ? '' : ' (Pilots will NOT be emailed)'}`)) return;
 
         try {
             const payload = isSelective
-                ? { personnelIds: idsToUse, sendToPilots }
-                : { sendToPilots };
+                ? { personnelIds: idsToUse, sendToPilots, adminNote: invoiceNote.trim() || undefined }
+                : { sendToPilots, adminNote: invoiceNote.trim() || undefined };
 
             const response = await apiClient.post(`/deployments/${selectedDeployment.id}/invoices/send`, payload);
+            setInvoiceNote('');
             if (response.data.emailStatus === 'MOCK') {
                 alert('Success, but NOTE: System is in SMTP MOCK MODE. Emails were logged to server but not actually sent. Please check your SMTP settings if this is unexpected.');
             } else {
@@ -1014,10 +1193,29 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const filteredDeployments = deployments.filter(d => {
         if (!d) return false;
-        const search = searchQuery.toLowerCase();
-        const matchesSearch = (d.title?.toLowerCase().includes(search) || false) ||
-            (d.siteName?.toLowerCase().includes(search) || false) ||
-            (d.id?.toLowerCase().includes(search) || false);
+        // Country filter logic:
+        // - If mission has a country_id set: only show if it matches the selected country
+        // - If mission has NO country_id (null/untagged): show under US only, hide for all other countries
+        if (countryFilter) {
+            if (d.countryId) {
+                // Explicitly tagged — strict match
+                if (String(d.countryId) !== String(countryFilter)) return false;
+            } else {
+                // Untagged mission — only show under United States (all existing missions are US-based)
+                if (countryIsoCode !== 'US') return false;
+            }
+        }
+
+        // Only filter by client/site/country when BOTH the filter and the deployment field have values
+        if (mission.client && mission.client !== "" && d.clientId && String(d.clientId) !== String(mission.client)) return false;
+        if (mission.site && mission.site !== "" && d.siteId && String(d.siteId) !== String(mission.site)) return false;
+        if (mission.country && mission.country !== "" && d.countryId && String(d.countryId) !== String(mission.country)) return false;
+        const search = searchQuery.toLowerCase().trim();
+        const matchesSearch = !search ||
+            (d.title || '').toLowerCase().includes(search) ||
+            (d.siteName || '').toLowerCase().includes(search) ||
+            (d.clientName || '').toLowerCase().includes(search) ||
+            (String(d.id || '')).toLowerCase().includes(search);
         const matchesStatus = statusFilter === 'All' || d.status === statusFilter;
         const matchesIndustry = !industryFilter ||
             (d as any).industry?.toLowerCase() === industryFilter.toLowerCase();
@@ -1034,119 +1232,243 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         }
     };
 
-    // Calculate Terminal Metrics
-    const totalMissionsCount = deployments.length;
-    const totalFleetSpend = deployments.reduce((sum, d) => sum + getTotalCost(d), 0);
-    const totalDataAssets = deployments.reduce((sum, d) => sum + (d.fileCount || 0), 0);
+    // Calculate Terminal Metrics — scoped to filtered (country-aware) deployments
+    const totalMissionsCount = filteredDeployments.length;
+    const totalFleetSpend = filteredDeployments.reduce((sum, d) => sum + getTotalCost(d), 0);
+    const totalDataAssets = filteredDeployments.reduce((sum, d) => sum + (d.fileCount || 0), 0);
     const groundTeamCount = personnel.length;
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="flex items-end justify-between">
+            {/* ── Invoice Note Modal ── */}
+            {showInvoiceNoteModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+                        <div className="bg-slate-900 px-6 py-5">
+                            <h3 className="text-white font-bold text-lg">Send Invoices</h3>
+                            <p className="text-slate-400 text-sm mt-0.5">
+                                {pendingInvoiceIds && pendingInvoiceIds.length > 0
+                                    ? `Sending to ${pendingInvoiceIds.length} selected pilot${pendingInvoiceIds.length > 1 ? 's' : ''}`
+                                    : selectedPersonnelForInvoice.size > 0
+                                        ? `Sending to ${selectedPersonnelForInvoice.size} selected pilot${selectedPersonnelForInvoice.size > 1 ? 's' : ''}`
+                                        : 'Sending to all eligible pilots'}
+                                {!sendToPilots && ' · Generating only (not emailing)'}
+                            </p>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                                    Note to pilots <span className="text-slate-400 font-normal">(optional)</span>
+                                </label>
+                                <textarea
+                                    className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 placeholder-slate-400 bg-slate-50"
+                                    rows={4}
+                                    placeholder="e.g. Please review your invoice and confirm your banking details are correct. Payment will be processed within 5 business days."
+                                    value={invoiceNote}
+                                    onChange={e => setInvoiceNote(e.target.value)}
+                                    autoFocus
+                                />
+                                <p className="text-xs text-slate-400 mt-1.5">This note will appear in the invoice email sent to each pilot.</p>
+                            </div>
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={() => { setShowInvoiceNoteModal(false); setInvoiceNote(''); setPendingInvoiceIds(undefined); }}
+                                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmSendInvoices}
+                                    className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                                >
+                                    Send Invoices
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-slate-900">Missions</h2>
-                    <p className="text-sm text-slate-500">Manage fleet deployments, crew assignments, and logistics.</p>
+                    <h2 className="text-lg font-semibold text-white">
+                        {countryIsoCode ? `${isoToFlag(countryIsoCode)} Missions` : 'Missions'}
+                    </h2>
+                    <p className="text-sm text-slate-400">
+                        {countryFilter
+                            ? `${filteredDeployments.length} mission${filteredDeployments.length !== 1 ? 's' : ''} · ${countryIsoCode ?? 'regional'} operations`
+                            : 'Manage fleet deployments, crew assignments, and logistics.'}
+                    </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                    <div className="flex bg-slate-800 p-1 rounded-lg border border-white/10">
+                        <button
+                            onClick={() => setViewMode('kanban')}
+                            className={`p-2 rounded-md transition-all ${viewMode === 'kanban' ? 'bg-slate-700 shadow-sm text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                            title="Kanban Board"
+                        >
+                            <LayoutDashboard className="w-4 h-4" />
+                        </button>
                         <button
                             onClick={() => setViewMode('list')}
-                            className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-slate-700 shadow-sm text-white' : 'text-slate-400 hover:text-slate-200'}`}
                             title="List View"
                         >
                             <List className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => setViewMode('calendar')}
-                            className={`p-2 rounded-md transition-all ${viewMode === 'calendar' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+                            className={`p-2 rounded-md transition-all ${viewMode === 'calendar' ? 'bg-slate-700 shadow-sm text-white' : 'text-slate-400 hover:text-slate-200'}`}
                             title="Calendar View"
                         >
                             <Grid3X3 className="w-4 h-4" />
                         </button>
                     </div>
 
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                    >
-                        <Plus className="w-4 h-4" /> Schedule Mission
-                    </button>
+                    {user?.role !== 'pilot_technician' && (
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 md:px-4 md:py-2 bg-sky-600 text-white text-xs md:text-sm font-semibold rounded-lg hover:bg-sky-500 transition-colors shadow-sm whitespace-nowrap"
+                        >
+                            <Plus className="w-4 h-4" /> Schedule Mission
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* Terminal Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                            <Activity className="w-4 h-4" />
-                        </div>
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Missions</span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-slate-900">{totalMissionsCount}</span>
-                        <span className="text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">LIVE</span>
-                    </div>
-                </div>
+            {/* Terminal Metrics Grid — hidden for pilots */}
+            {user?.role !== 'pilot_technician' && <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4">
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+
+                <div className="bg-slate-900/60 backdrop-blur p-4 rounded-xl border border-white/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1 md:mb-2">
+                        <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
                             <BarChart3 className="w-4 h-4" />
                         </div>
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Fleet Spend</span>
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Fleet Spend</span>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-slate-900">${totalFleetSpend.toLocaleString()}</span>
-                        <span className="text-[10px] font-medium text-slate-400">USD</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-bold text-white">${totalFleetSpend.toLocaleString()}</span>
+                        <span className="text-[10px] font-medium text-slate-500">USD</span>
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-amber-50 rounded-lg text-amber-600">
+                <div className="bg-slate-900/60 backdrop-blur p-4 rounded-xl border border-white/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1 md:mb-2">
+                        <div className="p-2 bg-amber-500/10 rounded-lg text-amber-400">
                             <Zap className="w-4 h-4" />
                         </div>
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Data Assets</span>
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Data Assets</span>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-slate-900">{totalDataAssets}</span>
-                        <span className="text-[10px] font-medium text-slate-400">FILES</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-bold text-white">{totalDataAssets}</span>
+                        <span className="text-[10px] font-medium text-slate-500">FILES</span>
                     </div>
                 </div>
 
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                <div className="bg-slate-900/60 backdrop-blur p-4 rounded-xl border border-white/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1 md:mb-2">
+                        <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">
                             <Users className="w-4 h-4" />
                         </div>
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Ground Team</span>
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ground Team</span>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-slate-900">{groundTeamCount}</span>
-                        <span className="text-[10px] font-medium text-slate-400">ACTIVE</span>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-bold text-white">{groundTeamCount}</span>
+                        <span className="text-[10px] font-medium text-slate-500">ACTIVE</span>
                     </div>
                 </div>
-            </div>
+            </div>}
 
             {viewMode === 'calendar' ? (
                 <CalendarView
                     deployments={deployments} // No filtering on calendar to see full schedule
                     onDeploymentClick={handleViewDetails}
                     onDayClick={handleDayClick}
+                    pilotReports={deployments.flatMap((d: any) => d.pilotReports || [])}
                 />
+            ) : viewMode === 'kanban' ? (
+                <div className="flex gap-4 overflow-x-auto min-h-[600px] h-full pt-2 pb-6 pl-1 mi-scrollbar">
+                    {[
+                        { id: DeploymentStatus.SCHEDULED, label: 'Scheduled', color: '#f59e0b' },
+                        { id: DeploymentStatus.ACTIVE,    label: 'Active',    color: '#3b82f6' },
+                        { id: DeploymentStatus.COMPLETED, label: 'Completed', color: '#10b981' },
+                        { id: DeploymentStatus.CANCELLED, label: 'Cancelled', color: '#64748b' }
+                    ].map(col => {
+                        const colMissions = filteredDeployments.filter(d => d.status === col.id);
+                        return (
+                            <div key={col.id} className="flex-1 min-w-[280px] md:min-w-[320px] max-w-[400px] bg-slate-900/50 backdrop-blur rounded-xl border border-white/5 flex flex-col overflow-hidden h-[calc(100vh-280px)]">
+                                <div className="px-4 py-3 border-b border-white/5 bg-slate-800/30 flex items-center justify-between shrink-0">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-2.5 h-2.5 rounded-full shadow-sm shadow-black/50" style={{ backgroundColor: col.color }} />
+                                        <h3 className="font-semibold text-white/90 uppercase tracking-wider text-xs">{col.label}</h3>
+                                    </div>
+                                    <span className="text-xs font-bold bg-white/10 px-2 py-0.5 rounded-full text-slate-300">
+                                        {colMissions.length}
+                                    </span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 mi-scrollbar">
+                                    {colMissions.map(deploy => (
+                                        <div
+                                            key={deploy.id}
+                                            onClick={() => handleViewDetails(deploy)}
+                                            className="bg-slate-800/90 border border-white/10 rounded-lg p-3.5 cursor-pointer hover:border-sky-500/50 hover:bg-slate-700 transition-all shadow-sm group"
+                                        >
+                                            <div className="flex justify-between items-start mb-2">
+                                                <span className="font-mono text-[10px] text-sky-400 bg-sky-400/10 px-1.5 py-0.5 rounded border border-sky-400/20">
+                                                    {deploy.id ? deploy.id.split('-')[0].toUpperCase() : 'N/A'}
+                                                </span>
+                                                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] uppercase font-bold tracking-wider">
+                                                    <Calendar className="w-3 h-3" />
+                                                    {deploy.date || 'TBD'}
+                                                </div>
+                                            </div>
+                                            <h4 className="font-bold text-sm text-white leading-snug group-hover:text-sky-400 transition-colors">
+                                                {deploy.title}
+                                            </h4>
+                                            <p className="text-xs text-slate-400 mt-1 line-clamp-1">
+                                                {deploy.clientName} {deploy.siteName ? `— ${deploy.siteName}` : ''}
+                                            </p>
+                                            <div className="mt-3 pt-3 border-t border-white/5 flex justify-between items-center text-[10px] font-medium text-slate-400">
+                                                <div className="flex -space-x-1">
+                                                    {deploy.personnelCount > 0 && (
+                                                        <span className="flex items-center gap-1 text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded border border-white/5">
+                                                            <Users className="w-3 h-3 text-emerald-400" /> {deploy.personnelCount}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {deploy.fileCount > 0 && (
+                                                        <span className="flex items-center gap-1 text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded">
+                                                            <Upload className="w-3 h-3 text-sky-400" /> {deploy.fileCount}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {colMissions.length === 0 && (
+                                        <div className="flex-1 flex flex-col items-center justify-center py-8 opacity-40">
+                                            <Box className="w-8 h-8 text-slate-500 mb-2" />
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Empty</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             ) : (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden min-h-[600px] flex flex-col">
+                <div className="bg-slate-900/70 backdrop-blur rounded-xl border border-white/10 shadow-sm overflow-hidden min-h-[600px] flex flex-col text-white">
                     {/* Filters */}
-                    <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center bg-slate-100 p-1 rounded-lg">
+                    <div className="px-6 py-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-4">
+                        <div className="flex items-center bg-slate-800 p-1 rounded-lg">
                             {(forcedStatus ? [forcedStatus] : ['All', DeploymentStatus.SCHEDULED, DeploymentStatus.ACTIVE, DeploymentStatus.COMPLETED]).map((status) => (
                                 <button
                                     key={status}
                                     onClick={() => !forcedStatus && setStatusFilter(status as any)}
                                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${statusFilter === status
-                                        ? 'bg-white text-slate-900 shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700'
+                                        ? 'bg-slate-600 text-white shadow-sm'
+                                        : 'text-slate-400 hover:text-slate-200'
                                         } ${forcedStatus ? 'cursor-default' : 'cursor-pointer'}`}
                                 >
                                     {status}
@@ -1155,13 +1477,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                         </div>
 
                         <div className="relative w-full sm:w-64">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                             <input
                                 type="text"
                                 placeholder="Search missions..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+                                className="w-full pl-9 pr-4 py-1.5 bg-slate-800 border border-white/10 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition-all"
                             />
                         </div>
                     </div>
@@ -1169,64 +1491,77 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     {/* Table */}
                     <div className="overflow-x-auto">
                         <table className="w-full text-left">
-                            <thead className="bg-slate-50 border-b border-slate-100">
+                            <thead className="bg-slate-800/80 border-b border-white/10">
                                 <tr>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Mission ID</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Operation</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Site / Location</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Schedule</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Assets</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-center">Team</th>
-                                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Mission ID</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Operation</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Client</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Site / Location</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Schedule</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider text-center">Assets</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider text-center">Team</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                                    <th className="px-3 md:px-6 py-2 md:py-3 text-right text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
+                            <tbody className="divide-y divide-white/5">
                                 {filteredDeployments.map((deploy) => (
                                     <tr
                                         key={deploy.id}
                                         onClick={() => handleViewDetails(deploy)}
-                                        className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                                        className="hover:bg-white/5 transition-colors group cursor-pointer"
                                     >
-                                        <td className="px-6 py-4">
-                                            <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded">
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
+                                            <span className="font-mono text-[10px] text-slate-400 bg-slate-800 px-2 py-1 rounded">
                                                 {deploy.id ? deploy.id.split('-')[0].toUpperCase() : 'N/A'}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
                                             <div>
-                                                <p className="text-sm font-medium text-slate-900">{deploy.title}</p>
-                                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter">{deploy.type}</p>
+                                                <p className="text-sm font-medium text-white">{deploy.title}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">{deploy.type}</p>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
+                                            {(() => {
+                                                const clientName = deploy.clientName || clients.find((c: any) => c.id === deploy.clientId)?.name;
+                                                return clientName ? (
+                                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2.5 py-1 rounded-full">
+                                                        <Building2 className="w-3 h-3" />{clientName}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-600 text-xs">—</span>
+                                                );
+                                            })()}
+                                        </td>
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
                                             <div className="flex items-center gap-2">
-                                                <MapPin className="w-3 h-3 text-slate-400" />
+                                                <MapPin className="w-3 h-3 text-slate-500" />
                                                 <div>
-                                                    <p className="text-sm font-medium text-slate-900">{deploy.siteName || 'Unknown Site'}</p>
+                                                    <p className="text-sm font-medium text-white">{deploy.siteName || 'Unknown Site'}</p>
                                                     {deploy.location && <p className="text-xs text-slate-400">{deploy.location}</p>}
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-2 text-sm text-slate-600">
-                                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
+                                            <div className="flex items-center gap-2 text-sm text-slate-300">
+                                                <Calendar className="w-3.5 h-3.5 text-slate-500" />
                                                 <span className="text-xs">{deploy.date}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                                                <FileText className="w-3 h-3 text-slate-400" />
+                                            <div className="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-1 rounded border border-white/10">
+                                                <FileText className="w-3 h-3 text-slate-500" />
                                                 <span className="text-xs font-bold">{deploy.fileCount || 0}</span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            <div className="inline-flex items-center gap-1 text-slate-600 bg-slate-50 px-2 py-1 rounded border border-slate-100">
-                                                <Users className="w-3 h-3 text-slate-400" />
+                                            <div className="inline-flex items-center gap-1 text-slate-300 bg-slate-800 px-2 py-1 rounded border border-white/10">
+                                                <Users className="w-3 h-3 text-slate-500" />
                                                 <span className="text-xs font-bold">{deploy.personnelCount || 0}</span>
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-3 md:px-6 py-2.5 md:py-4">
                                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border ${getStatusColor(deploy.status)}`}>
                                                 {deploy.status === DeploymentStatus.ACTIVE && <span className="relative flex h-1.5 w-1.5 mr-1">
                                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
@@ -1273,7 +1608,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                 )}
                                                 <button
                                                     onClick={() => handleViewFinancials(deploy)}
-                                                    className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-all flex items-center gap-1"
+                                                    className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-all flex items-center gap-1"
                                                     title="View Financials & Invoices"
                                                 >
                                                     <DollarSign className="w-3.5 h-3.5" />
@@ -1281,7 +1616,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                 </button>
                                                 <button
                                                     onClick={() => handleViewDetails(deploy)}
-                                                    className="p-1.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-100 rounded-lg transition-all"
+                                                    className="p-1.5 bg-slate-800 text-slate-400 hover:text-sky-400 hover:bg-sky-500/10 border border-white/10 rounded-lg transition-all"
                                                     title="Mission Details & Assets"
                                                 >
                                                     <ArrowRight className="w-4 h-4" />
@@ -1289,7 +1624,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                 {isAdmin(user) && (
                                                     <button
                                                         onClick={() => handleDeleteDeployment(deploy.id, deploy.title)}
-                                                        className="p-1.5 bg-slate-50 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-100 rounded-lg transition-all"
+                                                        className="p-1.5 bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-white/10 rounded-lg transition-all"
                                                         title="Delete Mission"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -1304,17 +1639,23 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
                         {filteredDeployments.length === 0 && (
                             <div className="p-12 text-center">
-                                <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                                    <Plane className="w-5 h-5 text-slate-400" />
+                                <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Plane className="w-5 h-5 text-slate-500" />
                                 </div>
-                                <h3 className="text-sm font-medium text-slate-900">No missions found</h3>
-                                <p className="text-xs text-slate-500 mt-1">Check your search terms or schedule a new mission.</p>
-                                <button
-                                    onClick={() => setIsAddModalOpen(true)}
-                                    className="mt-4 px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors shadow-sm"
-                                >
-                                    Schedule Mission
-                                </button>
+                                <h3 className="text-sm font-medium text-white">No missions found</h3>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {user?.role === 'pilot_technician'
+                                        ? "You don't have any assigned missions yet."
+                                        : "Check your search terms or schedule a new mission."}
+                                </p>
+                                {user?.role !== 'pilot_technician' && (
+                                    <button
+                                        onClick={() => setIsAddModalOpen(true)}
+                                        className="mt-4 px-4 py-2 bg-sky-600 text-white text-sm font-medium rounded-lg hover:bg-sky-500 transition-colors shadow-sm"
+                                    >
+                                        Schedule Mission
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1326,14 +1667,14 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             {
                 isLogModalOpen && selectedDeployment && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 h-[80vh] flex flex-col">
-                            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+                    <div className="bg-slate-900 rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 h-[80vh] flex flex-col text-white border border-white/10">
+                            <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center shrink-0">
                                 <div>
-                                    <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                                    <h3 className="font-semibold text-white flex items-center gap-2">
                                         Mission Details
                                         <button
                                             onClick={() => handleEditMission(selectedDeployment)}
-                                            className="ml-2 p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                            className="ml-2 p-1 text-slate-400 hover:text-sky-400 hover:bg-sky-500/10 rounded transition-colors"
                                             title="Edit Mission Details"
                                         >
                                             <Edit2 className="w-4 h-4" />
@@ -1344,7 +1685,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             {selectedDeployment.status !== DeploymentStatus.COMPLETED ? (
                                                 <button
                                                     onClick={() => handleStatusChange(selectedDeployment.id, DeploymentStatus.COMPLETED)}
-                                                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-100 hover:bg-emerald-100 transition-all shadow-sm group"
+                                                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-emerald-400 text-xs font-bold rounded-full border border-emerald-500/20 hover:bg-emerald-500/20 transition-all shadow-sm group"
                                                 >
                                                     <CheckCircle className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
                                                     Complete Mission
@@ -1352,7 +1693,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             ) : (
                                                 <button
                                                     onClick={() => handleStatusChange(selectedDeployment.id, DeploymentStatus.ACTIVE)}
-                                                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-100 hover:bg-amber-100 transition-all shadow-sm group"
+                                                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-400 text-xs font-bold rounded-full border border-amber-500/20 hover:bg-amber-500/20 transition-all shadow-sm group"
                                                 >
                                                     <RotateCcw className="w-3.5 h-3.5 group-hover:rotate-[-45deg] transition-transform" />
                                                     Uncomplete
@@ -1360,80 +1701,194 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             )}
                                         </div>
                                     </h3>
-                                    <p className="text-sm text-slate-500">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
+                                    <p className="text-sm text-slate-400">{selectedDeployment.title} — {selectedDeployment.siteName}</p>
                                 </div>
-                                <button onClick={() => setIsLogModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                                <button onClick={() => setIsLogModalOpen(false)} className="text-slate-400 hover:text-white">
                                     &times;
                                 </button>
                             </div>
 
                             {/* Tabs */}
-                            <div className="flex border-b border-slate-200 px-6">
-                                <button
-                                    onClick={() => setActiveModalTab('logs')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <DollarSign className="w-4 h-4" />
-                                        Daily Logs & Pay
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('files')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="w-4 h-4" />
-                                        Mission Assets / Files
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('financials')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'financials' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Receipt className="w-4 h-4" />
-                                        Financials & Invoicing
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('team')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'team' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Users className="w-4 h-4" />
-                                        Team Setup
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('site-assets')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'site-assets' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Zap className="w-4 h-4" />
-                                        Site Assets
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('checklist')}
-                                    className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-blue-600 text-blue-600 bg-blue-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <CheckSquare className="w-4 h-4" />
-                                        Checklist
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => setActiveModalTab('ai-reports')}
-                                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-600 bg-orange-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
-                                >
-                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                                    AI Reports
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600">NEW</span>
-                                </button>
+                            {/* Tabs: pilots see only Flight Data; admins/ops see full tab set */}
+                            <div className="flex border-b border-white/10 px-6 overflow-x-auto scrollbar-hide">
+                                {user?.role === 'pilot_technician' ? (
+                                    <>
+                                        <button
+                                            onClick={() => setActiveModalTab('files')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="w-4 h-4" />
+                                                Flight Data
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('assignments')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <ClipboardList className="w-4 h-4" />
+                                                My Assignments
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('field-reports')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                        >
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                            Field Reports
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={() => setActiveModalTab('logs')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'logs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <DollarSign className="w-4 h-4" />
+                                                Daily Logs & Pay
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('field-reports')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                        >
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                            Field Reports
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('files')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Layers className="w-4 h-4" />
+                                                Assets & Flight Data
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('financials')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'financials' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Receipt className="w-4 h-4" />
+                                                Financials & Invoicing
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('team')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'team' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Users className="w-4 h-4" />
+                                                Team Setup
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('site-assets')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'site-assets' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Zap className="w-4 h-4" />
+                                                Site Assets
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('assignments')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Target className="w-4 h-4" />
+                                                Assignments
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('checklist')}
+                                            className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <CheckSquare className="w-4 h-4" />
+                                                Checklist
+                                            </div>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('ai-reports')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-400 bg-orange-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                        >
+                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                            AI Reports
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400">NEW</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('weather')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'weather' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                        >
+                                            <Cloud className="w-4 h-4" />
+                                            Weather
+                                        </button>
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('axis-intel')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'axis-intel' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.5V12h2a2 2 0 0 1 2 2v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a2 2 0 0 1 2-2h2V9.5C8.8 8.8 8 7.5 8 6a4 4 0 0 1 4-4z" /></svg>
+                                                Axis Intel
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400">AI</span>
+                                            </button>
+                                        )}
+                                        {/* Mission Forecast — Admin Only */}
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('forecast')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'forecast' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                <BarChart3 className="w-4 h-4" />
+                                                Forecast
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400">NEW</span>
+                                            </button>
+                                        )}
+                                        {/* Sessions Tab — Admin Only */}
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('sessions')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'sessions' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                <BarChart3 className="w-4 h-4" />
+                                                Sessions
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400">NEW</span>
+                                            </button>
+                                        )}
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('solar')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'solar' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                                                Blocks / LBDs
+                                            </button>
+                                        )}
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('thermal')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'thermal' ? 'border-red-500 text-red-400 bg-red-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                🌡️ Thermal
+                                            </button>
+                                        )}
+                                        {isAdmin(user) && (
+                                            <button
+                                                onClick={() => setActiveModalTab('orthomosaic')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'orthomosaic' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            >
+                                                <Grid3X3 className="w-4 h-4" />
+                                                Orthomosaic
+                                            </button>
+                                        )}
+                                    </>
+                                )}
                             </div>
 
-                            <div className="flex-1 overflow-y-auto bg-slate-50/50">
+                            <div className="flex-1 overflow-y-auto bg-slate-900/50">
                                 {activeModalTab === 'checklist' ? (
                                     <div className="p-6">
                                         <WorkItemChecklist scopeType="mission" scopeId={selectedDeployment.id} />
@@ -1471,7 +1926,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
                                                         <div className="space-y-2">
                                                             {(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day) || []).map(log => {
-                                                                const personName = personnel.find(p => p.id === log.technicianId)?.fullName || log.technicianId;
+                                                                const personName = personnel.find(p => String(p.id) === String(log.technicianId))?.fullName || `Pilot #${String(log.technicianId).slice(0, 8)}`;
                                                                 const totalPay = (editingLogId === log.id ? editForm.dailyPay + editForm.bonusPay : (log.dailyPay || 0) + (log.bonusPay || 0));
 
                                                                 return (
@@ -1566,6 +2021,86 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                             )}
                                                         </div>
 
+                                                        {/* Pilot Field Reports for this day */}
+                                                        {(() => {
+                                                            const dayReports = ((selectedDeployment as any).pilotReports || []).filter((r: any) =>
+                                                                String(r.date).split('T')[0] === day
+                                                            );
+                                                            if (dayReports.length === 0) return null;
+
+                                                            const SEVERITY_STYLE: Record<string, string> = {
+                                                                low: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                                                                medium: 'bg-orange-50 text-orange-700 border-orange-200',
+                                                                high: 'bg-red-50 text-red-700 border-red-200',
+                                                                critical: 'bg-red-900 text-red-100 border-red-700',
+                                                            };
+
+                                                            return (
+                                                                <div className="pt-4 border-t border-violet-100 mt-3">
+                                                                    <h5 className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                                                        <span>🤖 AI Pilot Field Reports</span>
+                                                                        {dayReports.some((r: any) => r.is_incident) && (
+                                                                            <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-200">⚠ Incident Reported</span>
+                                                                        )}
+                                                                    </h5>
+                                                                    <div className="space-y-4">
+                                                                        {dayReports.map((report: any) => {
+                                                                            const wx = report.weather_snapshot ? (typeof report.weather_snapshot === 'string' ? JSON.parse(report.weather_snapshot) : report.weather_snapshot) : null;
+                                                                            const ir = report.irradiance_snapshot ? (typeof report.irradiance_snapshot === 'string' ? JSON.parse(report.irradiance_snapshot) : report.irradiance_snapshot) : null;
+                                                                            return (
+                                                                                <div key={report.id} className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+                                                                                    {/* Report header */}
+                                                                                    <div className="px-4 py-2.5 bg-white border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="text-xs font-bold text-slate-700">{report.technician_name || report.pilot_name || 'Pilot'}</span>
+                                                                                            <span className="text-[10px] text-slate-400">submitted {new Date(report.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.missions_flown ?? '—'} flights</span>
+                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.blocks_completed ?? '—'} blocks</span>
+                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.hours_worked ?? '—'}h</span>
+                                                                                            {report.is_incident && report.incident_severity && (
+                                                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${SEVERITY_STYLE[report.incident_severity] || SEVERITY_STYLE.low}`}>
+                                                                                                    ⚠ {report.incident_severity.toUpperCase()}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Incident summary */}
+                                                                                    {report.is_incident && report.incident_summary && (
+                                                                                        <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700 font-medium">
+                                                                                            ⚠ {report.incident_summary}
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {/* Weather + Irradiance strip */}
+                                                                                    {wx && (
+                                                                                        <div className="px-4 py-2 bg-blue-50/70 border-b border-blue-100 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-600">
+                                                                                            <span>🌡 {wx.temperature}°F</span>
+                                                                                            <span>💨 {wx.wind_speed} mph</span>
+                                                                                            <span>🌧 {wx.precipitation} mm</span>
+                                                                                            <span>☁ {wx.conditions}</span>
+                                                                                            {ir?.ghi_wm2 != null && <span>☀ GHI {ir.ghi_wm2} W/m² · {ir.description}</span>}
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {/* AI report text */}
+                                                                                    {report.ai_report && (
+                                                                                        <div className="px-4 py-3">
+                                                                                            {report.ai_report.split('\n\n').filter(Boolean).map((para: string, i: number) => (
+                                                                                                <p key={i} className={`text-xs text-slate-600 leading-relaxed ${i > 0 ? 'mt-2' : ''}`}>{para}</p>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+
                                                         {/* Add New Pilot Form */}
                                                         <div className="pt-3 border-t border-slate-200 mt-3">
                                                             <div className="flex items-center justify-between mb-3">
@@ -1578,7 +2113,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none"
                                                                         value={newLog.technicianId || ''}
                                                                         onChange={e => {
-                                                                            const selectedPersonnel = personnel.find(p => p.id === e.target.value);
+                                                                            const selectedPersonnel = personnel.find(p => String(p.id) === String(e.target.value));
                                                                             setNewLog({
                                                                                 ...newLog,
                                                                                 technicianId: e.target.value,
@@ -1618,8 +2153,8 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         type="number"
                                                                         className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none"
                                                                         placeholder="0"
-                                                                        value={newLog.dailyPay || ''}
-                                                                        onChange={e => setNewLog({ ...newLog, dailyPay: parseFloat(e.target.value) || 0 })}
+                                                                        value={newLog.dailyPay ?? ''}
+                                                                        onChange={e => setNewLog({ ...newLog, dailyPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                                                                     />
                                                                 </div>
                                                                 <div className="col-span-2">
@@ -1628,21 +2163,33 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         type="number"
                                                                         className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-emerald-500/20 outline-none"
                                                                         placeholder="0"
-                                                                        value={newLog.bonusPay || ''}
-                                                                        onChange={e => setNewLog({ ...newLog, bonusPay: parseFloat(e.target.value) || 0 })}
+                                                                        value={newLog.bonusPay ?? ''}
+                                                                        onChange={e => setNewLog({ ...newLog, bonusPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                                                                     />
                                                                 </div>
-                                                                <div className="col-span-3 flex items-end">
+                                                                <div className="col-span-3 flex items-end gap-1">
                                                                     <button
                                                                         type="button"
                                                                         onClick={(e) => {
                                                                             e.preventDefault();
                                                                             handleAddLog(day);
                                                                         }}
-                                                                        disabled={!newLog.technicianId || !newLog.dailyPay}
-                                                                        className="w-full px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
+                                                                        disabled={!newLog.technicianId || newLog.dailyPay == null}
+                                                                        className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
                                                                     >
-                                                                        <Plus className="w-3 h-3" /> Add Pilot
+                                                                        <Plus className="w-3 h-3" /> Day
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            handleAddPilotToAllDays();
+                                                                        }}
+                                                                        disabled={!newLog.technicianId || newLog.dailyPay == null}
+                                                                        className="flex-1 px-2 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
+                                                                        title="Add this pilot to every day of the mission"
+                                                                    >
+                                                                        <Calendar className="w-3 h-3" /> All Days
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -1693,6 +2240,10 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             )}
                                         </div>
                                     </div>
+                                ) : activeModalTab === 'field-reports' ? (
+                                    <div className="p-6">
+                                        <DailyFieldReportsTab deploymentId={selectedDeployment.id} />
+                                    </div>
                                 ) : activeModalTab === 'files' ? (
                                     <div className="p-6 space-y-6">
                                         {/* Files / Assets Content */}
@@ -1700,20 +2251,25 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-3">
                                                 <Upload className="w-6 h-6" />
                                             </div>
-                                            <h3 className="text-sm font-semibold text-slate-900">Upload Mission Assets</h3>
+                                            <h3 className="text-sm font-semibold text-slate-900">
+                                                {user?.role === 'pilot_technician' ? 'Upload Flight Data' : 'Upload Mission Assets'}
+                                            </h3>
                                             <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                                                Upload flight logs, KML files, site photos, or PDF reports associated with this mission.
+                                                {user?.role === 'pilot_technician'
+                                                    ? 'Upload your KML/KMZ flight paths, CSV/Excel data spreadsheets, and mission images (JPG/PNG).'
+                                                    : 'Upload flight logs, KML files, site photos, or PDF reports associated with this mission.'}
                                             </p>
                                             <div className="mt-4 relative">
                                                 <input
                                                     type="file"
                                                     onChange={handleFileUpload}
                                                     disabled={uploading}
+                                                    accept={user?.role === 'pilot_technician' ? '.kml,.kmz,.csv,.xlsx,.xls,.ods,.jpg,.jpeg,.png,.heic,.webp' : undefined}
                                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                                                    multiple={false}
+                                                    multiple={true}
                                                 />
-                                                <button disabled={uploading} className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50">
-                                                    {uploading ? 'Uploading...' : 'Select File'}
+                                                <button disabled={uploading} className="px-4 py-2 bg-slate-900 text-white text-xs font-medium rounded-lg hover:bg-slate-800 disabled:opacity-50 min-w-[140px]">
+                                                    {uploadProgress ? `Uploading ${uploadProgress.current}/${uploadProgress.total}...` : uploading ? 'Uploading...' : 'Select Files'}
                                                 </button>
                                             </div>
                                         </div>
@@ -1753,18 +2309,90 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                 >
                                                                     <Download className="w-4 h-4" />
                                                                 </a>
-                                                                <button
-                                                                    onClick={() => handleDeleteFile(file.id)}
-                                                                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                                    title="Delete"
-                                                                >
-                                                                    <Trash2 className="w-4 h-4" />
-                                                                </button>
+                                                                {user?.role !== 'pilot_technician' && (
+                                                                    <button
+                                                                        onClick={() => handleDeleteFile(file.id)}
+                                                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))
                                                 )}
                                             </div>
+                                        </div>
+
+                                        {/* ── Flight Data Ingest (merged in) ── */}
+                                        <div className="border-t border-slate-100 pt-6">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <svg className="w-4 h-4 text-cyan-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
+                                                <h4 className="text-sm font-bold text-slate-900">Flight Data Ingest</h4>
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700">KML + Params</span>
+                                            </div>
+                                            <p className="text-xs text-slate-400 mb-3">Upload KML flight paths and parameter docs to auto-populate AI reports</p>
+                                            <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-950">
+                                                <FlightDataUpload
+                                                    deploymentId={selectedDeployment.id}
+                                                    deploymentTitle={selectedDeployment.title}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Performance Snapshot — Pilot View Only */}
+                                        {user?.role === 'pilot_technician' && (
+                                            <div className="border-t border-slate-100 pt-6 pb-4">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <BarChart3 className="w-4 h-4 text-violet-500" />
+                                                    <h4 className="text-sm font-bold text-slate-900">Performance Snapshot</h4>
+                                                </div>
+                                                <PilotPerformanceSnapshot
+                                                    missionId={selectedDeployment.id}
+                                                    missionTitle={selectedDeployment.title}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {/* Projected Completion Timeline — Client View */}
+                                        {user?.role === 'client' && (
+                                            <div className="border-t border-slate-100 pt-6 pb-4">
+                                                <ClientCompletionTimeline
+                                                    missionId={selectedDeployment.id}
+                                                    missionTitle={selectedDeployment.title}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : activeModalTab === 'orthomosaic' ? (
+                                    <div className="p-6">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                                                    <Grid3X3 className="w-5 h-5 text-sky-400" />
+                                                    Orthomosaic Processing Status
+                                                </h4>
+                                                <p className="text-xs text-slate-400">Monitor photogrammetry jobs and pipeline stages for this mission.</p>
+                                            </div>
+                                            <a 
+                                                href="/intelligence/orthomosaic" 
+                                                className="px-3 py-1.5 bg-slate-800 text-slate-300 text-xs font-bold rounded-lg border border-white/10 hover:bg-slate-700 transition-all flex items-center gap-1.5"
+                                            >
+                                                <ExternalLink className="w-3.5 h-3.5" />
+                                                Full Module
+                                            </a>
+                                        </div>
+                                        
+                                        <div className="bg-slate-950/50 rounded-xl border border-white/5 p-4">
+                                            <ProcessingJobs 
+                                                missionId={selectedDeployment.id}
+                                                onViewMap={(jobId) => window.open(`/orthomosaic/viewer/${jobId}`, '_blank')}
+                                                onViewUpload={(job) => {
+                                                    // This could open a sub-modal or redirect
+                                                    console.log("View upload for job:", job.id);
+                                                }}
+                                            />
                                         </div>
                                     </div>
                                 ) : activeModalTab === 'financials' ? (
@@ -2030,6 +2658,16 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                         <button
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
+                                                                                handleGenerateInvoice(techId, true);
+                                                                            }}
+                                                                            className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-medium rounded hover:bg-amber-100 transition-colors shadow-sm z-10"
+                                                                            title="Edit Invoice Directly"
+                                                                        >
+                                                                            <Edit2 className="w-3 h-3" /> Edit
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
                                                                                 handleGenerateInvoice(techId);
                                                                             }}
                                                                             className="no-print inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-medium rounded hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm z-10"
@@ -2183,7 +2821,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                             {/* Flight Crew / Personnel */}
                                             <div className="space-y-4">
-                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
                                                     <Plane className="w-4 h-4 text-blue-500" />
                                                     Flight Crew (Pilots/Techs)
                                                 </h4>
@@ -2192,17 +2830,17 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                         const p = personnel.find(per => per.id === techId);
                                                         if (!p) return null;
                                                         return (
-                                                            <div key={techId} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                                                            <div key={techId} className="flex items-center justify-between p-3 bg-slate-800 border border-white/10 rounded-lg">
                                                                 <div className="flex items-center gap-3">
                                                                     <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
                                                                         {p.fullName.charAt(0)}
                                                                     </div>
                                                                     <div>
-                                                                        <p className="text-sm font-medium text-slate-900">{p.fullName}</p>
+                                                                        <p className="text-sm font-medium text-white">{p.fullName}</p>
                                                                         <div className="flex items-center gap-2">
                                                                             <p className="text-[10px] text-slate-500 font-bold uppercase">{p.role}</p>
                                                                             {calculateDistance(p.homeAddress, selectedDeployment.location) && (
-                                                                                <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 rounded border border-blue-100">
+                                                                                <span className="text-[10px] font-medium text-sky-400 bg-sky-500/10 px-1.5 rounded border border-sky-500/20">
                                                                                     {calculateDistance(p.homeAddress, selectedDeployment.location)} mi
                                                                                 </span>
                                                                             )}
@@ -2235,13 +2873,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                         );
                                                     })}
                                                     {(selectedDeployment.technicianIds || []).length === 0 && (
-                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No flight crew assigned.</p>
+                                                        <p className="text-xs text-slate-500 italic bg-slate-800 p-4 rounded-lg border border-white/10 border-dashed text-center">No flight crew assigned.</p>
                                                     )}
                                                 </div>
 
                                                 <div className="pt-2">
                                                     <select
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                                        className="w-full px-3 py-2 text-sm bg-slate-900 text-white border border-white/10 rounded-lg focus:ring-2 focus:ring-blue-500/30 outline-none"
                                                         onChange={(e) => {
                                                             if (e.target.value) handleAssignPersonnel(e.target.value);
                                                             e.target.value = "";
@@ -2265,12 +2903,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             {/* Client Stakeholders */}
                                             <div className="space-y-4">
                                                 <div className="flex items-center justify-between">
-                                                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
                                                         <Briefcase className="w-4 h-4 text-purple-600" />
                                                         Client Stakeholders
                                                     </h4>
                                                     {selectedDeployment.clientName && (
-                                                        <span className="text-xs font-semibold text-purple-600 bg-purple-50 px-2 py-1 rounded border border-purple-100">
+                                                        <span className="text-xs font-semibold text-purple-300 bg-purple-900/30 px-2 py-1 rounded border border-purple-500/30">
                                                             {selectedDeployment.clientName}
                                                         </span>
                                                     )}
@@ -2278,14 +2916,14 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
                                                 <div className="space-y-2">
                                                     {(selectedDeployment.monitoringTeam || []).filter(u => u.missionRole === 'Client' || u.missionRole === 'Site Contact' || u.role === 'client_user').map(u => (
-                                                        <div key={u.id} className={`flex items-center justify-between p-3 bg-white border rounded-lg shadow-sm ${u.missionRole === 'Site Contact' ? 'border-purple-300 bg-purple-50/30' : 'border-purple-100 shadow-purple-50/50'}`}>
+                                                        <div key={u.id} className={`flex items-center justify-between p-3 bg-slate-800 border rounded-lg ${u.missionRole === 'Site Contact' ? 'border-purple-500/40' : 'border-white/10'}`}>
                                                             <div className="flex items-center gap-3">
                                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${u.missionRole === 'Site Contact' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-600'}`}>
                                                                     {u.fullName.charAt(0)}
                                                                 </div>
                                                                 <div>
                                                                     <div className="flex items-center gap-2">
-                                                                        <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
+                                                                        <p className="text-sm font-medium text-white">{u.fullName}</p>
                                                                         {u.missionRole === 'Site Contact' && (
                                                                             <span className="text-[10px] font-bold bg-purple-600 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">
                                                                                 Site Contact
@@ -2334,13 +2972,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                         </div>
                                                     ))}
                                                     {(selectedDeployment.monitoringTeam || []).filter(u => u.missionRole === 'Client' || u.missionRole === 'Site Contact' || u.role === 'client_user').length === 0 && (
-                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No client stakeholders assigned.</p>
+                                                        <p className="text-xs text-slate-500 italic bg-slate-800 p-4 rounded-lg border border-white/10 border-dashed text-center">No client stakeholders assigned.</p>
                                                     )}
                                                 </div>
 
                                                 <div className="pt-2">
                                                     <select
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-500/20 outline-none"
+                                                        className="w-full px-3 py-2 text-sm bg-slate-900 text-white border border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500/30 outline-none"
                                                         onChange={(e) => {
                                                             if (e.target.value === 'NEW_STAKEHOLDER') {
                                                                 setIsStakeholderFormOpen(true);
@@ -2373,19 +3011,19 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
                                             {/* Mission Monitoring / Users */}
                                             <div className="space-y-4">
-                                                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                                <h4 className="text-sm font-bold text-white flex items-center gap-2">
                                                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
                                                     Mission Monitoring (Control)
                                                 </h4>
                                                 <div className="space-y-2">
                                                     {(selectedDeployment.monitoringTeam || []).map(u => (
-                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-white border border-emerald-100 rounded-lg shadow-sm shadow-emerald-50/50">
+                                                        <div key={u.id} className="flex items-center justify-between p-3 bg-slate-800 border border-white/10 rounded-lg">
                                                             <div className="flex items-center gap-3">
                                                                 <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold">
                                                                     {u.fullName.charAt(0)}
                                                                 </div>
                                                                 <div>
-                                                                    <p className="text-sm font-medium text-slate-900">{u.fullName}</p>
+                                                                    <p className="text-sm font-medium text-white">{u.fullName}</p>
                                                                     <p className="text-[10px] text-emerald-600 font-bold uppercase">{u.role}</p>
                                                                 </div>
                                                             </div>
@@ -2408,13 +3046,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                         </div>
                                                     ))}
                                                     {(selectedDeployment.monitoringTeam || []).length === 0 && (
-                                                        <p className="text-xs text-slate-400 italic bg-white p-4 rounded-lg border border-dashed text-center">No monitoring team assigned.</p>
+                                                        <p className="text-xs text-slate-500 italic bg-slate-800 p-4 rounded-lg border border-white/10 border-dashed text-center">No monitoring team assigned.</p>
                                                     )}
                                                 </div>
 
                                                 <div className="pt-2">
                                                     <select
-                                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                                                        className="w-full px-3 py-2 text-sm bg-slate-900 text-white border border-white/10 rounded-lg focus:ring-2 focus:ring-emerald-500/30 outline-none"
                                                         onChange={(e) => {
                                                             if (e.target.value) handleAssignMonitor(e.target.value);
                                                             e.target.value = "";
@@ -2431,12 +3069,69 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             </div>
                                         </div>
                                     </div>
+                                ) : activeModalTab === 'assignments' ? (
+                                    <div className="p-6 bg-slate-900/50 min-h-full">
+                                        <AssignmentsTab
+                                            missionId={selectedDeployment.id}
+                                            personnel={personnel}
+                                            isAdmin={!!isAdmin(user)}
+                                        />
+                                    </div>
                                 ) : activeModalTab === 'ai-reports' ? (
                                     <div className="h-full overflow-y-auto">
                                         <IndustryReportsHub
                                             missionId={selectedDeployment.id}
                                             missionTitle={selectedDeployment.title}
+                                            missionSiteName={selectedDeployment.siteName}
+                                            missionClientName={selectedDeployment.clientName}
+                                            defaultIndustry={industryFilter ? (industryFilter.toLowerCase() as any) : undefined}
+                                            singleIndustry={!!industryFilter}
                                         />
+                                    </div>
+                                ) : activeModalTab === 'weather' ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950">
+                                        <div className="p-6">
+                                            <WeatherDashboard />
+                                        </div>
+                                    </div>
+                                ) : activeModalTab === 'axis-intel' && isAdmin(user) ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950">
+                                        <AxisIntelligencePanel
+                                            missionId={selectedDeployment.id}
+                                            missionTitle={selectedDeployment.title}
+                                        />
+                                    </div>
+                                ) : activeModalTab === 'forecast' && isAdmin(user) ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950">
+                                        <MissionForecastPanel
+                                            missionId={selectedDeployment.id}
+                                            missionTitle={selectedDeployment.title}
+                                        />
+                                    </div>
+                                ) : activeModalTab === 'sessions' ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950 p-6">
+                                        <MissionSessionPanel
+                                            missionId={selectedDeployment.id}
+                                            missionTitle={selectedDeployment.title}
+                                        />
+                                    </div>
+                                ) : activeModalTab === 'solar' ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950">
+                                        {/* LBD Block Tracker — progress table + CSV upload */}
+                                        <div className="p-6 border-b border-slate-800">
+                                            <LBDBlockTracker
+                                                deploymentId={selectedDeployment.id}
+                                                personnel={personnel}
+                                            />
+                                        </div>
+                                        {/* Solar Block Map — geographic visual */}
+                                        <div className="p-6">
+                                            <SolarBlockMap deploymentId={selectedDeployment.id} />
+                                        </div>
+                                    </div>
+                                ) : activeModalTab === 'thermal' ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950 p-6">
+                                        <ThermalHotspotMap deploymentId={selectedDeployment.id} />
                                     </div>
                                 ) : (
                                     <div className="p-6 flex items-center justify-center text-slate-500">
@@ -2475,7 +3170,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                     &times;
                                 </button>
                             </div>
-                            <div className="p-6 space-y-4 overflow-y-auto">
+                            <div className="p-6 space-y-4 overflow-y-auto text-slate-900">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Title</label>
                                     <input
@@ -2553,37 +3248,15 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                         </select>
                                     </div>
 
-                                    {/* Site Name / Selection */}
+                                    {/* Site Name */}
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium text-slate-700">Site / Project</label>
-                                        <div className="flex gap-2">
-                                            <select
-                                                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                value={newDeployment.siteId || ''}
-                                                onChange={(e) => {
-                                                    const site = sites.find(s => s.id === e.target.value);
-                                                    setNewDeployment({
-                                                        ...newDeployment,
-                                                        siteId: e.target.value,
-                                                        siteName: site?.name || '',
-                                                        clientId: site?.client_id || newDeployment.clientId // Auto-select client if site has one
-                                                    });
-                                                }}
-                                            >
-                                                <option value="">Select Existing Site...</option>
-                                                {sites.map(site => (
-                                                    <option key={site.id} value={site.id}>
-                                                        {site.name} {site.location ? `(${site.location})` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                        <label className="text-sm font-medium text-slate-700">Site / Project Name</label>
                                         <input
                                             type="text"
-                                            placeholder="Or enter manual site name..."
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm mt-2"
+                                            placeholder="e.g. Nevada Solar Array — Block C"
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
                                             value={newDeployment.siteName || ''}
-                                            onChange={(e) => setNewDeployment({ ...newDeployment, siteName: e.target.value })}
+                                            onChange={(e) => setNewDeployment({ ...newDeployment, siteName: e.target.value, siteId: undefined })}
                                         />
                                     </div>
 
@@ -2597,16 +3270,100 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                 onChange={e => setNewDeployment({ ...newDeployment, date: e.target.value })}
                                             />
                                         </div>
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Location</label>
+                                        <div className="col-span-2 grid grid-cols-2 gap-3">
+                                            {/* City — autocomplete */}
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">City</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        autoComplete="off"
+                                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                                        value={newDeployment.location || ''}
+                                                        onChange={e => handleCityInput(e.target.value)}
+                                                        onBlur={() => setTimeout(() => setCitySuggestions([]), 200)}
+                                                        placeholder="Start typing a city…"
+                                                    />
+                                                    {citySearching && (
+                                                        <div className="absolute right-3 top-2.5 text-slate-400 text-xs">…</div>
+                                                    )}
+                                                    {citySuggestions.length > 0 && (
+                                                        <ul className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden text-sm">
+                                                            {citySuggestions.map((city, i) => (
+                                                                <li
+                                                                    key={i}
+                                                                    onMouseDown={() => handleCitySelect(city)}
+                                                                    className="px-3 py-2.5 hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-0"
+                                                                >
+                                                                    <span className="font-semibold text-slate-800">{city.name}</span>
+                                                                    {city.admin1 && <span className="text-slate-500">, {city.admin1}</span>}
+                                                                    <span className="ml-1 text-xs text-slate-400">{city.country_code}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {/* State — auto-filled from city selection */}
+                                            <div>
+                                                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">State / Region</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none bg-slate-50"
+                                                    value={(newDeployment as any).state || ''}
+                                                    onChange={e => setNewDeployment({ ...newDeployment, state: e.target.value } as any)}
+                                                    placeholder="Auto-filled from city"
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Coordinates — auto-filled + editable */}
+                                        {((newDeployment as any).latitude || (newDeployment as any).longitude) && (
+                                            <div className="col-span-2">
+                                                <label className="block text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">📍 Coordinates (auto-resolved)</label>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <input
+                                                        type="number" step="any"
+                                                        className="w-full px-3 py-2 border border-emerald-200 bg-emerald-50 rounded-lg text-sm text-emerald-800 outline-none"
+                                                        value={(newDeployment as any).latitude ?? ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, latitude: parseFloat(e.target.value) } as any)}
+                                                        placeholder="Latitude"
+                                                    />
+                                                    <input
+                                                        type="number" step="any"
+                                                        className="w-full px-3 py-2 border border-emerald-200 bg-emerald-50 rounded-lg text-sm text-emerald-800 outline-none"
+                                                        value={(newDeployment as any).longitude ?? ''}
+                                                        onChange={e => setNewDeployment({ ...newDeployment, longitude: parseFloat(e.target.value) } as any)}
+                                                        placeholder="Longitude"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* GPS Coordinates — required for weather forecasting */}
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                                            Site Coordinates <span className="text-amber-500 normal-case font-normal">(required for weather forecast)</span>
+                                        </label>
+                                        <div className="grid grid-cols-2 gap-2">
                                             <input
-                                                type="text"
-                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
-                                                value={newDeployment.location || ''}
-                                                onChange={e => setNewDeployment({ ...newDeployment, location: e.target.value })}
-                                                placeholder="City, State"
+                                                type="number"
+                                                step="any"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 outline-none"
+                                                placeholder="Latitude  e.g. 33.4484"
+                                                value={(newDeployment as any).latitude ?? ''}
+                                                onChange={e => setNewDeployment({ ...newDeployment, latitude: e.target.value } as any)}
+                                            />
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 outline-none"
+                                                placeholder="Longitude  e.g. -112.0740"
+                                                value={(newDeployment as any).longitude ?? ''}
+                                                onChange={e => setNewDeployment({ ...newDeployment, longitude: e.target.value } as any)}
                                             />
                                         </div>
+                                        <p className="text-[10px] text-slate-400 mt-1">Used by the AI Mission Forecaster for weather analysis. Find coordinates at maps.google.com.</p>
                                     </div>
 
                                     <div className="space-y-2">

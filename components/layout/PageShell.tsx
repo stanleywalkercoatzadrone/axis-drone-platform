@@ -14,7 +14,6 @@ import {
     X,
     Building,
     TrendingUp,
-    Plus,
     Calendar,
     CheckSquare,
     ShieldCheck,
@@ -87,16 +86,10 @@ export const PageShell: React.FC<PageShellProps> = ({ children, title, actions, 
                             onClick={() => onNavigate?.('analytics')}
                         />
                         <NavItem
-                            icon={<Plus />}
-                            label={`New ${tLabel('mission')}`}
-                            active={activeTab === 'create'}
-                            onClick={() => onNavigate?.('create')}
-                        />
-                        <NavItem
-                            icon={<Database />}
-                            label={`${tLabel('report')} Archives`}
-                            active={activeTab === 'archives'}
-                            onClick={() => onNavigate?.('archives')}
+                            icon={<BrainCircuit />}
+                            label="AI Studio"
+                            active={activeTab === 'ai-studio'}
+                            onClick={() => onNavigate?.('ai-studio')}
                         />
                         <NavItem
                             icon={<Calendar />}

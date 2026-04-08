@@ -11,8 +11,8 @@ dotenv.config({ path: path.join(projectRoot, '.env.local') });
 
 async function runTargetedMigration() {
     try {
-        console.log('🔄 Running TARGETED migration 014...');
-        const file = '014_add_personnel_tenant_id.sql';
+        console.log('🔄 Running TARGETED migration 20260225_add_force_password_reset...');
+        const file = '20260225_add_force_password_reset.sql';
         const migrationPath = path.join(__dirname, file);
         const sql = fs.readFileSync(migrationPath, 'utf8');
 

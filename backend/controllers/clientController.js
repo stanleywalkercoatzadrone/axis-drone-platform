@@ -15,27 +15,25 @@ const getIndustryId = async (keyOrId) => {
 export const getClients = async (req, res, next) => {
     try {
         const { industryId } = req.query;
+        const tenantId = req.user.tenantId;
         let query = `
       SELECT c.*, i.name as industry_name,
       (SELECT COUNT(*) FROM sites s WHERE s.client_id = c.id) as project_count
       FROM clients c
       LEFT JOIN industries i ON c.industry_id = i.id
-      WHERE 1=1
+      WHERE (c.tenant_id = $1 OR c.tenant_id IS NULL)
     `;
-        const params = [];
+        const params = [tenantId];
 
         // Filter by Industry if provided
         if (industryId) {
-            // support lookup by key or uuid
-            if (industryId.length < 30) { // simplistic check for key vs uuid
+            if (industryId.length < 30) {
                 query += ` AND i.key = $${params.length + 1}`;
             } else {
                 query += ` AND c.industry_id = $${params.length + 1}`;
             }
             params.push(industryId);
         }
-
-        // Role-based scoping (Future: restrict client_org_admin)
 
         query += ` ORDER BY c.name ASC`;
 
@@ -50,6 +48,7 @@ export const getClients = async (req, res, next) => {
     }
 };
 
+
 // @desc    Get single client
 // @route   GET /api/clients/:id
 // @access  Private
@@ -60,9 +59,9 @@ export const getClient = async (req, res, next) => {
       SELECT c.*, i.key as industry_key, i.name as industry_name
       FROM clients c
       LEFT JOIN industries i ON c.industry_id = i.id
-      WHERE c.id = $1
+      WHERE c.id = $1 AND (c.tenant_id = $2 OR c.tenant_id IS NULL)
     `;
-        const result = await db.query(query, [id]);
+        const result = await db.query(query, [id, req.user.tenantId]);
 
         if (result.rows.length === 0) {
             return next(new AppError('Client not found', 404));
@@ -95,23 +94,58 @@ export const createClient = async (req, res, next) => {
             return next(new AppError('Industry ID or Key is required', 400));
         }
 
-        const query = `
-      INSERT INTO clients (industry_id, name, external_id, address)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `;
-
-        const result = await db.query(query, [
-            finalIndustryId,
-            name,
-            externalId || null,
-            address || {}
-        ]);
+        const result = await db.query(
+            `INSERT INTO clients (industry_id, name, external_id, address, email, phone, primary_contact_name, tenant_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING *`,
+            [
+                finalIndustryId,
+                name,
+                externalId || null,
+                address || {},
+                req.body.email || null,
+                req.body.phone || null,
+                req.body.primaryContactName || null,
+                req.user.tenantId
+            ]
+        );
 
         res.status(201).json({
             success: true,
             data: result.rows[0]
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Update client
+// @route   PUT /api/clients/:id
+// @access  Admin
+export const updateClient = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, address, email, phone, primaryContactName, externalId } = req.body;
+
+        const result = await db.query(
+            `UPDATE clients
+             SET name = COALESCE($1, name),
+                 address = COALESCE($2, address),
+                 email = COALESCE($3, email),
+                 phone = COALESCE($4, phone),
+                 primary_contact_name = COALESCE($5, primary_contact_name),
+                 external_id = COALESCE($6, external_id),
+                 updated_at = NOW()
+             WHERE id = $7 AND (tenant_id = $8 OR tenant_id IS NULL)
+             RETURNING *`,
+            [name, address, email, phone, primaryContactName, externalId, id, req.user.tenantId]
+        );
+
+        if (result.rows.length === 0) {
+            return next(new AppError('Client not found', 404));
+        }
+
+        res.status(200).json({ success: true, data: result.rows[0] });
     } catch (error) {
         next(error);
     }
@@ -230,56 +264,6 @@ export const addStakeholder = async (req, res, next) => {
         }
 
         res.status(201).json({ success: true, message: 'Stakeholder added successfully' });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// @desc    Update client
-// @route   PUT /api/clients/:id
-// @access  Admin
-export const updateClient = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { name, externalId, address, industryId } = req.body;
-
-        const result = await db.query(
-            `UPDATE clients 
-             SET name = $1, external_id = $2, address = $3, industry_id = $4, updated_at = NOW() 
-             WHERE id = $5 
-             RETURNING *`,
-            [name, externalId, address || {}, industryId, id]
-        );
-
-        if (result.rows.length === 0) {
-            return next(new AppError('Client not found', 404));
-        }
-
-        res.status(200).json({
-            success: true,
-            data: result.rows[0]
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// @desc    Delete client
-// @route   DELETE /api/clients/:id
-// @access  Admin
-export const deleteClient = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await db.query('DELETE FROM clients WHERE id = $1 RETURNING id', [id]);
-
-        if (result.rows.length === 0) {
-            return next(new AppError('Client not found', 404));
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'Client deleted successfully'
-        });
     } catch (error) {
         next(error);
     }

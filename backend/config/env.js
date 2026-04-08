@@ -22,12 +22,8 @@ if (fs.existsSync(localEnvPath)) {
 
 // Log DB Connection Info (Masked)
 if (process.env.DATABASE_URL) {
-    try {
-        const url = new URL(process.env.DATABASE_URL);
-        console.log(`📦 DB Config: ${url.protocol}//${url.username}:****@${url.hostname}:${url.port}${url.pathname}`);
-    } catch (err) {
-        console.error('⚠️  Failed to parse DATABASE_URL for logging (App will continue):', err.message);
-    }
+    const url = new URL(process.env.DATABASE_URL);
+    console.log(`📦 DB Config: ${url.protocol}//${url.username}:****@${url.hostname}:${url.port}${url.pathname}`);
 } else {
     console.log('⚠️  DATABASE_URL is not set');
 }

@@ -63,12 +63,12 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
     const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, currentImageName: '' });
 
     const [selectedTemplate, setSelectedTemplate] = useState<IndustryTemplate>(
-        INDUSTRY_TEMPLATES[industry][0]
+        (INDUSTRY_TEMPLATES[industry] || INDUSTRY_TEMPLATES[Industry.SOLAR])[0]
     );
 
     const setIndustry = (ind: Industry) => {
         setIndustryState(ind);
-        setSelectedTemplate(INDUSTRY_TEMPLATES[ind][0]);
+        setSelectedTemplate((INDUSTRY_TEMPLATES[ind] || INDUSTRY_TEMPLATES[Industry.SOLAR])[0]);
     };
 
     const addImages = async (files: File[]) => {

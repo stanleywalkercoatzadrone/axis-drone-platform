@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { isAdmin } from '../src/utils/roleUtils';
+import { getRoleDisplayName, isAdmin, isPilot } from '../utils/roleUtils';
 import {
   User,
   Building2,
@@ -46,21 +46,26 @@ import {
 
 import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry, Region, Country } from '../types';
 import { testAIConnection } from '../geminiService';
-import { googleAuthService } from '../src/services/googleAuthService';
-import apiClient from '../src/services/apiClient';
+import { googleAuthService } from '../services/googleAuthService';
+import apiClient from '../services/apiClient';
 
 import SystemAIView from './SystemAIView';
 import { PerformanceConfigPanel } from '../src/components/admin/PerformanceConfigPanel';
-import { useAuth } from '../src/context/AuthContext';
+import { AxisPerformanceTab } from '../src/components/personnel/AxisPerformanceTab';
+import { useAuth } from '../context/AuthContext';
+import { useCountry } from '../src/context/CountryContext';
+import OrganizationPanel from './OrganizationPanel';
+import ClientBillingPanel from './ClientBillingPanel';
+import RegionConfig from './RegionConfig';
 
-interface SettingsViewProps {
-  currentUser: UserAccount;
-  onUpdateUser: (user: UserAccount) => void;
-  onLogout: () => void;
-}
+const SettingsView: React.FC = () => {
+  const { user: currentUser, logout, syncProfile } = useAuth();
+  const { refreshCountries } = useCountry();
 
-const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, onLogout }) => {
-  const { syncProfile } = useAuth();
+  // Guard: auth context may briefly return null on first render
+  if (!currentUser) {
+    return <div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading settings…</div>;
+  }
   const [activeSection, setActiveSection] = useState('profile');
   const [saveStatus, setSaveStatus] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -214,11 +219,27 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
     try {
       await apiClient.patch(`/regions/countries/${countryId}/status`, { status: newStatus });
-      // Refresh
+      // Refresh local settings view AND the global sidebar dropdown
       fetchLocations();
+      refreshCountries();
     } catch (error) {
       console.error('Failed to update country status', error);
       alert('Failed to update status');
+    }
+  };
+
+  const handleBulkCountryStatus = async (targetStatus: 'ENABLED' | 'DISABLED') => {
+    const toChange = countries.filter(c => c.status !== targetStatus);
+    if (toChange.length === 0) return;
+    try {
+      await Promise.all(
+        toChange.map(c => apiClient.patch(`/regions/countries/${c.id}/status`, { status: targetStatus }))
+      );
+      fetchLocations();
+      refreshCountries();
+    } catch (error) {
+      console.error('Bulk status update failed', error);
+      alert('Some countries could not be updated');
     }
   };
 
@@ -329,19 +350,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
   };
 
   const handleDriveConnect = () => {
-    googleAuthService.initiateGoogleAuth((updatedUser) => {
-      onUpdateUser(updatedUser);
-      setFormData(prev => ({
-        ...prev,
-        driveFolder: updatedUser.driveFolder || prev.driveFolder
-      }));
+    googleAuthService.initiateGoogleAuth(async () => {
+      await syncProfile();
     });
   };
 
   const disconnectDrive = async () => {
     if (confirm('Unlink Google Drive?')) {
-      const updated = await googleAuthService.unlinkGoogleDrive();
-      onUpdateUser(updated);
+      await googleAuthService.unlinkGoogleDrive();
+      await syncProfile();
     }
   };
 
@@ -509,7 +526,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
             System Configuration
             <span className={`text-xs px-2 py-1 rounded-full border ${isAdmin(currentUser) ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-              {currentUser.role}
+              {getRoleDisplayName(currentUser.role)}
             </span>
           </h2>
           <p className="text-slate-700 font-medium mt-1">Manage your identity, team access, and integrations.</p>
@@ -529,14 +546,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
             { id: 'profile', label: 'My Profile', icon: User },
             { id: 'security', label: 'Security', icon: Lock },
             { id: 'integrations', label: 'Integrations', icon: Layers },
+            { id: 'organization', label: 'Organization', icon: Building2, admin: true },
+            { id: 'billing', label: 'Client Billing', icon: Receipt, admin: true },
             { id: 'locations', label: 'Regions & Countries', icon: Cloud, admin: true },
             { id: 'ai', label: 'AI Intelligence', icon: BrainCircuit, admin: true },
             { id: 'invoicing', label: 'Invoicing Setup', icon: Receipt, admin: true },
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'User Management', icon: Users, admin: true },
-            { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true }
+            { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true },
+            { id: 'my-performance', label: 'My Performance', icon: BarChart3, pilot: true }
           ].map(item => (
-            (!item.admin || isAdmin(currentUser)) && (
+            (!item.admin || isAdmin(currentUser)) && (!(item as any).pilot || isPilot(currentUser) || isAdmin(currentUser)) && (
               <button
                 key={item.id}
                 onClick={() => setActiveSection(item.id)}
@@ -549,13 +569,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           ))}
 
           <div className="pt-8 mt-8 border-t border-slate-100">
-            <button onClick={onLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-all">
+            <button onClick={logout} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-all">
               <LogOut className="w-4 h-4" /> Sign Out
             </button>
           </div>
         </div>
 
         <div className="flex-1 space-y-8">
+          {activeSection === 'organization' && isAdmin(currentUser) && (
+            <OrganizationPanel currentUser={currentUser} />
+          )}
+
+          {activeSection === 'billing' && isAdmin(currentUser) && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 pb-2">
+                <Receipt className="w-5 h-5 text-indigo-500" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Client Billing</h3>
+                  <p className="text-sm text-slate-500">Manage subscription invoices for each client organisation.</p>
+                </div>
+              </div>
+              <ClientBillingPanel />
+            </div>
+          )}
+
           {activeSection === 'profile' && (
             <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
               <div className="flex items-center gap-6 pb-8 border-b border-slate-100">
@@ -566,7 +603,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                   <h3 className="text-lg font-bold text-slate-950">{formData.fullName}</h3>
                   <p className="text-slate-700 font-medium">{formData.email}</p>
                   <div className="mt-2 flex gap-2">
-                    <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-xs font-black rounded uppercase tracking-wider">{formData.role}</span>
+                    <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-xs font-black rounded uppercase tracking-wider">{getRoleDisplayName(formData.role)}</span>
                   </div>
                 </div>
               </div>
@@ -593,7 +630,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                     onChange={e => handleRoleChange(e.target.value as UserRole)}
                     className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                   >
-                    {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                    {Object.values(UserRole).map(r => <option key={r} value={r}>{getRoleDisplayName(r)}</option>)}
                   </select>
                 </div>
               </div>
@@ -849,54 +886,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
           )}
 
           {activeSection === 'locations' && isAdmin(currentUser) && (
-            <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-8">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <Cloud className="w-5 h-5 text-blue-600" /> Geographic Coverage
-                </h3>
-                <p className="text-slate-500 text-sm mt-1">Manage supported regions and activate/deactivate countries.</p>
-              </div>
-
-              {loadingLocations ? (
-                <div className="flex justify-center p-8">
-                  <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-                </div>
-              ) : (
-                <div className="space-y-8">
-                  {regions.map(region => (
-                    <div key={region.id} className="space-y-4">
-                      <h4 className="font-bold text-slate-800 border-b border-slate-100 pb-2">{region.name}</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {countries.filter(c => c.region_id === region.id).map(country => (
-                          <div key={country.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${country.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
-                                {country.iso_code}
-                              </div>
-                              <div>
-                                <p className="font-bold text-slate-900 text-sm">{country.name}</p>
-                                <p className="text-xs text-slate-500">{country.currency} • {country.units_of_measurement}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${country.status === 'ENABLED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
-                                {country.status}
-                              </span>
-                              <button
-                                onClick={() => handleToggleCountryStatus(country.id, country.status)}
-                                className={`text-xs font-medium px-3 py-1.5 rounded transition-colors ${country.status === 'ENABLED' ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
-                              >
-                                {country.status === 'ENABLED' ? 'Disable' : 'Enable'}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <RegionConfig apiClient={apiClient} />
           )}
 
           {activeSection === 'team' && (isAdmin(currentUser)) && (
@@ -987,7 +977,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                           onChange={e => setNewUserForm({ ...newUserForm, role: e.target.value as UserRole })}
                           className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                         >
-                          {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                          {Object.values(UserRole).map(r => <option key={r} value={r}>{getRoleDisplayName(r)}</option>)}
                         </select>
                       </div>
                       <div>
@@ -1048,7 +1038,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
                           onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}
                           className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                         >
-                          {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                          {Object.values(UserRole).map(r => <option key={r} value={r}>{getRoleDisplayName(r)}</option>)}
                         </select>
                       </div>
                       <div>
@@ -1096,14 +1086,23 @@ const SettingsView: React.FC<SettingsViewProps> = ({ currentUser, onUpdateUser, 
 
 
           {activeSection === 'ai' && (isAdmin(currentUser)) && (
-            <SystemAIView
-              aiSensitivity={formData.aiSensitivity}
-              onSensitivityChange={(val) => setFormData(prev => ({ ...prev, aiSensitivity: val }))}
-            />
+            <SystemAIView />
           )}
 
           {activeSection === 'performance' && (isAdmin(currentUser)) && (
             <PerformanceConfigPanel />
+          )}
+
+          {activeSection === 'my-performance' && (
+            <div className="bg-white border border-slate-200 rounded-xl p-8 space-y-6 animate-in fade-in">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-blue-600" /> My Performance
+                </h3>
+                <p className="text-slate-500 text-sm mt-1">View your Axis Performance Index and scoring breakdown.</p>
+              </div>
+              <AxisPerformanceTab pilotId={currentUser.id} />
+            </div>
           )}
         </div>
       </div>

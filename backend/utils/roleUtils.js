@@ -14,19 +14,23 @@ export function normalizeRole(roleString) {
     if (!roleString) return null;
 
     // Convert to lowercase and replace slashes/spaces with underscores
-    const normalized = roleString.toLowerCase().replace(/[\/\s]/g, '_');
+    const normalized = roleString.toLowerCase().replace(/[\/\s-]/g, '_');
 
     // Map variants to standard roles
     if (['admin', 'administrator'].includes(normalized)) {
         return 'admin';
     }
 
-    if (['pilot_technician', 'pilot', 'technician', 'pilot-technician'].includes(normalized)) {
+    if (['pilot_technician', 'pilot', 'technician'].includes(normalized)) {
         return 'pilot_technician';
     }
 
-    // Return as-is for other roles (future-proofing)
-    return normalized;
+    if (['client', 'client_user', 'customer'].includes(normalized)) {
+        return 'client';
+    }
+
+    // Default all other legacy roles to in-house personnel to restrict access
+    return 'in_house_personnel';
 }
 
 /**
@@ -45,6 +49,24 @@ export function isAdmin(user) {
  */
 export function isPilot(user) {
     return normalizeRole(user?.role) === 'pilot_technician';
+}
+
+/**
+ * Check if user has client role
+ * @param {object} user - User object with role property
+ * @returns {boolean}
+ */
+export function isClient(user) {
+    return normalizeRole(user?.role) === 'client';
+}
+
+/**
+ * Check if user has in-house personnel role
+ * @param {object} user - User object with role property
+ * @returns {boolean}
+ */
+export function isInHouse(user) {
+    return normalizeRole(user?.role) === 'in_house_personnel';
 }
 
 /**
@@ -68,7 +90,9 @@ export function getRoleDisplayName(role) {
 
     const displayNames = {
         'admin': 'Administrator',
-        'pilot_technician': 'Pilot/Technician'
+        'pilot_technician': 'Pilot/Technician',
+        'client': 'Client',
+        'in_house_personnel': 'In-House Personnel'
     };
 
     return displayNames[normalized] || normalized;

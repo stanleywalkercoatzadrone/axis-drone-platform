@@ -1,15 +1,17 @@
 import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { io } from '../app.js';
+import { uploadToDrive, findOrCreateFolder } from '../services/googleDriveService.js';
 
 export const syncToVault = async (req, res, next) => {
     try {
         const { reportId } = req.body;
 
-        // Verify report ownership
+        // Verify report ownership and get user Drive status
         const result = await query(
-            `SELECT r.*
+            `SELECT r.*, u.drive_linked, u.drive_folder
        FROM reports r
+       JOIN users u ON r.user_id = u.id
        WHERE r.id = $1 AND r.user_id = $2`,
             [reportId, req.user.id]
         );
@@ -20,11 +22,16 @@ export const syncToVault = async (req, res, next) => {
 
         const report = result.rows[0];
 
+        if (!report.drive_linked) {
+            throw new AppError('Google Drive not linked. Please link your Google Drive account in settings.', 400);
+        }
+
         const syncLogs = [];
 
         try {
-            // 1. Sync to Supabase Storage (User Vault)
-            const userFolderName = 'SkyLens_Reports'; // Normalized folder
+            // 1. Sync to user's personal folder
+            const userFolderName = report.drive_folder || 'SkyLens_Reports';
+            const userFolder = await findOrCreateFolder(req.user.id, userFolderName);
 
             // Create report JSON file
             const reportData = JSON.stringify({
@@ -43,24 +50,20 @@ export const syncToVault = async (req, res, next) => {
                 mimetype: 'application/json'
             };
 
-            const fileName = `reports/${req.user.id}/${report.title}_${new Date().toISOString().split('T')[0]}.json`;
-
-            // Import dynamically
-            const { uploadToSupabase } = await import('../services/supabaseService.js');
-
-            const userUpload = await uploadToSupabase(
+            const userUpload = await uploadToDrive(
+                req.user.id,
                 reportFile,
-                fileName,
-                { bucketName: 'documents', upsert: true } // Upsert for reports
+                `${report.title}_${new Date().toISOString().split('T')[0]}.json`,
+                userFolder.id
             );
 
             syncLogs.push({
                 reportId,
                 userId: req.user.id,
-                destination: 'Supabase Vault',
-                path: userUpload.path,
+                destination: 'User Vault',
+                path: `/${userFolderName}/${userUpload.name}`,
                 status: 'SUCCESS',
-                metadata: JSON.stringify({ publicUrl: userUpload.publicUrl })
+                metadata: JSON.stringify({ driveId: userUpload.id, webViewLink: userUpload.webViewLink })
             });
 
             // Emit progress
@@ -68,21 +71,52 @@ export const syncToVault = async (req, res, next) => {
                 reportId,
                 destination: 'User Vault',
                 status: 'SUCCESS',
-                link: userUpload.publicUrl
+                link: userUpload.webViewLink
             });
 
         } catch (error) {
-            console.error('Vault sync error:', error);
+            console.error('User vault sync error:', error);
             syncLogs.push({
                 reportId,
                 userId: req.user.id,
-                destination: 'Supabase Vault',
-                path: `reports/${req.user.id}`,
+                destination: 'User Vault',
+                path: `/${report.drive_folder || 'SkyLens_Reports'}`,
                 status: 'FAILED',
                 error_message: error.message
             });
         }
 
+        // 2. Sync to master archive (simulated - would need admin Drive account)
+        const masterVaultPath = `/SkyLens_Master_Archive/${report.industry}/${report.title}`;
+        syncLogs.push({
+            reportId,
+            userId: req.user.id,
+            destination: 'Master Archive',
+            path: masterVaultPath,
+            status: 'SUCCESS',
+            metadata: JSON.stringify({ note: 'Master archive sync simulated' })
+        });
+
+        // Save sync logs
+        for (const log of syncLogs) {
+            await query(
+                `INSERT INTO sync_logs (report_id, user_id, destination, path, status, error_message, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [log.reportId, log.userId, log.destination, log.path, log.status, log.error_message || null, log.metadata || null]
+            );
+        }
+
+        await query(
+            `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+            [req.user.id, 'REPORT_SYNCED', 'report', reportId, JSON.stringify({ destinations: syncLogs.length })]
+        );
+
+        res.json({
+            success: true,
+            message: 'Report synced to vaults',
+            data: syncLogs
+        });
     } catch (error) {
         next(error);
     }

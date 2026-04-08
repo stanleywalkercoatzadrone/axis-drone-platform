@@ -17,9 +17,9 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { UserAccount, UserRole, InspectionReport, Industry, ReportTheme, Severity } from '../types';
-import apiClient from '../src/services/apiClient';
-import { useAuth } from '../src/context/AuthContext';
-import { initializeDemoSession } from '../src/services/demoService';
+import apiClient from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
+import { initializeDemoSession } from '../services/demoService';
 
 interface LoginProps {
   onLogin: (user: UserAccount) => void;
@@ -278,15 +278,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </button>
           </div>
 
-          <div className="relative py-6">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200"></div></div>
-            <div className="relative flex justify-center text-[9px] uppercase font-black tracking-[0.5em] text-slate-400">
-              <span className="bg-slate-50/50 px-4">Evaluation Bridge</span>
-            </div>
-          </div>
-          <button onClick={handleDemoAccess} disabled={isLoading || isDemoLoading} className="w-full flex items-center justify-center gap-4 py-4 border border-slate-200 rounded-2xl bg-white hover:bg-slate-50 transition-all text-[10px] font-black uppercase tracking-widest text-slate-600 shadow-sm disabled:opacity-50 active:scale-95 group">
-            {isDemoLoading ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Globe className="w-4 h-4 text-indigo-600 group-hover:rotate-12 transition-transform" />} Launch Evaluation Sandbox
-          </button>
+
         </div>
       </div>
     </div>

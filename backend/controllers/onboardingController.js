@@ -22,7 +22,7 @@ import fs from 'fs/promises';
  */
 export const sendOnboardingPackage = async (req, res) => {
     try {
-        const { personnelId } = req.body;
+        const { personnelId, selectedDocs } = req.body;
         const tenantId = req.user.tenantId;
         const userId = req.user.id;
 
@@ -37,7 +37,8 @@ export const sendOnboardingPackage = async (req, res) => {
         const pkg = await onboardingService.createOnboardingPackage(
             personnelId,
             tenantId,
-            userId
+            userId,
+            selectedDocs
         );
 
         // Send email
@@ -107,13 +108,13 @@ export const getOnboardingPortal = async (req, res) => {
 };
 
 /**
- * Upload completed documents/files
+ * Upload completed document
  * POST /api/onboarding/portal/:token/upload
  */
 export const uploadDocument = async (req, res) => {
     try {
         const { token } = req.params;
-        const { documentId } = req.body; // In case of bulk, this might be a primary doc ID or generic metadata
+        const { documentId } = req.body;
 
         // Verify token is valid
         const pkg = await onboardingService.getPackageByToken(token);
@@ -124,49 +125,41 @@ export const uploadDocument = async (req, res) => {
             });
         }
 
-        const files = req.files || (req.file ? [req.file] : []);
-        if (files.length === 0) {
+        // File should be uploaded via multer middleware
+        if (!req.file) {
             return res.status(400).json({
                 success: false,
-                message: 'No files uploaded'
+                message: 'No file uploaded'
             });
         }
 
-        const uploadResults = [];
+        // Save file to onboarding directory
         const uploadDir = path.join(process.cwd(), 'uploads', 'onboarding', pkg.tenant_id, pkg.personnel_id);
         await fs.mkdir(uploadDir, { recursive: true });
 
-        for (const file of files) {
-            const fileName = `${documentId || 'onboarding'}_${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-            const filePath = path.join(uploadDir, fileName);
+        const fileName = `${documentId}_${Date.now()}.pdf`;
+        const filePath = path.join(uploadDir, fileName);
 
-            await fs.writeFile(filePath, file.buffer);
+        await fs.writeFile(filePath, req.file.buffer);
 
-            // Generate file URL (relative path for serving)
-            const fileUrl = `/uploads/onboarding/${pkg.tenant_id}/${pkg.personnel_id}/${fileName}`;
+        // Generate file URL (relative path for serving)
+        const fileUrl = `/uploads/onboarding/${pkg.tenant_id}/${pkg.personnel_id}/${fileName}`;
 
-            // If it's a specific document update
-            if (documentId) {
-                await onboardingService.completeDocument(documentId, fileUrl);
-            } else {
-                // Handle generic additional files? 
-                // For now, let's assume if no documentId, we just record it in service
-                await onboardingService.addOnboardingFile(pkg.id, fileUrl, file.originalname);
-            }
-
-            uploadResults.push({ name: file.originalname, url: fileUrl });
-        }
+        // Mark document as completed
+        await onboardingService.completeDocument(documentId, fileUrl);
 
         res.json({
             success: true,
-            message: 'Files uploaded successfully',
-            data: uploadResults
+            message: 'Document uploaded successfully',
+            data: {
+                fileUrl
+            }
         });
     } catch (error) {
-        console.error('Error uploading documents:', error);
+        console.error('Error uploading document:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to upload documents',
+            message: 'Failed to upload document',
             error: error.message
         });
     }
@@ -196,10 +189,6 @@ export const getAllPackages = async (req, res) => {
     }
 };
 
-/**
- * Get onboarding package for specific personnel
- * GET /api/onboarding/packages/:personnelId
- */
 /**
  * Get onboarding package for specific personnel
  * GET /api/onboarding/packages/:personnelId
@@ -237,142 +226,6 @@ export const getPackageByPersonnelId = async (req, res) => {
             message: 'Failed to fetch onboarding package',
             error: error.message
         });
-    }
-};
-
-/**
- * Complete onboarding package
- * POST /api/onboarding/portal/:token/complete
- */
-export const completeOnboardingPackage = async (req, res) => {
-    const client = await db.connect();
-    try {
-        const { token } = req.params;
-        const { personalInfo, bankingInfo, documents } = req.body;
-
-        await client.query('BEGIN');
-
-        // 1. Validate Token & Get Package
-        const pkgResult = await client.query(
-            `SELECT op.*, p.id as personnel_id, p.full_name, p.email, p.phone, p.home_address, p.status 
-             FROM onboarding_packages op
-             JOIN personnel p ON op.personnel_id = p.id
-             WHERE op.access_token = $1 AND op.expires_at > NOW() AND op.status != 'completed'`,
-            [token]
-        );
-
-        if (pkgResult.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(404).json({
-                success: false,
-                message: 'Invalid, expired, or already completed onboarding package'
-            });
-        }
-
-        const pkg = pkgResult.rows[0];
-        const personnelId = pkg.personnel_id;
-
-        // 2. Personal Info (Safe Update - Only if empty)
-        if (personalInfo) {
-            const updates = [];
-            const values = [];
-            let paramIdx = 1;
-
-            if (personalInfo.phone && !pkg.phone) {
-                updates.push(`phone = $${paramIdx++}`);
-                values.push(personalInfo.phone);
-            }
-            if (personalInfo.address && !pkg.home_address) {
-                updates.push(`home_address = $${paramIdx++}`);
-                values.push(personalInfo.address);
-                // Note: Lat/Long would normally be Geocoded here if address changed
-            }
-
-            if (updates.length > 0) {
-                values.push(personnelId);
-                await client.query(
-                    `UPDATE personnel SET ${updates.join(', ')} WHERE id = $${paramIdx}`,
-                    values
-                );
-            }
-        }
-
-        // 3. Banking Info (Insert only if not exists)
-        if (bankingInfo) {
-            const bankingCheck = await client.query(
-                `SELECT id FROM pilot_banking_info WHERE pilot_id = $1`,
-                [personnelId]
-            );
-
-            if (bankingCheck.rows.length === 0) {
-                await client.query(
-                    `INSERT INTO pilot_banking_info 
-                    (pilot_id, bank_name, account_number, routing_number, account_type, currency, country_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [
-                        personnelId,
-                        bankingInfo.bankName,
-                        bankingInfo.accountNumber,
-                        bankingInfo.routingNumber,
-                        bankingInfo.accountType || 'Checking',
-                        bankingInfo.currency || 'USD',
-                        bankingInfo.countryId || null
-                    ]
-                );
-            }
-        }
-
-        // 4. Documents (Insert/Link)
-        if (documents && Array.isArray(documents)) {
-            for (const doc of documents) {
-                // Determine document type and URL
-                // If doc has 'fileUrl', use it. If it was an upload ID, we'd need to look it up, but assuming URL passed from frontend
-                if (doc.fileUrl && doc.type) {
-                    await client.query(
-                        `INSERT INTO pilot_documents 
-                        (pilot_id, country_id, document_type, file_url, expiration_date, validation_status)
-                        VALUES ($1, $2, $3, $4, $5, 'PENDING')`,
-                        [
-                            personnelId,
-                            doc.countryId || null,
-                            doc.type,
-                            doc.fileUrl,
-                            doc.expirationDate || null
-                        ]
-                    );
-                }
-            }
-        }
-
-        // 5. Update Package Status
-        await client.query(
-            `UPDATE onboarding_packages SET status = 'completed', completed_at = NOW() WHERE id = $1`,
-            [pkg.id]
-        );
-
-        // 6. Update Personnel Onboarding Status
-        await client.query(
-            `UPDATE personnel SET onboarding_status = 'completed', status = 'Active', updated_at = NOW() WHERE id = $1`,
-            [personnelId]
-        );
-
-        await client.query('COMMIT');
-
-        res.json({
-            success: true,
-            message: 'Onboarding completed successfully'
-        });
-
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error completing onboarding package:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to complete onboarding',
-            error: error.message
-        });
-    } finally {
-        client.release();
     }
 };
 
@@ -487,35 +340,14 @@ export const updateClientSettings = async (req, res, next) => {
         `;
 
         const values = [
-            clientId,
-            settings.workStructure,
-            settings.defaultSlaHours,
-            settings.preferredContactMethod,
-            settings.escalationContactEmail,
-            JSON.stringify(settings.notificationPreferences || {}),
-            JSON.stringify(settings.deliverableFormats || []),
-            settings.deliverableNotes,
-            settings.qaRequired,
-            settings.dataDestinationType,
-            settings.dataDestinationValue,
-            settings.dataDestinationInstructions,
-            settings.billingContactName,
-            settings.billingContactEmail,
-            settings.billingContactPhone,
-            settings.billingAddressLine1,
-            settings.billingAddressLine2,
-            settings.billingCity,
-            settings.billingState,
-            settings.billingZip,
-            settings.billingCountry,
-            settings.poRequired,
-            settings.invoiceDeliveryMethod,
-            JSON.stringify(settings.invoiceEmailList || []),
-            settings.taxNotes,
-            settings.lbdTemplateType,
-            settings.blockIdConventionNotes,
-            settings.kmlUsage,
-            settings.clientAssetEditing
+            clientId, settings.work_structure, settings.default_sla_hours, settings.preferred_contact_method,
+            settings.escalation_contact_email, JSON.stringify(settings.notification_preferences), JSON.stringify(settings.deliverable_formats),
+            settings.deliverable_notes, settings.qa_required, settings.data_destination_type, settings.data_destination_value,
+            settings.data_destination_instructions, settings.billing_contact_name, settings.billing_contact_email,
+            settings.billing_contact_phone, settings.billing_address_line1, settings.billing_address_line2,
+            settings.billing_city, settings.billing_state, settings.billing_zip, settings.billing_country, settings.po_required,
+            settings.invoice_delivery_method, JSON.stringify(settings.invoice_email_list), settings.tax_notes, settings.lbd_template_type,
+            settings.block_id_convention_notes, settings.kml_usage, settings.client_asset_editing
         ];
 
         const result = await db.query(query, values);

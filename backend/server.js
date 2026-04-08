@@ -30,12 +30,15 @@ process.on('unhandledRejection', (reason, promise) => {
         // will resolve only when all dependencies (db, redis, etc) are loaded.
 
         // Run Migrations (if in production or requested)
-        // DISABLED: Migrations block container startup and cause timeout
-        // Run migrations separately via Cloud Build step or manual process
-        /*
         if (process.env.NODE_ENV === 'production') {
             try {
                 console.log('🔄 Running Database Migrations...');
+                // We use a separate process or just import the runner
+                // NOTE: 'run.js' is designed to be a script, so we might need to exec it or slightly modify it to be callable.
+                // For safety in this container, we'll try to exec it as a child process to avoid scope pollution,
+                // OR if it exports a function, call it. 
+                // Let's assume for now we can import it if it has an export, but it likely doesn't.
+                // Safest bet: use child_process
                 const { execSync } = await import('child_process');
                 execSync('node backend/migrations/run.js', { stdio: 'inherit' });
                 console.log('✅ Migrations Completed.');
@@ -43,18 +46,25 @@ process.on('unhandledRejection', (reason, promise) => {
                 console.error('⚠️ Migration Error (non-fatal, proceeding):', migErr.message);
             }
         }
-        */
 
         const { httpServer } = await import('./app.js');
 
         const PORT = process.env.PORT || 8080;
 
         // Start Listening
-        httpServer.listen(PORT, '0.0.0.0', () => {
+        httpServer.listen(PORT, '0.0.0.0', async () => {
             console.log('----------------------------------------');
             console.log(`✅ SERVER STARTED SUCCESSFULLY`);
             console.log(`📡 Listening on PORT: ${PORT}`);
             console.log('----------------------------------------');
+
+            // Phase 7: Start nightly forecast scheduler (fully async, never blocks API)
+            try {
+                const { startForecastScheduler } = await import('./services/forecastScheduler.js');
+                startForecastScheduler();
+            } catch (schedErr) {
+                console.warn('[forecastScheduler] Failed to start (non-fatal):', schedErr.message);
+            }
         });
 
         // Setup graceful shutdown here as well since we own the server instance
