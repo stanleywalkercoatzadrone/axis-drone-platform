@@ -68,16 +68,35 @@ const MissionIntelligenceWorkspace: React.FC = () => {
         </button>
 
         <button
-          onClick={() => setRightOpen(!rightOpen)}
+          onClick={() => {
+            if (rightOpen && rightTab === 'analyst') setRightOpen(false);
+            else { setRightOpen(true); setRightTab('analyst'); }
+          }}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            background: rightOpen ? 'rgba(139,92,246,0.15)' : 'rgba(15,23,42,0.85)',
-            border: rightOpen ? '1px solid rgba(139,92,246,0.4)' : '1px solid rgba(255,255,255,0.1)',
-            color: rightOpen ? '#a78bfa' : '#e2e8f0', borderRadius: 12, padding: '12px 18px',
+            background: rightOpen && rightTab === 'analyst' ? 'rgba(139,92,246,0.15)' : 'rgba(15,23,42,0.85)',
+            border: rightOpen && rightTab === 'analyst' ? '1px solid rgba(139,92,246,0.4)' : '1px solid rgba(255,255,255,0.1)',
+            color: rightOpen && rightTab === 'analyst' ? '#a78bfa' : '#e2e8f0', borderRadius: 12, padding: '12px 18px',
             backdropFilter: 'blur(12px)', cursor: 'pointer', transition: 'all 0.2s',
             boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontWeight: 700, fontSize: 13
           }}>
           <BrainCircuit size={16} /> AI Studio
+        </button>
+
+        <button
+          onClick={() => {
+            if (rightOpen && rightTab === 'reports') setRightOpen(false);
+            else { setRightOpen(true); setRightTab('reports'); }
+          }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: rightOpen && rightTab === 'reports' ? 'rgba(16,185,129,0.15)' : 'rgba(15,23,42,0.85)',
+            border: rightOpen && rightTab === 'reports' ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(255,255,255,0.1)',
+            color: rightOpen && rightTab === 'reports' ? '#34d399' : '#e2e8f0', borderRadius: 12, padding: '12px 18px',
+            backdropFilter: 'blur(12px)', cursor: 'pointer', transition: 'all 0.2s',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)', fontWeight: 700, fontSize: 13
+          }}>
+          <Box size={16} /> Reports
         </button>
       </div>
 
