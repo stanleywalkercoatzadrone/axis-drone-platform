@@ -209,28 +209,40 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
                     <div className="max-w-3xl">
                         <h2 className="text-lg font-black mb-6 text-white">Site & Inspection Details</h2>
                         <div className="grid grid-cols-2 gap-4 mb-4">
-                            {([
-                                ['Site Name', 'siteName', 'e.g. Mojave Solar Farm — Block C'],
-                                ['Site / Asset ID', 'siteId', 'e.g. SITE-0042'],
-                                ['Client / Portfolio', 'clientName', 'e.g. SunPeak Energy LLC'],
-                                ['Installed Capacity (kW)', 'installedKw', 'e.g. 2400'],
-                                ['Panel Count', 'panelCount', 'e.g. 4800'],
-                                ['Panel Make & Model', 'panelMake', 'e.g. LONGi Hi-MO 6 500W'],
-                                ['Inspection Date', 'inspectionDate', ''],
-                                ['Pilot / Technician', 'pilotName', 'e.g. J. Robertson'],
-                                ['Flight Altitude (ft)', 'flightAltitude', 'e.g. 120'],
-                                ['Weather Conditions', 'weatherConditions', 'e.g. Clear, 8 mph wind'],
-                            ] as [string, keyof SolarForm, string][]).map(([label, key, ph]) => (
-                                <div key={key}>
-                                    <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">{label}</label>
-                                    <input
-                                        type={key === 'inspectionDate' ? 'date' : 'text'}
-                                        value={form[key]}
-                                        onChange={e => f(key, e.target.value)}
-                                        placeholder={ph}
-                                        className={inputCls}
-                                        style={inputStyle}
-                                    />
+                            {[
+                                { label: 'Site Name', key: 'siteName', type: 'text', placeholder: 'e.g. Mojave Solar Farm — Block C' },
+                                { label: 'Site / Asset ID', key: 'siteId', type: 'text', placeholder: 'e.g. SITE-0042' },
+                                { label: 'Client / Portfolio', key: 'clientName', type: 'select', options: ['SunPeak Energy LLC', 'Nextera Energy', 'Duke Energy', 'Enel Green Power', 'Dominion Energy', 'Orsted'] },
+                                { label: 'Installed Capacity (kW)', key: 'installedKw', type: 'text', placeholder: 'e.g. 2400' },
+                                { label: 'Panel Count', key: 'panelCount', type: 'text', placeholder: 'e.g. 4800' },
+                                { label: 'Panel Make & Model', key: 'panelMake', type: 'select', options: ['LONGi Hi-MO 6 500W', 'Canadian Solar 550W', 'Jinko Solar 400W', 'First Solar Series 6', 'Trina Solar Vertex 670W', 'SunPower Maxeon 400W', 'Other / Various'] },
+                                { label: 'Inspection Date', key: 'inspectionDate', type: 'date' },
+                                { label: 'Pilot / Technician', key: 'pilotName', type: 'select', options: ['J. Robertson', 'T. Miller', 'S. Walker', 'M. Davis', 'A. Chen'] },
+                                { label: 'Flight Altitude (ft)', key: 'flightAltitude', type: 'select', options: ['100', '120', '150', '200', '250', '300', '400'] },
+                                { label: 'Weather Conditions', key: 'weatherConditions', type: 'select', options: ['Clear, calm winds', 'Clear, 5-10 mph wind', 'Partly Cloudy, calm', 'Overcast, light wind', 'Hazy, moderate wind'] },
+                            ].map((field: any) => (
+                                <div key={field.key}>
+                                    <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">{field.label}</label>
+                                    {field.type === 'select' ? (
+                                        <select
+                                            value={form[field.key as keyof SolarForm]}
+                                            onChange={e => f(field.key as keyof SolarForm, e.target.value)}
+                                            className={inputCls}
+                                            style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}
+                                        >
+                                            <option value="" disabled>Select {field.label}...</option>
+                                            {field.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    ) : (
+                                        <input
+                                            type={field.type}
+                                            value={form[field.key as keyof SolarForm]}
+                                            onChange={e => f(field.key as keyof SolarForm, e.target.value)}
+                                            placeholder={field.placeholder}
+                                            className={inputCls}
+                                            style={inputStyle}
+                                        />
+                                    )}
                                 </div>
                             ))}
                         </div>

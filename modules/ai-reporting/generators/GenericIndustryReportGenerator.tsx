@@ -134,12 +134,17 @@ Write in a professional, technical tone suitable for enterprise clients. Include
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 block mb-1.5">Client / Owner</label>
-                                    <input
+                                    <select
                                         value={clientName}
                                         onChange={e => setClientName(e.target.value)}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-slate-500"
-                                        placeholder="Client name"
-                                    />
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                                        style={{ appearance: 'none', cursor: 'pointer' }}
+                                    >
+                                        <option value="" disabled>Select Client...</option>
+                                        {['SunPeak Energy LLC', 'Nextera Energy', 'Duke Energy', 'Enel Green Power', 'Dominion Energy', 'Orsted', 'Verizon Wireless', 'AT&T', 'T-Mobile', 'American Tower', 'Crown Castle', 'Other'].map(opt => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 block mb-1.5">Location</label>
