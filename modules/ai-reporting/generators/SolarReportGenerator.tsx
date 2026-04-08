@@ -159,7 +159,25 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
     const [analysisComplete, setAnalysisComplete] = useState(false);
     const [weatherLoading, setWeatherLoading] = useState(false);
     const [altitudeDetected, setAltitudeDetected] = useState(false);
+    const [pilots, setPilots] = useState<string[]>([]);
     const fileRef = useRef<HTMLInputElement>(null);
+
+    // Fetch real pilots from the database on mount
+    React.useEffect(() => {
+        apiClient.get('/personnel')
+            .then(res => {
+                const data: any[] = res.data?.data || res.data || [];
+                const names = data
+                    .filter((p: any) => p.first_name || p.last_name || p.name)
+                    .map((p: any) => {
+                        if (p.name) return p.name;
+                        return [p.first_name, p.last_name].filter(Boolean).join(' ');
+                    })
+                    .filter((n: string) => n.trim().length > 0);
+                if (names.length > 0) setPilots(names);
+            })
+            .catch(() => { /* silently fall back to empty — user can type manually */ });
+    }, []);
 
     const f = (k: keyof SolarForm, v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -346,18 +364,20 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
                                 { label: 'Installed Capacity (kW)', key: 'installedKw', type: 'text', placeholder: 'e.g. 2400' },
                                 { label: 'Panel Count', key: 'panelCount', type: 'text', placeholder: 'e.g. 4800' },
                                 { label: 'Panel Make & Model', key: 'panelMake', type: 'select', options: ['LONGi Hi-MO 6 500W', 'Canadian Solar 550W', 'Jinko Solar 400W', 'First Solar Series 6', 'Trina Solar Vertex 670W', 'SunPower Maxeon 400W', 'Other / Various'] },
-                                { label: 'Pilot / Technician', key: 'pilotName', type: 'select', options: ['J. Robertson', 'T. Miller', 'S. Walker', 'M. Davis', 'A. Chen'] },
+                                { label: 'Pilot / Technician', key: 'pilotName', type: 'select', options: pilots },
                             ].map((field: any) => (
                                 <div key={field.key}>
                                     <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">{field.label}</label>
-                                    {field.type === 'select' ? (
+                                    {field.type === 'select' && field.options.length > 0 ? (
                                         <select
                                             value={form[field.key as keyof SolarForm]}
                                             onChange={e => f(field.key as keyof SolarForm, e.target.value)}
                                             className={inputCls}
                                             style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}
                                         >
-                                            <option value="" disabled>Select {field.label}...</option>
+                                            <option value="" disabled>
+                                                {field.key === 'pilotName' ? 'Select assigned pilot...' : `Select ${field.label}...`}
+                                            </option>
                                             {field.options.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                                         </select>
                                     ) : (
