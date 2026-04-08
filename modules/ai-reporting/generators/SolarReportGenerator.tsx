@@ -2,15 +2,90 @@
  * Solar Report Generator
  * Handles all 6 solar inspection report sections with a unified AI-powered wizard.
  */
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
     Upload, Zap, Sun, Map, Cpu, BarChart3, FileText,
     ChevronRight, ChevronLeft, Loader2, CheckCircle2,
-    AlertTriangle, ThermometerSun, X, Download
+    AlertTriangle, ThermometerSun, X, Download, Sparkles
 } from 'lucide-react';
 import { ReportSection } from '../config/industryReportSections';
 import apiClient from '../../../src/services/apiClient';
 import { saveReport } from '../utils/reportStorage';
+
+// ── WMO weather code → human-readable label ──────────────────────────────────
+function wmoToLabel(code: number, windMph: number): string {
+    const windDesc = windMph < 5 ? 'calm winds' : windMph < 12 ? `${Math.round(windMph)} mph wind` : windMph < 20 ? `${Math.round(windMph)} mph moderate wind` : `${Math.round(windMph)} mph strong wind`;
+    if (code === 0) return `Clear, ${windDesc}`;
+    if (code <= 2) return `Partly cloudy, ${windDesc}`;
+    if (code <= 3) return `Overcast, ${windDesc}`;
+    if (code <= 48) return `Foggy, ${windDesc}`;
+    if (code <= 57) return `Light drizzle, ${windDesc}`;
+    if (code <= 67) return `Rain, ${windDesc}`;
+    if (code <= 77) return `Snow, ${windDesc}`;
+    if (code <= 82) return `Rain showers, ${windDesc}`;
+    if (code >= 95) return `Thunderstorm, ${windDesc}`;
+    return `Cloudy, ${windDesc}`;
+}
+
+// ── Read GPS Altitude from JPEG EXIF (no external lib needed) ────────────────
+async function readExifAltitude(file: File): Promise<number | null> {
+    return new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const buf = e.target?.result as ArrayBuffer;
+                const view = new DataView(buf);
+                // Validate JPEG SOI marker
+                if (view.getUint16(0) !== 0xFFD8) { resolve(null); return; }
+                let offset = 2;
+                while (offset < view.byteLength - 4) {
+                    const marker = view.getUint16(offset);
+                    const length = view.getUint16(offset + 2);
+                    if (marker === 0xFFE1) { // APP1 / EXIF block
+                        const exifHeader = String.fromCharCode(...new Uint8Array(buf, offset + 4, 6));
+                        if (exifHeader.startsWith('Exif')) {
+                            const tiffStart = offset + 10;
+                            const endian = view.getUint16(tiffStart) === 0x4949 ? true : false; // little endian
+                            const getU16 = (o: number) => view.getUint16(tiffStart + o, endian);
+                            const getU32 = (o: number) => view.getUint32(tiffStart + o, endian);
+                            const ifd0 = getU32(4);
+                            const entries = getU16(ifd0);
+                            for (let i = 0; i < entries; i++) {
+                                const eOff = ifd0 + 2 + i * 12;
+                                const tag = getU16(eOff);
+                                if (tag === 0x8825) { // GPSInfoIFDPointer
+                                    const gpsOffset = getU32(eOff + 8);
+                                    const gpsEntries = getU16(gpsOffset);
+                                    let altVal: number | null = null;
+                                    let altRef = 0;
+                                    for (let j = 0; j < gpsEntries; j++) {
+                                        const gOff = gpsOffset + 2 + j * 12;
+                                        const gTag = getU16(gOff);
+                                        if (gTag === 0x0005) altRef = view.getUint8(tiffStart + getU32(gOff + 8)); // 0=above sea, 1=below
+                                        if (gTag === 0x0006) { // GPSAltitude rational
+                                            const rOff = getU32(gOff + 8);
+                                            const num = getU32(rOff);
+                                            const den = getU32(rOff + 4);
+                                            altVal = den > 0 ? num / den : null;
+                                        }
+                                    }
+                                    if (altVal !== null) {
+                                        const meters = altRef === 1 ? -altVal : altVal;
+                                        resolve(Math.round(meters * 3.28084)); // → feet
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    offset += 2 + length;
+                }
+            } catch { /* EXIF parse failed */ }
+            resolve(null);
+        };
+        reader.readAsArrayBuffer(file.slice(0, 65536)); // Read only first 64KB
+    });
+}
 
 interface SolarReportGeneratorProps {
     section: ReportSection;
@@ -82,9 +157,53 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
     const [aiSummary, setAiSummary] = useState('');
     const [exporting, setExporting] = useState(false);
     const [analysisComplete, setAnalysisComplete] = useState(false);
+    const [weatherLoading, setWeatherLoading] = useState(false);
+    const [altitudeDetected, setAltitudeDetected] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
 
     const f = (k: keyof SolarForm, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+    // ── Auto-fetch weather for a given date using browser geolocation ─────────
+    const autoFetchWeather = useCallback(async (date: string) => {
+        setWeatherLoading(true);
+        try {
+            const pos = await new Promise<GeolocationPosition>((res, rej) =>
+                navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 })
+            );
+            const { latitude: lat, longitude: lon } = pos.coords;
+            const today = new Date().toISOString().slice(0, 10);
+            const isPast = date < today;
+            // Use historical API for past dates, forecast for today/future
+            const baseUrl = isPast
+                ? 'https://archive-api.open-meteo.com/v1/archive'
+                : 'https://api.open-meteo.com/v1/forecast';
+            const url = new URL(baseUrl);
+            url.searchParams.set('latitude', lat.toString());
+            url.searchParams.set('longitude', lon.toString());
+            url.searchParams.set('daily', 'weather_code,wind_speed_10m_max');
+            url.searchParams.set('start_date', date);
+            url.searchParams.set('end_date', date);
+            url.searchParams.set('wind_speed_unit', 'mph');
+            url.searchParams.set('timezone', 'auto');
+            const res = await fetch(url.toString());
+            const data = await res.json();
+            if (data.daily?.weather_code?.[0] != null) {
+                const code = data.daily.weather_code[0];
+                const wind = data.daily.wind_speed_10m_max?.[0] ?? 0;
+                f('weatherConditions', wmoToLabel(code, wind));
+            }
+        } catch {
+            // geolocation denied or API failed — leave field as-is
+        } finally {
+            setWeatherLoading(false);
+        }
+    }, []);
+
+    // Auto-trigger weather fetch when date changes
+    const handleDateChange = (date: string) => {
+        f('inspectionDate', date);
+        if (date) autoFetchWeather(date);
+    };
 
     const handleImageDrop = (e: React.DragEvent) => {
         e.preventDefault();
@@ -92,13 +211,24 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
         addImages(files);
     };
 
-    const addImages = (files: File[]) => {
+    const addImages = async (files: File[]) => {
         setUploadedImages(prev => [...prev, ...files]);
         files.forEach(file => {
             const reader = new FileReader();
             reader.onload = e => setImagePreviews(prev => [...prev, e.target?.result as string]);
             reader.readAsDataURL(file);
         });
+        // Auto-populate flight altitude from EXIF if not already set
+        if (!altitudeDetected) {
+            for (const file of files) {
+                const alt = await readExifAltitude(file);
+                if (alt !== null && alt > 0 && alt < 1500) {
+                    f('flightAltitude', String(alt));
+                    setAltitudeDetected(true);
+                    break;
+                }
+            }
+        }
     };
 
     const removeImage = (i: number) => {
@@ -216,10 +346,7 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
                                 { label: 'Installed Capacity (kW)', key: 'installedKw', type: 'text', placeholder: 'e.g. 2400' },
                                 { label: 'Panel Count', key: 'panelCount', type: 'text', placeholder: 'e.g. 4800' },
                                 { label: 'Panel Make & Model', key: 'panelMake', type: 'select', options: ['LONGi Hi-MO 6 500W', 'Canadian Solar 550W', 'Jinko Solar 400W', 'First Solar Series 6', 'Trina Solar Vertex 670W', 'SunPower Maxeon 400W', 'Other / Various'] },
-                                { label: 'Inspection Date', key: 'inspectionDate', type: 'date' },
                                 { label: 'Pilot / Technician', key: 'pilotName', type: 'select', options: ['J. Robertson', 'T. Miller', 'S. Walker', 'M. Davis', 'A. Chen'] },
-                                { label: 'Flight Altitude (ft)', key: 'flightAltitude', type: 'select', options: ['100', '120', '150', '200', '250', '300', '400'] },
-                                { label: 'Weather Conditions', key: 'weatherConditions', type: 'select', options: ['Clear, calm winds', 'Clear, 5-10 mph wind', 'Partly Cloudy, calm', 'Overcast, light wind', 'Hazy, moderate wind'] },
                             ].map((field: any) => (
                                 <div key={field.key}>
                                     <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">{field.label}</label>
@@ -245,6 +372,51 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
                                     )}
                                 </div>
                             ))}
+
+                            {/* Inspection Date — triggers weather auto-fetch */}
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">Inspection Date</label>
+                                <input
+                                    type="date"
+                                    value={form.inspectionDate}
+                                    onChange={e => handleDateChange(e.target.value)}
+                                    className={inputCls}
+                                    style={inputStyle}
+                                />
+                            </div>
+
+                            {/* Flight Altitude — auto-filled from EXIF on image upload */}
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                                    Flight Altitude (ft)
+                                    {altitudeDetected && <span className="text-emerald-400 text-xs font-bold normal-case flex items-center gap-1"><Sparkles className="w-3 h-3" /> EXIF detected</span>}
+                                </label>
+                                <input
+                                    type="number"
+                                    value={form.flightAltitude}
+                                    onChange={e => { f('flightAltitude', e.target.value); setAltitudeDetected(false); }}
+                                    placeholder="Upload imagery to auto-detect"
+                                    className={inputCls}
+                                    style={inputStyle}
+                                />
+                            </div>
+
+                            {/* Weather Conditions — auto-fetched from Open-Meteo based on date */}
+                            <div className="col-span-2">
+                                <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide flex items-center gap-1.5">
+                                    Weather Conditions
+                                    {weatherLoading && <span className="text-amber-400 text-xs font-bold normal-case flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Fetching from Open-Meteo...</span>}
+                                    {!weatherLoading && form.weatherConditions && <span className="text-emerald-400 text-xs font-bold normal-case flex items-center gap-1"><Sparkles className="w-3 h-3" /> Auto-populated</span>}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={form.weatherConditions}
+                                    onChange={e => f('weatherConditions', e.target.value)}
+                                    placeholder="Select inspection date above to auto-populate"
+                                    className={inputCls}
+                                    style={inputStyle}
+                                />
+                            </div>
                         </div>
                         <div className="mb-6">
                             <label className="block text-xs font-semibold text-slate-400 mb-1.5 uppercase tracking-wide">Inspector Notes</label>
