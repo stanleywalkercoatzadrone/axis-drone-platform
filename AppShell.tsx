@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon
+  Map as MapIcon, Box
 } from 'lucide-react';
 
 // ── Per-view error boundary — isolates crashes without killing the shell nav ──
@@ -83,6 +83,7 @@ import OperationalProtocolsView from './components/OperationalProtocolsView';
 import MediaGallery from './components/MediaGallery';
 import OrgOnboardingView from './components/OrgOnboardingView';
 import MissionIntelligenceWorkspace from './src/pages/MissionIntelligenceWorkspace';
+import IndustryReportsHub from './modules/ai-reporting/IndustryReportsHub';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -93,7 +94,7 @@ type NavKey =
   | 'protocol-lists' | 'checklist-items'
   | 'invoices' | 'vendor-expenses' | 'revenue'
   | 'media' | 'ai-uploads' | 'orthomosaic'
-  | 'mission-intelligence';
+  | 'mission-intelligence' | 'reports';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType };
 type NavGroup = { title: string; items: NavItem[] }
@@ -113,6 +114,7 @@ const NAV: NavGroup[] = [
     title: 'Intelligence',
     items: [
       { key: 'mission-intelligence',     label: 'Intelligence Hub', icon: BrainCircuit },
+      { key: 'reports',          label: 'Enterprise Reports', icon: Box },
       { key: 'thermal-faults',   label: 'Thermal Analysis', icon: Thermometer },
       { key: 'solar-command',    label: 'Solar Command',    icon: Sun },
     ],
@@ -217,6 +219,7 @@ export default function AppShell() {
     'media':                 'Media Gallery',
     'dashboard':             'Mission Terminal',
     'mission-intelligence':  'Mission Intelligence',
+    'reports':               'Enterprise Reports',
     'sessions':              'Sessions',
     'mission-timeline':      'Mission Timeline',
     'weather':               'Weather',
@@ -242,6 +245,7 @@ export default function AppShell() {
   function renderView() {
     switch (activeKey) {
       case 'mission-intelligence': return <MissionIntelligenceWorkspace />;
+      case 'reports':              return <IndustryReportsHub />;
       case 'upload-center':  return <UploadCenter />;  /* deprecated — kept for deep links */
       case 'ai-uploads':      return <AIUploadsAdmin />;  /* deprecated — kept for deep links */
       case 'media':           return <MediaGallery />;
