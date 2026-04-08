@@ -160,24 +160,46 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
     const [weatherLoading, setWeatherLoading] = useState(false);
     const [altitudeDetected, setAltitudeDetected] = useState(false);
     const [pilots, setPilots] = useState<string[]>([]);
+    const [missions, setMissions] = useState<any[]>([]);
+    const [selectedMissionId, setSelectedMissionId] = useState('');
     const fileRef = useRef<HTMLInputElement>(null);
 
-    // Fetch real pilots from the database on mount
+    // Fetch missions list on mount for the Mission Selector
     React.useEffect(() => {
-        apiClient.get('/personnel')
+        apiClient.get('/mission-grid')
             .then(res => {
-                const data: any[] = res.data?.data || res.data || [];
-                const names = data
-                    .filter((p: any) => p.first_name || p.last_name || p.name)
-                    .map((p: any) => {
-                        if (p.name) return p.name;
-                        return [p.first_name, p.last_name].filter(Boolean).join(' ');
-                    })
-                    .filter((n: string) => n.trim().length > 0);
-                if (names.length > 0) setPilots(names);
+                const list: any[] = res.data?.missions || res.data?.data || [];
+                setMissions(list);
             })
-            .catch(() => { /* silently fall back to empty — user can type manually */ });
+            .catch(() => { /* missions list optional */ });
     }, []);
+
+    // When a mission is selected, fetch its detail and auto-populate form + pilots
+    const handleMissionSelect = async (missionId: string) => {
+        setSelectedMissionId(missionId);
+        try {
+            const res = await apiClient.get(`/mission-grid/${missionId}`);
+            const m = res.data?.data || res.data;
+            if (!m) return;
+            // Auto-populate form fields from mission data
+            setForm(prev => ({
+                ...prev,
+                siteName:   m.site_name  || m.title || prev.siteName,
+                siteId:     m.site_id    || prev.siteId,
+                clientName: m.client_name || m.clientName || prev.clientName,
+                inspectionDate: m.date ? m.date.slice(0, 10) : prev.inspectionDate,
+            }));
+            // Populate pilots from the mission's assigned_pilots
+            const assignedPilots: any[] = m.assigned_pilots || [];
+            const names = assignedPilots
+                .map((p: any) => p.name || p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' '))
+                .filter((n: string) => n && n.trim().length > 0);
+            setPilots(names);
+            // If only one pilot assigned, auto-select them
+            if (names.length === 1) setForm(prev => ({ ...prev, pilotName: names[0] }));
+        } catch { /* silently fail — user can still fill manually */ }
+    };
+
 
     const f = (k: keyof SolarForm, v: string) => setForm(p => ({ ...p, [k]: v }));
 
@@ -355,7 +377,36 @@ const SolarReportGenerator: React.FC<SolarReportGeneratorProps> = ({ section, in
                 {/* ── STEP 0: Site Details ── */}
                 {step === 0 && (
                     <div className="max-w-3xl">
-                        <h2 className="text-lg font-black mb-6 text-white">Site & Inspection Details</h2>
+                        <h2 className="text-lg font-black mb-4 text-white">Site & Inspection Details</h2>
+
+                        {/* Mission Selector — auto-populates everything */}
+                        <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                            <label className="block text-xs font-semibold text-amber-400 mb-2 uppercase tracking-wide flex items-center gap-2">
+                                <Zap className="w-3 h-3" /> Link to Mission (auto-populates site + assigned pilots)
+                            </label>
+                            <select
+                                value={selectedMissionId}
+                                onChange={e => handleMissionSelect(e.target.value)}
+                                className={inputCls}
+                                style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}
+                            >
+                                <option value="">Select a mission to auto-populate...</option>
+                                {missions.map((m: any) => (
+                                    <option key={m.id} value={m.id}>
+                                        {m.siteName || m.site_name || m.title} {m.date ? `· ${m.date.slice(0, 10)}` : ''} {m.status ? `· ${m.status}` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                            {selectedMissionId && pilots.length > 0 && (
+                                <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" /> {pilots.length} assigned pilot{pilots.length > 1 ? 's' : ''} loaded from mission
+                                </p>
+                            )}
+                            {selectedMissionId && pilots.length === 0 && (
+                                <p className="text-xs text-amber-500/70 mt-2">No pilots assigned to this mission — enter manually below</p>
+                            )}
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4 mb-4">
                             {[
                                 { label: 'Site Name', key: 'siteName', type: 'text', placeholder: 'e.g. Mojave Solar Farm — Block C' },
