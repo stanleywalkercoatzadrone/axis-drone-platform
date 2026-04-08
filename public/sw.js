@@ -7,7 +7,7 @@
  *  - Images/assets → Stale While Revalidate
  */
 
-const CACHE_VERSION = 'axis-v2';
+const CACHE_VERSION = 'axis-v5';
 const SHELL_CACHE   = `${CACHE_VERSION}-shell`;
 const DATA_CACHE    = `${CACHE_VERSION}-data`;
 const IMG_CACHE     = `${CACHE_VERSION}-images`;
