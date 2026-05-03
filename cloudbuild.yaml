@@ -52,7 +52,7 @@ substitutions:
   _MEMORY: '2Gi'
   _CPU: '2'
   _MAX_INSTANCES: '10'
-  _MIN_INSTANCES: '0'
+  _MIN_INSTANCES: '1'
 
 # Set build timeout to 20 minutes (top-level field)
 timeout: '1200s'
