@@ -164,7 +164,7 @@ function cn(...parts: (string | false | null | undefined)[]) {
 // ── AppShell ────────────────────────────────────────────────────────────────
 export default function AppShell() {
   const { user, logout } = useAuth();
-  const { tLabel } = useIndustry();
+  const { tLabel, currentIndustry } = useIndustry();
   const { countries, activeCountryId, setActiveCountryId, activeCountry } = useCountry();
 
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
@@ -252,7 +252,7 @@ export default function AppShell() {
       case 'dashboard':        return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
       case 'sessions':         return <SessionsView />;
       case 'mission-timeline': return <MissionTimelineView />;
-      case 'weather':          return <WeatherDashboard />;
+      case 'weather':          return <WeatherDashboard industry={(currentIndustry || 'solar') as any} />;
       case 'thermal-faults':   return <ThermalFaultsView />;
       case 'solar-command':    return <SolarCommandCenter />;
       case 'ai-studio':        return <SystemAIView />;
@@ -280,7 +280,7 @@ export default function AppShell() {
       case 'protocol-lists':   return <OperationalProtocolsView />;
       case 'checklist-items':  return <MyWorkItems />;
       case 'system-settings':  return <SettingsView />;
-      case 'user-iam':         return <UserManagement />;
+      case 'user-iam':         return user ? <UserManagement currentUser={user} /> : null;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>

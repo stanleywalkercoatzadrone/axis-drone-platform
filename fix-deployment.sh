@@ -6,10 +6,9 @@
 SERVICE_NAME="axis-platform"
 REGION="us-central1"
 
-# Secrets from .env.local
-DATABASE_URL="postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
-JWT_SECRET="skylens_secret_key_change_in_prod"
-FRONTEND_URL="https://axis-platform-xyz.a.run.app" # Placeholder, update if known
+: "${DATABASE_URL:?DATABASE_URL must be set in the environment}"
+: "${JWT_SECRET:?JWT_SECRET must be set in the environment}"
+FRONTEND_URL="${FRONTEND_URL:-https://axis-platform-xyz.a.run.app}"
 
 echo "🔧 Configuring Cloud Run service: $SERVICE_NAME in $REGION"
 echo "   Setting DATABASE_URL..."

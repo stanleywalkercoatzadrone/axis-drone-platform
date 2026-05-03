@@ -11,8 +11,9 @@ const __dirname = path.dirname(__filename);
 const envPath = path.resolve(__dirname, '../../.env.local');
 dotenv.config({ path: envPath });
 
-// Fallback connection string from .env.local
-const DEFAULT_CONNECTION_STRING = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
+const DEFAULT_CONNECTION_STRING = process.env.NODE_ENV === 'production'
+    ? null
+    : `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'postgres'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'skylens_db'}`;
 
 // Helper to parse connection string
 const parseConnectionString = (connectionString) => {
@@ -46,9 +47,12 @@ if (process.env.DATABASE_URL) {
         keepAlive: true
     };
 } else {
+    if (!DEFAULT_CONNECTION_STRING) {
+        throw new Error('DATABASE_URL is required in production.');
+    }
     poolConfig = {
         connectionString: DEFAULT_CONNECTION_STRING,
-        ssl: {
+        ssl: DEFAULT_CONNECTION_STRING.includes('localhost') || DEFAULT_CONNECTION_STRING.includes('127.0.0.1') ? false : {
             rejectUnauthorized: false,
             require: true
         },

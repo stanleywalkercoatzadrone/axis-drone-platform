@@ -4,7 +4,12 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 
-const DATABASE_URL = 'postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres';
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+    console.error('DATABASE_URL is required. Refusing to run against an implicit production database.');
+    process.exit(1);
+}
 
 const pool = new Pool({
     connectionString: DATABASE_URL,

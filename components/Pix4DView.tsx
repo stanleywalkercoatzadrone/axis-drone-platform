@@ -33,8 +33,14 @@ const Pix4DView: React.FC = () => {
   const fetchPix4dJobs = async () => {
     setJobsLoading(true);
     try {
-      const res = await apiClient.get('/pilot/upload-jobs?limit=8');
-      const jobs = (res.data.jobs || []).filter((j: any) => j.status === 'processing' || j.pix4d_job_id);
+      let res;
+      try {
+        res = await apiClient.get('/pilot/upload-jobs/admin/all');
+      } catch {
+        res = await apiClient.get('/pilot/upload-jobs?limit=8');
+      }
+      const rows = res.data.jobs || res.data.data || [];
+      const jobs = rows.filter((j: any) => j.pix4d_status || j.pix4d_job_id);
       setPix4dJobs(jobs);
     } catch { setPix4dJobs([]); }
     finally { setJobsLoading(false); }
@@ -176,7 +182,7 @@ const Pix4DView: React.FC = () => {
                   <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{job.site_name || job.id.slice(0, 10)}</p>
                   <p style={{ margin: 0, fontSize: 10, color: '#475569' }}>{job.file_count || 0} files</p>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase' }}>{job.status}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: job.pix4d_status === 'failed' ? '#f87171' : '#60a5fa', textTransform: 'uppercase' }}>{job.pix4d_status || job.status}</span>
               </div>
             ))}
           </div>

@@ -32,7 +32,10 @@ const pool = new Pool(poolConfig);
 
 async function resetAdmin() {
     try {
-        const password = 'admin123';
+        const password = process.env.ADMIN_RESET_PASSWORD;
+        if (!password) {
+            throw new Error('ADMIN_RESET_PASSWORD is required. Refusing to reset admin to a known default password.');
+        }
         const hashedPassword = await bcrypt.hash(password, 10);
 
         console.log('generated hash:', hashedPassword);
@@ -43,7 +46,7 @@ async function resetAdmin() {
         );
 
         if (res.rowCount > 0) {
-            console.log('✅ Admin password reset successfully to: admin123');
+            console.log('✅ Admin password reset successfully');
         } else {
             console.log('⚠️ Admin user not found, inserting...');
             await pool.query(
@@ -51,7 +54,7 @@ async function resetAdmin() {
                  VALUES ($1, $2, 'System Administrator', 'CoatzadroneUSA', 'ADMIN', '["CREATE_REPORT", "MANAGE_USERS", "VIEW_MASTER_VAULT", "DELETE_REPORT", "APPROVE_REPORT", "MANAGE_SETTINGS"]'::jsonb)`,
                 ['admin@coatzadroneusa.com', hashedPassword]
             );
-            console.log('✅ Admin user created with password: admin123');
+            console.log('✅ Admin user created');
         }
     } catch (err) {
         console.error('❌ Error resetting password:', err);

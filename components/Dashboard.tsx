@@ -31,21 +31,8 @@ interface DashboardProps {
   isArchiveView?: boolean;
 }
 
-const operationalData = [
-  { time: '06:00', load: 12 },
-  { time: '08:00', load: 35 },
-  { time: '10:00', load: 78 },
-  { time: '12:00', load: 85 },
-  { time: '14:00', load: 62 },
-  { time: '16:00', load: 45 },
-];
-
-const activeDrones = [
-  { id: 'AX-04', country: 'MX', status: 'In Mission', battery: 74, signal: 98, location: 'Sector 4', task: 'Thermal Scan' },
-  { id: 'AX-09', country: 'US', status: 'Returning', battery: 12, signal: 85, location: 'Transit', task: 'Low Battery' },
-  { id: 'AX-11', country: 'US', status: 'Standby', battery: 100, signal: 100, location: 'Base', task: 'Ready' },
-  { id: 'AX-12', country: 'MX', status: 'Standby', battery: 92, signal: 100, location: 'Base', task: 'Ready' },
-];
+const operationalData: Array<{ time: string; load: number }> = [];
+const activeDrones: Array<{ id: string; country?: string; status: string; battery: number; signal: number; location: string; task: string }> = [];
 
 const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArchiveView }) => {
   const { logout, user } = useAuth();
@@ -145,10 +132,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Missions" value={filteredDrones.length.toString()} trend="+12%" trendGood={true} icon={Activity} />
-            <StatCard label="Anomalies Found" value={totalIssues} trend="+5%" trendGood={false} icon={AlertTriangle} />
-            <StatCard label="Fleet Efficiency" value="94%" trend="+2.4%" trendGood={true} icon={Zap} />
-            <StatCard label="Data Ingested" value="1.2TB" trend="Today" trendGood={true} icon={Clock} />
+            <StatCard label="Missions" value={filteredSavedReports.length.toString()} icon={Activity} />
+            <StatCard label="Anomalies Found" value={totalIssues} icon={AlertTriangle} />
+            <StatCard label="Fleet Efficiency" value="--" icon={Zap} />
+            <StatCard label="Data Ingested" value="--" icon={Clock} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -159,7 +146,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
                 <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-400/30">Live Telemetry</Badge>
               </CardHeader>
               <div className="divide-y divide-slate-800/50">
-                {filteredDrones.map(drone => (
+                {filteredDrones.length === 0 ? (
+                  <div className="px-6 py-10 text-center">
+                    <Text variant="muted">No live telemetry feed is connected yet.</Text>
+                  </div>
+                ) : filteredDrones.map(drone => (
                   <div key={drone.id} className="px-3 md:px-6 py-4 flex flex-wrap items-center gap-2 justify-between hover:bg-slate-800/30 transition-colors">
                     <div className="flex items-center gap-4">
                       <div className={`w-2 h-2 rounded-full ${drone.status === 'In Mission' ? 'bg-emerald-500 animate-pulse' : drone.status === 'Returning' ? 'bg-amber-500' : 'bg-slate-600'}`} />
@@ -220,7 +211,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewReport, onViewReport, isArch
                 <Text variant="small" className="text-[10px] font-bold text-slate-500 mb-4 uppercase tracking-widest text-center">Ingest Performance</Text>
                 <div className="h-20 w-full opacity-60">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={operationalData}>
+                    <AreaChart data={operationalData.length ? operationalData : [{ time: 'Now', load: 0 }]}>
                       <defs>
                         <linearGradient id="colorLoadStats" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3} />

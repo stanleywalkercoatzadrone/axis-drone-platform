@@ -7,6 +7,7 @@ interface CalendarViewProps {
     onDeploymentClick?: (deployment: Deployment) => void;
     onDayClick?: (date: string) => void;
     dailyReportsByDate?: Record<string, number>;
+    pilotReports?: any[];
 }
 
 const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentClick, onDayClick, dailyReportsByDate = {} }) => {

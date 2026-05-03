@@ -184,7 +184,7 @@ const MissionForecastPanel: React.FC<{ missionId: string; missionTitle?: string 
         }
     };
 
-    const handleSaveCoordsveCoords = async () => {
+    const handleSaveCoords = async () => {
         const lat = parseFloat(coordLat);
         const lon = parseFloat(coordLon);
         if (isNaN(lat) || lat < -90 || lat > 90) {

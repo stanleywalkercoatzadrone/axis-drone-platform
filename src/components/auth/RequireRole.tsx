@@ -1,10 +1,10 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth, UserRole } from '../../../context/AuthContext';
+import { useAuth } from '../../../context/AuthContext';
 
 interface RequireRoleProps {
     children: React.ReactNode;
-    allowedRoles: UserRole[];
+    allowedRoles: string[];
 }
 
 export const RequireRole: React.FC<RequireRoleProps> = ({ children, allowedRoles }) => {

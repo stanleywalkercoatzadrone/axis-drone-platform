@@ -1,9 +1,13 @@
 const { Client } = require('pg');
 
 const client = new Client({
-    connectionString: "postgresql://postgres.nkhiiwleyjsmvvdtkcud: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@aws-1-us-east-1.pooler.supabase.com:5432/postgres",
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
+if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 async function run() {
     try {

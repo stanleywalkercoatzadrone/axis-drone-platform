@@ -103,6 +103,49 @@ export interface UserBinding {
   scopeId: string;
 }
 
+export interface GridAsset {
+  id: string;
+  siteId?: string;
+  assetKey: string;
+  assetType?: string;
+  industry?: string;
+  description?: string;
+  status: string;
+  plannedCount?: number;
+  completedCount: number;
+  assignedToName?: string;
+  assignedToAvatar?: string;
+  version?: number;
+  meta?: Record<string, unknown>;
+}
+
+export interface GridAssetEvent {
+  id: string;
+  eventType: string;
+  createdAt: string;
+  userName?: string;
+  message?: string;
+  beforeState?: Record<string, any>;
+  afterState?: Record<string, any>;
+}
+
+export interface ClientSettings {
+  workStructure: 'site' | 'project' | 'both';
+  defaultSlaHours: number;
+  preferredContactMethod: 'email' | 'phone' | 'portal';
+  notificationPreferences: {
+    notifyOnUploadComplete: boolean;
+    notifyOnDeliverableReady: boolean;
+    notifyOnOverdue: boolean;
+  };
+  deliverableFormats: string[];
+  qaRequired: boolean;
+  dataDestinationType: 'google_drive' | 'sharepoint' | 's3' | 'none';
+  billingCountry: string;
+  poRequired: boolean;
+  invoiceDeliveryMethod: 'email' | 'portal' | 'edi';
+}
+
 export interface IndustryTemplate {
   id: string;
   name: string;

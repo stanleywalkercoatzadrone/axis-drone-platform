@@ -232,12 +232,19 @@ app.use('/api/client', clientReportsRoutes);             // Client AI reports
 app.get('/api/documents', protect, async (req, res) => {
     try {
         const { personnelId } = req.query;
+        const tenantId = req.user?.tenantId || null;
         let result;
         if (personnelId) {
             result = await dbQuery(
                 `SELECT id, file_name, file_path, file_url, file_size, mime_type, document_type, created_at, expires_at
-                 FROM personnel_documents WHERE personnel_id = $1 ORDER BY created_at DESC`,
-                [personnelId]
+                 FROM personnel_documents pd
+                 WHERE personnel_id = $1
+                   AND (
+                     $2::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM personnel p WHERE p.id = pd.personnel_id AND p.tenant_id = $2)
+                   )
+                 ORDER BY created_at DESC`,
+                [personnelId, tenantId]
             );
         } else {
             result = await dbQuery(
@@ -245,7 +252,9 @@ app.get('/api/documents', protect, async (req, res) => {
                         p.name as personnel_name, p.id as personnel_id
                  FROM personnel_documents pd
                  LEFT JOIN personnel p ON p.id = pd.personnel_id
+                 WHERE ($1::uuid IS NULL OR p.tenant_id = $1)
                  ORDER BY pd.created_at DESC LIMIT 200`
+                , [tenantId]
             );
         }
         res.json({ success: true, data: result.rows });
@@ -376,6 +385,12 @@ app.get('/api/documents', protect, async (req, res) => {
                 notes           TEXT,
                 status          VARCHAR(30)  NOT NULL DEFAULT 'pending',
                 report_url      TEXT,
+                tenant_id       TEXT,
+                pix4d_job_id    TEXT,
+                pix4d_project_url TEXT,
+                pix4d_status    TEXT,
+                pix4d_error     TEXT,
+                pix4d_dispatched_at TIMESTAMPTZ,
                 created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
                 updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
             )
@@ -408,6 +423,12 @@ app.get('/api/documents', protect, async (req, res) => {
         await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS file_count      INTEGER DEFAULT 0`);
         await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS error_count     INTEGER DEFAULT 0`);
         await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS processed_count INTEGER DEFAULT 0`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS tenant_id       TEXT`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_job_id    TEXT`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_project_url TEXT`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_status    TEXT`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_error     TEXT`);
+        await dbQuery(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_dispatched_at TIMESTAMPTZ`);
         console.log('✅ Startup migration: upload_jobs and upload_files tables ready');
 
 
@@ -1055,7 +1076,19 @@ app.use(errorHandler);
 
 // Serve uploaded files (onboarding templates, documents, etc.)
 const uploadsPath = path.join(__dirname, '../uploads');
-app.use('/uploads', express.static(uploadsPath, {
+const PUBLIC_UPLOAD_FILES = new Set([
+    'CoatzadroneUSA_NDA.pdf',
+    'Coatzadrone_USA_Pilot_Agreement.pdf',
+    'Coatzadrone_USA_Pilot_Onboarding_Guide_Polished.pdf',
+    'fw9.pdf',
+    'direct_deposit.pdf',
+]);
+const requireUploadAuth = (req, res, next) => {
+    const fileName = path.basename(req.path || '');
+    if (PUBLIC_UPLOAD_FILES.has(fileName)) return next();
+    return protect(req, res, next);
+};
+app.use('/uploads', requireUploadAuth, express.static(uploadsPath, {
     setHeaders: (res, path) => {
         if (path.toLowerCase().endsWith('.pdf')) {
             // Force download on mobile/desktop

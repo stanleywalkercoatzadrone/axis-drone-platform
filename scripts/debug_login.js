@@ -2,8 +2,11 @@
 import { Client } from 'pg';
 import bcrypt from 'bcryptjs';
 
-// Hardcoded connection string for safety in this environment
-const connectionString = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:6543/postgres";
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 const client = new Client({
     connectionString: connectionString,
@@ -12,7 +15,8 @@ const client = new Client({
 
 async function testLogin() {
     const email = "stanley.walker@coatzadroneusa.com";
-    const password = "password123";
+    const password = process.env.DEBUG_LOGIN_PASSWORD;
+    if (!password) throw new Error('DEBUG_LOGIN_PASSWORD is required.');
 
     console.log(`🧪 Testing Login for: ${email}`);
 

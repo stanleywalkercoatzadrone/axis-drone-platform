@@ -2,9 +2,13 @@ import pkg from 'pg';
 const { Pool } = pkg;
 
 const pool = new Pool({
-    connectionString: "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres",
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
 });
+if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 async function findAdmin() {
     try {

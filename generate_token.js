@@ -1,9 +1,14 @@
 
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = '6fd725ae-ebdd-4390-bd39-fb08e14d085d';
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_ISS = 'axis-drone-platform';
 const JWT_AUD = 'axis-drone-client';
+
+if (!JWT_SECRET) {
+    console.error('JWT_SECRET is required to generate a token.');
+    process.exit(1);
+}
 
 const token = jwt.sign(
     {

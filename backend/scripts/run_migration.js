@@ -57,20 +57,7 @@ const run = async () => {
         try {
             await client.connect();
         } catch (authErr) {
-            if (authErr.message.includes('authentication failed')) {
-                console.log('⚠️  Initial authentication failed. Trying fallback password from database.js...');
-                const fallbackUrl = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
-                const fallbackClient = new Client({
-                    connectionString: fallbackUrl,
-                    ssl: { rejectUnauthorized: false }
-                });
-                await fallbackClient.connect();
-                console.log('✅ Connected using fallback password!');
-                // Replace client with fallbackClient for the rest of the script
-                client = fallbackClient;
-            } else {
-                throw authErr;
-            }
+            throw authErr;
         }
         console.log('✅ Connected successfully!');
 

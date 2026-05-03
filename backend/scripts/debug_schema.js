@@ -9,7 +9,12 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+    console.error('DATABASE_URL is required. Refusing to run against an implicit production database.');
+    process.exit(1);
+}
 
 const pool = new Pool({
     connectionString,

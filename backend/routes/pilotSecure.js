@@ -307,9 +307,13 @@ router.get('/missions/:missionId/daily-reports', verifyPilotMissionOwnership, as
              FROM daily_logs dl
              LEFT JOIN personnel p ON p.id = dl.technician_id
              WHERE dl.deployment_id = $1
-               AND (LOWER(p.email) = LOWER($2) OR dl.pilot_name IS NOT NULL)
+               AND (
+                    $3 = 'admin'
+                    OR LOWER(p.email) = LOWER($2)
+                    OR p.user_id = $4
+               )
              ORDER BY dl.date DESC, dl.created_at DESC`,
-            [missionId, req.user.email]
+            [missionId, req.user.email, normalizeRole(req.user.role), req.user.id]
         );
         res.json({ success: true, data: result.rows, total: result.rows.length });
     } catch (e) {
@@ -318,7 +322,7 @@ router.get('/missions/:missionId/daily-reports', verifyPilotMissionOwnership, as
     }
 });
 
-router.post('/missions/:missionId/daily-report/preview', async (req, res) => {
+router.post('/missions/:missionId/daily-report/preview', verifyPilotMissionOwnership, async (req, res) => {
     try {
         const { missionId } = req.params;
         const { missionsFlownCount, blocksCompleted, hoursWorked, issuesEncountered, notes, reportDate: rawReportDate } = req.body;
@@ -377,7 +381,7 @@ router.post('/missions/:missionId/daily-report/preview', async (req, res) => {
 });
 
 // ── Phase 5b: POST /gen-ai-report — generate AI draft without saving ───────────
-router.post('/missions/:missionId/gen-ai-report', async (req, res) => {
+router.post('/missions/:missionId/gen-ai-report', verifyPilotMissionOwnership, async (req, res) => {
     try {
         const { missionId } = req.params;
         const pilotName = req.user.fullName || req.user.full_name || null;
@@ -417,8 +421,7 @@ router.post('/missions/:missionId/gen-ai-report', async (req, res) => {
 
 // ── Phase 5: POST /daily-report ───────────────────────────────────────────────
 // End-of-day report. Stores note EXACTLY. NEVER auto-changes mission status.
-// No ownership check — any authenticated pilot can submit their own daily report.
-router.post('/missions/:missionId/daily-report', async (req, res) => {
+router.post('/missions/:missionId/daily-report', verifyPilotMissionOwnership, async (req, res) => {
     try {
         const { missionId } = req.params;
         const userId = req.user.id;

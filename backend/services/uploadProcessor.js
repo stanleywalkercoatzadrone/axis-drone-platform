@@ -6,7 +6,7 @@
  *   1. Gemini Vision AI  → per-image fault/anomaly detection
  *      - GCS URI mode  : uses fileData { fileUri: 'gs://...' } — no size limit
  *      - Inline fallback: uses inlineData base64 for non-GCS files (<20MB)
- *   2. Pix4D Cloud API   → photogrammetry dispatch for aerial datasets (optional)
+ *   2. Pix4D Cloud API   → job-complete photogrammetry dispatch for aerial datasets (optional)
  *   3. DB update         → status, ai_result, pix4d_job_id
  *   4. Socket.io emit    → real-time status to connected clients
  *
@@ -14,6 +14,9 @@
  */
 import { query } from '../config/database.js';
 import { logger } from './logger.js';
+import AWS from 'aws-sdk';
+import fs from 'fs/promises';
+import path from 'path';
 
 // ── Gemini Vision client ──────────────────────────────────────────────────────
 // Uses @google/genai (newer SDK) which supports the fileData/GCS URI part type.
@@ -48,12 +51,21 @@ const GCS_BUCKET = process.env.GCS_BUCKET_NAME || 'axis-platform-uploads';
 const INLINE_LIMIT_BYTES = 20 * 1024 * 1024; // 20 MB
 
 // ── Pix4D Cloud API (optional) ────────────────────────────────────────────────
-const PIX4D_TOKEN   = process.env.PIX4D_API_TOKEN;
-const PIX4D_BASE    = 'https://api.pix4d.com/v2';
-const PIX4D_ENABLED = !!PIX4D_TOKEN;
+const PIX4D_CLIENT_ID     = process.env.PIX4D_CLIENT_ID;
+const PIX4D_CLIENT_SECRET = process.env.PIX4D_CLIENT_SECRET;
+const PIX4D_STATIC_TOKEN  = process.env.PIX4D_ACCESS_TOKEN || process.env.PIX4D_API_TOKEN;
+const PIX4D_CLOUD_BASE    = (process.env.PIX4D_CLOUD_BASE_URL || 'https://cloud.pix4d.com').replace(/\/$/, '');
+const PIX4D_PROJECT_BASE  = `${PIX4D_CLOUD_BASE}/project/api/v3`;
+const PIX4D_ENABLED       = !!(PIX4D_STATIC_TOKEN || (PIX4D_CLIENT_ID && PIX4D_CLIENT_SECRET));
+const PIX4D_MIN_IMAGES    = Number(process.env.PIX4D_MIN_IMAGES || 3);
+const PIX4D_BILLING_MODEL = process.env.PIX4D_BILLING_MODEL;
+const PIX4D_PROJECT_TYPE  = process.env.PIX4D_PROJECT_TYPE;
+const SOURCE_S3_BUCKET    = process.env.S3_BUCKET_NAME || 'skylens-images';
 
-if (PIX4D_ENABLED) logger.info('[uploadProcessor] Pix4D auto-dispatch enabled');
-else logger.info('[uploadProcessor] PIX4D_API_TOKEN not set — Pix4D dispatch disabled');
+let pix4dTokenCache = { token: PIX4D_STATIC_TOKEN || null, expiresAt: 0 };
+
+if (PIX4D_ENABLED) logger.info('[uploadProcessor] Pix4D Cloud dispatch enabled');
+else logger.info('[uploadProcessor] Pix4D credentials not set — Pix4D dispatch disabled');
 
 // ── Build prompt per analysis/upload type ────────────────────────────────────
 function buildPrompt(uploadType, analysisType) {
@@ -189,29 +201,245 @@ async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, a
     }
 }
 
-// ── Pix4D: dispatch a photogrammetry job ──────────────────────────────────────
-async function dispatchToPix4D(jobId, missionTitle, fileUrls) {
-    if (!PIX4D_ENABLED || fileUrls.length === 0) return null;
+// ── Pix4D helpers ─────────────────────────────────────────────────────────────
+function sanitizePix4DProjectName(value) {
+    const clean = String(value || 'Axis Project')
+        .replace(/[\/\\]/g, '-')
+        .replace(/^\-+/, '')
+        .trim()
+        .slice(0, 100);
+    return clean || 'Axis Project';
+}
+
+function safeInputName(row, index) {
+    const original = row.file_name || `image-${index + 1}.jpg`;
+    const ext = path.extname(original) || '.jpg';
+    const base = path.basename(original, ext).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 60) || `image-${index + 1}`;
+    return `${String(index + 1).padStart(4, '0')}-${base}${ext}`;
+}
+
+function isPix4DImage(row) {
+    return ['.jpg', '.jpeg', '.tif', '.tiff', '.png'].includes(path.extname(row.file_name || row.storage_url || '').toLowerCase());
+}
+
+async function getPix4DToken() {
+    if (PIX4D_STATIC_TOKEN) return PIX4D_STATIC_TOKEN;
+    if (pix4dTokenCache.token && pix4dTokenCache.expiresAt > Date.now() + 60_000) {
+        return pix4dTokenCache.token;
+    }
+    if (!PIX4D_CLIENT_ID || !PIX4D_CLIENT_SECRET) {
+        throw new Error('PIX4D_CLIENT_ID and PIX4D_CLIENT_SECRET are required');
+    }
+
+    const body = new URLSearchParams({
+        grant_type: 'client_credentials',
+        token_format: 'jwt',
+        client_id: PIX4D_CLIENT_ID,
+        client_secret: PIX4D_CLIENT_SECRET,
+    });
+
+    const resp = await fetch(`${PIX4D_CLOUD_BASE}/oauth2/token/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Pix4D OAuth failed ${resp.status}: ${await resp.text()}`);
+    }
+
+    const data = await resp.json();
+    pix4dTokenCache = {
+        token: data.access_token,
+        expiresAt: Date.now() + Math.max(60, Number(data.expires_in || 3600) - 300) * 1000,
+    };
+    return pix4dTokenCache.token;
+}
+
+async function pix4dRequest(pathname, options = {}) {
+    const token = await getPix4DToken();
+    const resp = await fetch(`${PIX4D_PROJECT_BASE}${pathname}`, {
+        ...options,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+        },
+    });
+    const text = await resp.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!resp.ok) {
+        throw new Error(`Pix4D API ${resp.status}: ${text}`);
+    }
+    return data;
+}
+
+function buildPix4DS3Client(creds) {
+    return new AWS.S3({
+        accessKeyId: creds.access_key,
+        secretAccessKey: creds.secret_key,
+        sessionToken: creds.session_token,
+        region: creds.region || 'us-east-1',
+        useAccelerateEndpoint: Boolean(creds.is_bucket_accelerated),
+        ...(creds.endpoint_override && { endpoint: `https://${creds.endpoint_override}` }),
+    });
+}
+
+function sourceS3KeyFromUrl(url) {
+    if (!url) return null;
     try {
-        const resp = await fetch(`${PIX4D_BASE}/projects`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${PIX4D_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: `Axis-${missionTitle}-Job-${jobId.slice(0, 8)}`,
-                images: fileUrls.map(url => ({ url })),
-                processingOptions: { initialProcessing: true, pointCloud: true, mesh: false, dsm: true, orthomosaic: true },
-            }),
-        });
-        if (!resp.ok) {
-            logger.warn(`[uploadProcessor] Pix4D API error ${resp.status}: ${await resp.text()}`);
-            return null;
+        const u = new URL(url);
+        const host = u.hostname;
+        if (host === 's3.amazonaws.com' || host.startsWith('s3.')) {
+            const parts = u.pathname.replace(/^\/+/, '').split('/');
+            if (parts[0] === SOURCE_S3_BUCKET) return decodeURIComponent(parts.slice(1).join('/'));
         }
-        const data = await resp.json();
-        logger.info(`[uploadProcessor] Pix4D job created: ${data.id}`);
-        return data.id;
+        if (host.startsWith(`${SOURCE_S3_BUCKET}.`)) {
+            return decodeURIComponent(u.pathname.replace(/^\/+/, ''));
+        }
+    } catch { /* not a URL */ }
+    return null;
+}
+
+async function loadUploadFileBuffer(row) {
+    const localPath = row.file_path || (row.storage_url?.startsWith('/uploads/') ? row.storage_url.slice(1) : null);
+    if (localPath && !localPath.startsWith('http') && !localPath.startsWith('gs://')) {
+        try {
+            return await fs.readFile(path.resolve(process.cwd(), localPath));
+        } catch { /* try cloud/http fallbacks */ }
+    }
+
+    const s3Key = row.file_path && !row.file_path.startsWith('uploads/') ? row.file_path : sourceS3KeyFromUrl(row.storage_url);
+    if (s3Key && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+        try {
+            const sourceS3 = new AWS.S3({
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                region: process.env.AWS_REGION || 'us-east-1',
+            });
+            const obj = await sourceS3.getObject({ Bucket: SOURCE_S3_BUCKET, Key: s3Key }).promise();
+            return Buffer.isBuffer(obj.Body) ? obj.Body : Buffer.from(obj.Body);
+        } catch { /* try public URL fallback */ }
+    }
+
+    if (row.storage_url?.startsWith('http')) {
+        const resp = await fetch(row.storage_url);
+        if (!resp.ok) throw new Error(`fetch ${resp.status}`);
+        return Buffer.from(await resp.arrayBuffer());
+    }
+
+    throw new Error(`No readable source for ${row.file_name}`);
+}
+
+async function uploadPix4DInputs(projectId, rows) {
+    const creds = await pix4dRequest(`/projects/${projectId}/s3_credentials/`);
+    const pix4dS3 = buildPix4DS3Client(creds);
+    const uploadedKeys = [];
+
+    for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        const body = await loadUploadFileBuffer(row);
+        const key = `${creds.key.replace(/\/$/, '')}/${safeInputName(row, i)}`;
+        await pix4dS3.upload({
+            Bucket: creds.bucket,
+            Key: key,
+            Body: body,
+            ContentType: row.mime_type || 'image/jpeg',
+        }).promise();
+        uploadedKeys.push(key);
+    }
+
+    return uploadedKeys;
+}
+
+export async function dispatchPix4DForJob(jobId, { io = null, userId = null } = {}) {
+    if (!PIX4D_ENABLED) {
+        return { dispatched: false, reason: 'Pix4D credentials are not configured' };
+    }
+
+    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_job_id TEXT`).catch(() => {});
+    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_project_url TEXT`).catch(() => {});
+    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_status TEXT`).catch(() => {});
+    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_error TEXT`).catch(() => {});
+    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_dispatched_at TIMESTAMPTZ`).catch(() => {});
+
+    const lock = await query(
+        `UPDATE upload_jobs
+         SET pix4d_status = 'dispatching', pix4d_error = NULL, updated_at = NOW()
+         WHERE id = $1
+           AND upload_type IN ('images', 'thermal', 'orthomosaic')
+           AND pix4d_job_id IS NULL
+           AND COALESCE(pix4d_status, 'pending') NOT IN ('dispatching', 'processing', 'done')
+         RETURNING id, mission_id, upload_type, file_count`,
+        [jobId]
+    );
+
+    if (lock.rows.length === 0) {
+        return { dispatched: false, reason: 'Job is not eligible or already dispatched' };
+    }
+
+    const job = lock.rows[0];
+    try {
+        const missionRes = await query(`SELECT title, site_name FROM deployments WHERE id = $1`, [job.mission_id]);
+        const mission = missionRes.rows[0] || {};
+        const filesRes = await query(
+            `SELECT id, file_name, file_path, storage_url
+             FROM upload_files
+             WHERE job_id = $1
+             ORDER BY created_at ASC
+             LIMIT 1000`,
+            [jobId]
+        );
+        const files = filesRes.rows.filter(isPix4DImage);
+        if (files.length < PIX4D_MIN_IMAGES) {
+            throw new Error(`Pix4D requires at least ${PIX4D_MIN_IMAGES} supported image files; found ${files.length}`);
+        }
+
+        const projectBody = {
+            name: sanitizePix4DProjectName(`Axis-${mission.site_name || mission.title || 'Mission'}-${jobId.slice(0, 8)}`),
+            ...(PIX4D_BILLING_MODEL && { billing_model: PIX4D_BILLING_MODEL }),
+            ...(PIX4D_PROJECT_TYPE && { project_type: PIX4D_PROJECT_TYPE }),
+        };
+
+        const project = await pix4dRequest('/projects/', {
+            method: 'POST',
+            body: JSON.stringify(projectBody),
+        });
+        const projectId = project.id;
+        const inputKeys = await uploadPix4DInputs(projectId, files);
+
+        await pix4dRequest(`/projects/${projectId}/inputs/bulk_register/`, {
+            method: 'POST',
+            body: JSON.stringify({ input_file_keys: inputKeys }),
+        });
+
+        await pix4dRequest(`/projects/${projectId}/start_processing/`, { method: 'POST' });
+
+        const projectUrl = project.detail_url || `${PIX4D_CLOUD_BASE}/project/api/v3/projects/${projectId}/`;
+        await query(
+            `UPDATE upload_jobs
+             SET pix4d_job_id = $1,
+                 pix4d_project_url = $2,
+                 pix4d_status = 'processing',
+                 pix4d_dispatched_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $3`,
+            [String(projectId), projectUrl, jobId]
+        );
+
+        emit(io, userId, 'pix4d:dispatched', { jobId, pix4dJobId: String(projectId), pix4dProjectUrl: projectUrl });
+        logger.info(`[uploadProcessor] Pix4D project ${projectId} started for job ${jobId}`);
+        return { dispatched: true, pix4dJobId: String(projectId), pix4dProjectUrl: projectUrl };
     } catch (e) {
-        logger.warn('[uploadProcessor] Pix4D dispatch failed:', e.message);
-        return null;
+        await query(
+            `UPDATE upload_jobs
+             SET pix4d_status = 'failed', pix4d_error = $1, updated_at = NOW()
+             WHERE id = $2`,
+            [e.message, jobId]
+        ).catch(() => {});
+        logger.warn(`[uploadProcessor] Pix4D dispatch failed for job ${jobId}: ${e.message}`);
+        emit(io, userId, 'pix4d:failed', { jobId, error: e.message });
+        return { dispatched: false, reason: e.message };
     }
 }
 
@@ -281,35 +509,8 @@ export async function processUpload({
         ).catch(() => {});
     }
 
-    // ── 2. Pix4D dispatch (aerial images only) ────────────────────────────────
-    if (PIX4D_ENABLED && ['images', 'thermal', 'orthomosaic'].includes(uploadType)) {
-        try {
-            const missionRes = await query(
-                `SELECT d.title FROM deployments d WHERE d.id = $1`,
-                [missionId]
-            );
-            const missionTitle = missionRes.rows[0]?.title || 'Mission';
-
-            const filesRes = await query(
-                `SELECT storage_url FROM upload_files WHERE job_id = $1 ORDER BY created_at DESC LIMIT 200`,
-                [jobId]
-            );
-            // For Pix4D, convert gs:// back to https or use public URLs
-            const fileUrls = filesRes.rows
-                .map(r => r.storage_url)
-                .filter(u => u?.startsWith('http'));
-
-            if (fileUrls.length >= 3) {
-                pix4dJobId = await dispatchToPix4D(jobId, missionTitle, fileUrls);
-                if (pix4dJobId) {
-                    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_job_id TEXT`).catch(() => {});
-                    await query(`UPDATE upload_jobs SET pix4d_job_id = $1 WHERE id = $2`, [pix4dJobId, jobId]).catch(() => {});
-                }
-            }
-        } catch (e) {
-            logger.warn('[uploadProcessor] Pix4D step failed:', e.message);
-        }
-    }
+    // Pix4D dispatch runs from the upload job completion endpoint so the full
+    // image set is uploaded exactly once.
 
     // ── 3. Persist AI result & mark complete ──────────────────────────────────
     try {

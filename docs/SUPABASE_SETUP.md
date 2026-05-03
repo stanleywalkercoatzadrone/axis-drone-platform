@@ -245,7 +245,7 @@ curl http://localhost:8080/health
 2. Open http://localhost:3000
 3. Try logging in with default admin:
    - Email: `admin@skylens.ai`
-   - Password: `admin123`
+   - Password: set a strong temporary password through `ADMIN_RESET_PASSWORD`
 4. Create a test report
 5. Upload a drone image
 6. Verify in Supabase:

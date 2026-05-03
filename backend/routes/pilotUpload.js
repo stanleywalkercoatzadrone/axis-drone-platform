@@ -16,7 +16,7 @@ import { isAdmin } from '../utils/roleUtils.js';
 import { uploadSingle } from '../utils/fileUpload.js';
 import { query } from '../config/database.js';
 import { uploadByDestination, uploadLBDToGCS, uploadAerialImage } from '../services/storageService.js';
-import { processUpload } from '../services/uploadProcessor.js';
+import { dispatchPix4DForJob, processUpload } from '../services/uploadProcessor.js';
 
 let io = null;
 export function setIo(socketIoInstance) { io = socketIoInstance; }
@@ -47,6 +47,33 @@ const FOLDER_MAP = {
 
 const validTypes = Object.keys(UPLOAD_DESTINATION);
 
+async function verifyMissionUploadScope(req, missionId) {
+    const tenantId = req.user?.tenantId ? String(req.user.tenantId) : null;
+    const admin = isAdmin(req.user);
+
+    const result = await query(
+        `SELECT d.id
+         FROM deployments d
+         WHERE d.id = $1
+           AND ($2::boolean OR $3::text IS NULL OR d.tenant_id::text = $3::text)
+           AND (
+             $2::boolean
+             OR d.assigned_to = $4
+             OR EXISTS (
+               SELECT 1
+               FROM deployment_personnel dp
+               JOIN personnel p ON p.id = dp.personnel_id
+               WHERE dp.deployment_id = d.id AND p.user_id = $4
+             )
+             OR d.assigned_team @> $5::jsonb
+           )
+         LIMIT 1`,
+        [missionId, admin, tenantId, req.user.id, JSON.stringify([{ user_id: req.user.id }])]
+    );
+
+    return result.rows.length > 0;
+}
+
 // ── POST /api/pilot/upload-jobs — Create a job ────────────────────────────────
 router.post('/', async (req, res) => {
     try {
@@ -68,6 +95,9 @@ router.post('/', async (req, res) => {
         const destination = UPLOAD_DESTINATION[uploadType];
         if (destination === 's3' && !missionFolder) {
             return res.status(400).json({ success: false, message: 'missionFolder is required for aerial (S3) uploads — e.g. M14 or Flight-3' });
+        }
+        if (!(await verifyMissionUploadScope(req, missionId))) {
+            return res.status(403).json({ success: false, message: 'Mission is outside your upload scope' });
         }
 
         // Ensure table exists with storage_destination column
@@ -94,11 +124,17 @@ router.post('/', async (req, res) => {
         await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS lbd_block TEXT`).catch(() => {});
         await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS mission_folder TEXT`).catch(() => {});
         await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS analysis_type TEXT DEFAULT 'thermal_fault'`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_job_id TEXT`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_project_url TEXT`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_status TEXT`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_error TEXT`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_dispatched_at TIMESTAMPTZ`).catch(() => {});
+        await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT`).catch(() => {});
 
         const result = await query(
-            `INSERT INTO upload_jobs (mission_id, pilot_id, upload_type, analysis_type, storage_destination, lbd_block, mission_folder, notes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-            [missionId, pilotId, uploadType, analysisType || 'thermal_fault', destination, lbdBlock || null, missionFolder || null, notes || null]
+            `INSERT INTO upload_jobs (mission_id, pilot_id, upload_type, analysis_type, storage_destination, lbd_block, mission_folder, notes, tenant_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [missionId, pilotId, uploadType, analysisType || 'thermal_fault', destination, lbdBlock || null, missionFolder || null, notes || null, req.user?.tenantId || null]
         );
 
         res.status(201).json({
@@ -121,9 +157,10 @@ router.get('/', async (req, res) => {
              FROM upload_jobs uj
              JOIN deployments d ON d.id = uj.mission_id
              WHERE uj.pilot_id = $1
+               AND ($2::text IS NULL OR uj.tenant_id::text = $2::text OR uj.tenant_id IS NULL)
              ORDER BY uj.created_at DESC
              LIMIT 50`,
-            [pilotId]
+            [pilotId, req.user?.tenantId ? String(req.user.tenantId) : null]
         );
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -209,9 +246,9 @@ router.post('/:jobId/files', uploadSingle, async (req, res) => {
 
         // Record file in upload_files (job-scoped, supports per-file ai_result)
         const fileRecord = await query(
-            `INSERT INTO upload_files (job_id, file_name, file_size, storage_url, status)
-             VALUES ($1, $2, $3, $4, 'pending') RETURNING id`,
-            [jobId, file.originalname, file.size, uploadResult.url]
+            `INSERT INTO upload_files (job_id, file_name, file_size, file_path, storage_url, status)
+             VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING id`,
+            [jobId, file.originalname, file.size, uploadResult.key || null, uploadResult.url]
         );
         const uploadFileId = fileRecord.rows[0].id;
 
@@ -273,6 +310,8 @@ router.get('/admin/all', async (req, res) => {
         const result = await query(
             `SELECT uj.id, uj.mission_id, uj.upload_type, uj.analysis_type,
                     uj.status, uj.ai_result, uj.file_count,
+                    uj.pix4d_job_id, uj.pix4d_project_url, uj.pix4d_status,
+                    uj.pix4d_error, uj.pix4d_dispatched_at,
                     uj.mission_folder, uj.lbd_block, uj.report_url,
                     uj.created_at, uj.updated_at,
                     d.title                                 AS mission_title,
@@ -585,7 +624,10 @@ router.patch('/:jobId/complete', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Job not found' });
         }
-        res.json({ success: true, data: result.rows[0] });
+        res.json({ success: true, data: result.rows[0], message: 'Upload job complete; Pix4D dispatch queued if eligible.' });
+
+        dispatchPix4DForJob(jobId, { io, userId: pilotId })
+            .catch(e => console.error('[pilotUpload] Pix4D dispatch error:', e.message));
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

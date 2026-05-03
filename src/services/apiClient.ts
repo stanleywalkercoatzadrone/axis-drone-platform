@@ -25,10 +25,25 @@ apiClient.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
-// Response interceptor: on 401 redirect to login
+// Response interceptor: normalize common collection aliases and on 401 redirect to login
 // Tokens are HttpOnly cookies managed by the server — no localStorage needed
 apiClient.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        const payload = response.data;
+        if (payload && typeof payload === 'object' && payload.success) {
+            if (Array.isArray(payload.data)) {
+                payload.items ??= payload.data;
+                payload.jobs ??= payload.data;
+            } else if (Array.isArray(payload.jobs) && payload.data === undefined) {
+                payload.data = payload.jobs;
+                payload.items ??= payload.jobs;
+            } else if (Array.isArray(payload.items) && payload.data === undefined) {
+                payload.data = payload.items;
+                payload.jobs ??= payload.items;
+            }
+        }
+        return response;
+    },
     async (error) => {
         if (error.response?.status === 401) {
             const PUBLIC_ROUTES = ['/invoice/', '/onboarding/', '/set-password/'];

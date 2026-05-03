@@ -53,7 +53,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
     const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
     const [resetPasswordUser, setResetPasswordUser] = useState<{ userId: string | null, userName: string | null, newPassword: string }>({ userId: null, userName: null, newPassword: '' });
     const [isLoading, setIsLoading] = useState(true);
-    const [clients, setClients] = useState<{ id: string, name: string }[]>([]);
+    const [clients, setClients] = useState<{ id: string, name: string, industry_name?: string }[]>([]);
 
     const [newUserForm, setNewUserForm] = useState({
         fullName: '',

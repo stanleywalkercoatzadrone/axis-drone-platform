@@ -1,14 +1,11 @@
 import pg from 'pg';
 const { Client } = pg;
 
-// Trying with DECODED password
-const password = "!Qaz1976T@ylor2008";
-const user = "postgres.nkhiiwleyjsmvvdtkcud";
-const host = "aws-1-us-east-1.pooler.supabase.com";
-const port = 5432;
-const database = "postgres";
-
-const connectionString = `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 console.log("Testing connection with decoded password...");
 

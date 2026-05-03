@@ -5,7 +5,10 @@ import crypto from 'crypto';
 import { resolveEffectivePermissions, can } from '../services/permissionService.js';
 import { normalizeRole, isAdmin } from '../utils/roleUtils.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is required.');
+}
 const JWT_ISS = process.env.JWT_ISS || 'axis-drone-platform';
 const JWT_AUD = process.env.JWT_AUD || 'axis-drone-client';
 

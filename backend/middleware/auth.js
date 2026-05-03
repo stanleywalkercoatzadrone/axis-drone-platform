@@ -103,6 +103,9 @@ export const protect = async (req, res, next) => {
     }
 };
 
+// Backward-compatible alias used by older route modules.
+export const authenticate = protect;
+
 export const authorize = (...roles) => {
     return (req, res, next) => {
         // Normalize both the user's role and the required roles for comparison

@@ -30,7 +30,7 @@ export const WeatherWidget: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const mission = useMission();
+    const { mission } = useMission();
     const { user } = useAuth();
 
     const fetchWeather = async (lat?: number, lon?: number, siteName?: string) => {

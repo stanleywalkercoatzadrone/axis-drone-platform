@@ -3091,7 +3091,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                 ) : activeModalTab === 'weather' ? (
                                     <div className="h-full overflow-y-auto bg-slate-950">
                                         <div className="p-6">
-                                            <WeatherDashboard />
+                                <WeatherDashboard industry="solar" />
                                         </div>
                                     </div>
                                 ) : activeModalTab === 'axis-intel' && isAdmin(user) ? (

@@ -128,7 +128,7 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
 CREATE TRIGGER update_reports_updated_at BEFORE UPDATE ON reports
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert default admin user (password: admin123)
+-- Insert placeholder admin user. Set a real password through secured admin tooling.
 INSERT INTO users (email, password_hash, full_name, company_name, role, permissions)
 VALUES (
     'admin@coatzadroneusa.com',

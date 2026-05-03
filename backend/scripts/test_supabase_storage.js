@@ -3,9 +3,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://nkhiiwleyjsmvvdtkcud.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5raGlpd2xleWpzbXZ2ZHRrY3VkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODY4NDg5NywiZXhwIjoyMDg0MjYwODk3fQ.XKRFOFpsTYQm9Q4BTCEU1L2zMBxhNy_wXfHlNfJYwqI';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 const bucketName = 'documents';
+
+if (!supabaseUrl || !supabaseServiceKey) {
+    console.error('SUPABASE_URL and SUPABASE_SERVICE_KEY are required.');
+    process.exit(1);
+}
 
 async function testSupabaseStorage() {
     console.log('Testing Supabase Storage...');

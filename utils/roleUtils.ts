@@ -5,7 +5,7 @@
  * across the entire application stack.
  */
 
-import { UserAccount } from '../../types';
+import { UserAccount } from '../types';
 
 /**
  * Normalize a role string to standard format

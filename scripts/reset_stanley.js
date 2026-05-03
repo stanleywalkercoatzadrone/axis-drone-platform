@@ -2,7 +2,11 @@
 import { Client } from 'pg';
 import bcrypt from 'bcryptjs';
 
-const connectionString = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:6543/postgres";
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 const client = new Client({
     connectionString: connectionString,
@@ -11,7 +15,8 @@ const client = new Client({
 
 async function resetPassword() {
     const email = "stanley.walker@coatzadroneusa.com";
-    const newPassword = "password123";
+    const newPassword = process.env.RESET_PASSWORD;
+    if (!newPassword) throw new Error('RESET_PASSWORD is required.');
 
     console.log(`🔄 Resetting password for: ${email}`);
 

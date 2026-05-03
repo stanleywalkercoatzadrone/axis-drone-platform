@@ -33,6 +33,8 @@ interface FaultReviewPanelProps {
     deploymentTitle?: string;
 }
 
+type FaultEdit = Partial<Pick<Fault, 'fault_type' | 'severity'>>;
+
 const FAULT_TYPES = [
     'hot_cell', 'bypass_diode_failure', 'string_outage',
     'connector_overheating', 'panel_mismatch', 'shading_anomaly',
@@ -62,7 +64,7 @@ export const FaultReviewPanel: React.FC<FaultReviewPanelProps> = ({ deploymentId
     const [faults, setFaults] = useState<Fault[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'pending' | 'verified' | 'false_positive' | 'all'>('pending');
-    const [editing, setEditing] = useState<Record<string, { fault_type: string; severity: string }>>({});
+    const [editing, setEditing] = useState<Record<string, FaultEdit>>({});
     const [saving, setSaving] = useState<string | null>(null);
     const [stats, setStats] = useState({ pending: 0, verified: 0, false_positive: 0 });
 
@@ -105,8 +107,8 @@ export const FaultReviewPanel: React.FC<FaultReviewPanelProps> = ({ deploymentId
         finally { setSaving(null); }
     };
 
-    const setEdit = (faultId: string, field: string, value: string) => {
-        setEditing(prev => ({ ...prev, [faultId]: { ...(prev[faultId] || {}), [field]: value } as { fault_type: string; severity: string } }));
+    const setEdit = (faultId: string, field: keyof FaultEdit, value: string) => {
+        setEditing(prev => ({ ...prev, [faultId]: { ...(prev[faultId] || {}), [field]: value } }));
     };
 
     const filtered = filter === 'all' ? faults : faults.filter(f => f.review_status === filter);
@@ -159,7 +161,7 @@ export const FaultReviewPanel: React.FC<FaultReviewPanelProps> = ({ deploymentId
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {filtered.slice(0, 50).map(fault => {
-                        const edits = editing[fault.id] || {};
+                        const edits: FaultEdit = editing[fault.id] || {};
                         const currentType = edits.fault_type || fault.fault_type;
                         const currentSev = edits.severity || fault.severity;
                         const revColor = REVIEW_COLORS[fault.review_status] || '#6b7280';

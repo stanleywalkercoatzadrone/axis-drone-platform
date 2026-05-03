@@ -23,17 +23,22 @@ export const Heading = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes
 );
 Heading.displayName = 'Heading';
 
-export const Text = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement> & { variant?: 'default' | 'muted' | 'small' }>(
-    ({ className, variant = 'default', ...props }, ref) => {
+export const Text = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement> & { variant?: 'default' | 'muted' | 'small'; size?: 'xs' | 'sm' | 'md' }>(
+    ({ className, variant = 'default', size, ...props }, ref) => {
         const variants = {
             default: 'leading-7 text-slate-300',
             muted: 'text-sm text-slate-400',
             small: 'text-xs font-medium leading-none text-slate-500',
         };
+        const sizes = {
+            xs: 'text-xs',
+            sm: 'text-sm',
+            md: 'text-base',
+        };
         return (
             <p
                 ref={ref}
-                className={cn(variants[variant], className)}
+                className={cn(variants[variant], size && sizes[size], className)}
                 {...props}
             />
         );

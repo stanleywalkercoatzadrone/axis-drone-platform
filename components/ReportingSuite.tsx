@@ -29,29 +29,6 @@ import {
 } from 'lucide-react';
 import { Industry, Severity } from '../types';
 
-// Mock Data
-const ASSET_HEALTH_DATA = [
-    { name: 'Optimal', value: 65, color: '#10b981' },
-    { name: 'Warning', value: 24, color: '#f59e0b' },
-    { name: 'Critical', value: 11, color: '#ef4444' }
-];
-
-const INSPECTION_TRENDS = [
-    { month: 'Jan', completed: 12, issues: 45 },
-    { month: 'Feb', completed: 19, issues: 52 },
-    { month: 'Mar', completed: 15, issues: 38 },
-    { month: 'Apr', completed: 22, issues: 65 },
-    { month: 'May', completed: 28, issues: 48 },
-    { month: 'Jun', completed: 34, issues: 55 }
-];
-
-const COST_BY_TYPE = [
-    { name: 'Solar', cost: 45000 },
-    { name: 'Utilities', cost: 82000 },
-    { name: 'Telecom', cost: 35000 },
-    { name: 'Insurance', cost: 28000 }
-];
-
 type ReportLevel = 'Executive' | 'Operational' | 'Asset';
 
 const ReportingSuite: React.FC = () => {
@@ -68,11 +45,11 @@ const ReportingSuite: React.FC = () => {
             .finally(() => setLoading(false));
     }, []);
 
-    // Aggregate Data from real reports
+    // Aggregate data from real reports only.
     const assetHealthData = [
-        { name: 'Optimal', value: reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length || 65, color: '#10b981' },
-        { name: 'Warning', value: reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length || 24, color: '#f59e0b' },
-        { name: 'Critical', value: 0, color: '#ef4444' } // Place holder until Rejected is added to types
+        { name: 'Optimal', value: reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length, color: '#10b981' },
+        { name: 'Warning', value: reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length, color: '#f59e0b' },
+        { name: 'Critical', value: reports.filter(r => String(r.approvalStatus) === 'Rejected').length, color: '#ef4444' }
     ];
 
     const sectorCostData = Object.values(Industry).map(ind => ({
@@ -90,9 +67,8 @@ const ReportingSuite: React.FC = () => {
         };
     }).filter(d => d.completed > 0 || d.issues > 0);
 
-    // If no reports yet, use a mix of mock and zeros to show something
-    const displayCostData = sectorCostData.length > 0 ? sectorCostData : COST_BY_TYPE;
-    const displayTrends = inspectionTrends.length > 0 ? inspectionTrends : INSPECTION_TRENDS;
+    const displayCostData = sectorCostData;
+    const displayTrends = inspectionTrends;
 
     const renderExecutiveView = () => (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

@@ -145,13 +145,9 @@ skylens-ai/
 └── package.json
 ```
 
-## 🔑 Default Credentials
+## 🔑 Admin Access
 
-**Admin Account:**
-- Email: `admin@coatzadroneusa.com`
-- Password: `admin123`
-
-⚠️ **Change these credentials in production!**
+No default production password is provided. Create or reset an admin account with a strong one-time password through the secured admin tooling and rotate it after first login.
 
 ## 🌐 API Documentation
 
@@ -193,6 +189,7 @@ See `.env.example` for all available configuration options.
 **Optional:**
 - `USE_S3=true` - Enable AWS S3 storage
 - `AWS_*` - AWS credentials for S3
+- `PIX4D_CLIENT_ID` / `PIX4D_CLIENT_SECRET` - Enable Pix4D Cloud processing dispatch for completed aerial upload jobs
 
 ## 🚢 Production Deployment
 

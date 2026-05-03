@@ -1,12 +1,17 @@
 import nodemailer from 'nodemailer';
 
+if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.error('SMTP_USER and SMTP_PASS environment variables are required.');
+    process.exit(1);
+}
+
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
     auth: {
-        user: 'stanley.walker@coatzadroneusa.com',
-        pass: 'seuppwncfrpgbumt'
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
     }
 });
 

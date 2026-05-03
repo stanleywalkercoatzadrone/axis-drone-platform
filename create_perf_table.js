@@ -1,6 +1,10 @@
 import pg from 'pg';
 
-const dbUrl = 'postgresql://postgres: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@db.nkhiiwleyjsmvvdtkcud.supabase.co:5432/postgres?ipv4=true';
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 const pool = new pg.Pool({
     connectionString: dbUrl,

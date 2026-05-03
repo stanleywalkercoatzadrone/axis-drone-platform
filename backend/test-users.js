@@ -3,12 +3,12 @@ import pg from 'pg';
 const { Client } = pg;
 
 async function run() {
+    if (!process.env.DATABASE_URL) {
+        console.error('DATABASE_URL is required.');
+        process.exit(1);
+    }
     const client = new Client({
-        user: 'postgres.nkhiiwleyjsmvvdtkcud',
-        password: decodeURIComponent('%21Qaz1976T%40ylor2008'),
-        host: 'aws-1-us-east-1.pooler.supabase.com',
-        port: 5432,
-        database: 'postgres',
+        connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false }
     });
 

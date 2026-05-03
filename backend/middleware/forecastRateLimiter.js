@@ -5,7 +5,7 @@
  * Limits POST /api/forecast/:missionId/generate to 5 calls per minute per user.
  * Uses express-rate-limit with Redis store (falls back to memory if Redis unavailable).
  */
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 /**
  * Rate limiter: 5 forecast generate calls per user per minute.
@@ -16,7 +16,7 @@ export const forecastRateLimiter = rateLimit({
     max: 5,                 // max 5 per window per key
     keyGenerator: (req) => {
         // Key per authenticated user (falls back to IP)
-        return req.user?.id || req.ip;
+        return req.user?.id || ipKeyGenerator(req.ip);
     },
     handler: (req, res) => {
         res.status(429).json({

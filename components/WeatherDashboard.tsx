@@ -411,7 +411,7 @@ const INDUSTRY_LABELS: Record<IndustryId, string> = {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 interface WeatherDashboardProps {
-    industry: IndustryId;
+    industry?: IndustryId;
 }
 
 const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryRaw }) => {

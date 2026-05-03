@@ -1,7 +1,11 @@
 import pkg from 'pg';
 const { Pool } = pkg;
 
-const connectionString = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 const pool = new Pool({
     connectionString,

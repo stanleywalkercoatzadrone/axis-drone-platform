@@ -1,5 +1,29 @@
 import { query, transaction } from '../config/database.js';
 
+const tenantIdOf = (req) => req.user?.tenantId ? String(req.user.tenantId) : null;
+
+const ensureIngestionTenantColumn = async () => {
+    await query(`ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS tenant_id TEXT`).catch(() => {});
+};
+
+const getScopedJob = async (jobId, req) => {
+    await ensureIngestionTenantColumn();
+    const tenantId = tenantIdOf(req);
+    const result = await query(
+        `SELECT *
+         FROM ingestion_jobs
+         WHERE id = $1
+           AND (
+             created_by = $2
+             OR $3::text IS NULL
+             OR tenant_id::text = $3::text
+           )
+         LIMIT 1`,
+        [jobId, req.user.id, tenantId]
+    );
+    return result.rows[0] || null;
+};
+
 /**
  * createJob - Starts a new upload batch
  * POST /api/uploads/jobs
@@ -7,18 +31,36 @@ import { query, transaction } from '../config/database.js';
 export const createJob = async (req, res) => {
     const { industry, clientId, siteId, totalFiles } = req.body;
     const userId = req.user.id; // Assumes auth middleware
+    const tenantId = tenantIdOf(req);
 
     if (!clientId || !siteId) {
         return res.status(400).json({ success: false, message: 'Client ID and Site ID are required' });
     }
 
     try {
+        await ensureIngestionTenantColumn();
+
+        const scopeCheck = await query(
+            `SELECT c.id AS client_id, s.id AS site_id
+             FROM clients c
+             JOIN sites s ON s.id = $2 AND s.client_id = c.id
+             WHERE c.id = $1
+               AND ($3::text IS NULL OR c.tenant_id::text = $3::text)
+               AND ($3::text IS NULL OR s.tenant_id::text = $3::text)
+             LIMIT 1`,
+            [clientId, siteId, tenantId]
+        );
+
+        if (scopeCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Client/site is outside your tenant scope' });
+        }
+
         const result = await query(
             `INSERT INTO ingestion_jobs 
-            (industry, client_id, site_id, status, total_files, created_by, progress)
-            VALUES ($1, $2, $3, 'queued', $4, $5, 0)
+            (industry, client_id, site_id, status, total_files, created_by, progress, tenant_id)
+            VALUES ($1, $2, $3, 'queued', $4, $5, 0, $6)
             RETURNING *`,
-            [industry || 'Solar', clientId, siteId, totalFiles || 0, userId]
+            [industry || 'Solar', clientId, siteId, totalFiles || 0, userId, tenantId]
         );
 
         const job = result.rows[0];
@@ -49,6 +91,11 @@ export const addFiles = async (req, res) => {
     }
 
     try {
+        const job = await getScopedJob(jobId, req);
+        if (!job) {
+            return res.status(404).json({ success: false, message: 'Upload job not found' });
+        }
+
         const insertedFiles = [];
 
         await transaction(async (client) => {
@@ -87,6 +134,11 @@ export const createException = async (req, res) => {
     const userId = req.user.id;
 
     try {
+        const job = await getScopedJob(jobId, req);
+        if (!job) {
+            return res.status(404).json({ success: false, message: 'Upload job not found' });
+        }
+
         await transaction(async (client) => {
             // 1. Create Ingestion Exception (Table name kept as is)
             const exResult = await client.query(
@@ -136,9 +188,8 @@ export const getJob = async (req, res) => {
     const { id } = req.params;
 
     try {
-        const jobRes = await query('SELECT * FROM ingestion_jobs WHERE id = $1', [id]);
-
-        if (jobRes.rows.length === 0) {
+        const job = await getScopedJob(id, req);
+        if (!job) {
             return res.status(404).json({ success: false, message: 'Job not found' });
         }
 
@@ -149,7 +200,7 @@ export const getJob = async (req, res) => {
         res.json({
             success: true,
             data: {
-                ...jobRes.rows[0],
+                ...job,
                 files: filesRes.rows,
                 events: eventsRes.rows,
                 exceptions: exceptionsRes.rows
@@ -167,10 +218,11 @@ export const getJob = async (req, res) => {
  */
 export const listJobs = async (req, res) => {
     const { clientId, siteId, start, limit = 20 } = req.query;
+    const tenantId = tenantIdOf(req);
 
     // Basic filtering logic
-    let queryText = 'SELECT * FROM ingestion_jobs WHERE 1=1';
-    const queryParams = [];
+    let queryText = 'SELECT * FROM ingestion_jobs WHERE (created_by = $1 OR $2::text IS NULL OR tenant_id::text = $2::text)';
+    const queryParams = [req.user.id, tenantId];
 
     if (clientId) {
         queryParams.push(clientId);
@@ -186,6 +238,7 @@ export const listJobs = async (req, res) => {
     queryParams.push(limit);
 
     try {
+        await ensureIngestionTenantColumn();
         const result = await query(queryText, queryParams);
         res.json({ success: true, data: result.rows });
     } catch (err) {

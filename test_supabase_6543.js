@@ -1,6 +1,10 @@
 import pkg from 'pg';
 const { Client } = pkg;
-const connectionString = 'postgresql://postgres.nkhiiwleyjsmvvdtkcud:!Qaz1976T@ylor2008@aws-1-us-east-1.pooler.supabase.com:6543/postgres';
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+    console.error('DATABASE_URL is required.');
+    process.exit(1);
+}
 
 async function test() {
     const client = new Client({
