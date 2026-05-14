@@ -17,10 +17,12 @@ import {
     CloudLightning, MapPin, AlertCircle, CheckSquare, Calendar,
     Download, Upload, FileText, BarChart3, Cloud, Wind, Sun,
     TrendingUp, TrendingDown, Minus, RefreshCw, ChevronRight,
-    CheckCircle, Clock, Plane, Activity, Target, Loader2
+    CheckCircle, Clock, Plane, Activity, Target, Loader2,
+    FolderUp, ShieldCheck, Banknote, Building, CheckCircle2, UploadCloud, Grid3X3
 } from 'lucide-react';
 import apiClient from '../../../services/apiClient';
 import PilotProtocolsPanel from './PilotProtocolsPanel';
+import LBDDocumentGrid from '../../../../components/LBDDocumentGrid';
 
 interface AssignedMission {
     id: string;
@@ -449,13 +451,15 @@ const DailyReportModal: React.FC<{
 const MissionCard: React.FC<{
     mission: AssignedMission;
     onDailyReport: () => void;
-}> = ({ mission, onDailyReport }) => {
+    onViewReports: () => void;
+}> = ({ mission, onDailyReport, onViewReports }) => {
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [hourly, setHourly] = useState<HourlySlot[]>([]);
     const [weatherLocation, setWeatherLocation] = useState<{ city?: string; state?: string } | null>(null);
     const [weatherLoading, setWeatherLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [expanded, setExpanded] = useState(false);
+    const [isGridCollapsed, setIsGridCollapsed] = useState(true);
     const [assignments, setAssignments] = useState<any[] | null>(null);
 
     useEffect(() => {
@@ -481,7 +485,7 @@ const MissionCard: React.FC<{
 
     const handleKMLDownload = async () => {
         try {
-            const token = localStorage.getItem('skylens_token');
+            const token = sessionStorage.getItem('skylens_token');
             const response = await fetch(`/api/pilot/secure/missions/${mission.id}/kml`, {
                 headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) }
             });
@@ -845,70 +849,26 @@ const MissionCard: React.FC<{
                             </>
                         )}
                     </div>
-                    {/* Assigned Work — KML Files + LBD Blocks */}
-                    <div>
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">My Assigned Work</h4>
-                        {assignments === null ? (
-                            <p className="text-xs text-slate-400 italic animate-pulse">Loading assignments...</p>
-                        ) : assignments.length === 0 ? (
-                            <p className="text-xs text-slate-400 italic">No files or blocks assigned to you yet.</p>
-                        ) : (
-                            <div className="space-y-2">
-                                {assignments.filter(a => a.assignment_type !== 'lbd').length > 0 && (
-                                    <div className="bg-slate-800/80 border border-cyan-700/30 rounded-xl overflow-hidden">
-                                        <div className="px-3 py-1.5 bg-cyan-900/30 border-b border-cyan-700/30">
-                                            <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest">📍 KML / Files</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-700/30">
-                                            {assignments.filter(a => a.assignment_type !== 'lbd').map(a => (
-                                                <div key={a.id} className="flex items-center justify-between px-3 py-2">
-                                                    <div>
-                                                        <p className="text-xs font-semibold text-slate-200">{a.file_name || 'File'}</p>
-                                                        {a.notes && <p className="text-[10px] text-slate-400">{a.notes}</p>}
-                                                    </div>
-                                                    <button
-                                                        onClick={async () => {
-                                                            try {
-                                                                const token = localStorage.getItem('skylens_token');
-                                                                const resp = await fetch(`/api/deployments/${mission.id}/files/${a.file_id}/download`, {
-                                                                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
-                                                                });
-                                                                if (!resp.ok) { if (a.file_url) { window.open(a.file_url, '_blank'); return; } return alert('Download failed'); }
-                                                                const blob = await resp.blob();
-                                                                const url = URL.createObjectURL(blob);
-                                                                const anchor = document.createElement('a');
-                                                                anchor.href = url; anchor.download = a.file_name || 'file';
-                                                                anchor.click(); URL.revokeObjectURL(url);
-                                                            } catch { if (a.file_url) window.open(a.file_url, '_blank'); }
-                                                        }}
-                                                        className="flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-cyan-600 text-white hover:bg-cyan-700 transition-colors"
-                                                    ><Download className="w-3 h-3" /> Download</button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {assignments.filter(a => a.assignment_type === 'lbd').length > 0 && (
-                                    <div className="bg-slate-800/80 border border-amber-700/30 rounded-xl overflow-hidden">
-                                        <div className="px-3 py-1.5 bg-amber-900/30 border-b border-amber-700/30">
-                                            <span className="text-[10px] font-bold text-amber-300 uppercase tracking-widest">⚡ LBD Blocks</span>
-                                        </div>
-                                        <div className="divide-y divide-slate-700/30">
-                                            {assignments.filter(a => a.assignment_type === 'lbd').map(a => (
-                                                <div key={a.id} className="flex items-center justify-between px-3 py-2">
-                                                    <div>
-                                                        <p className="text-xs font-semibold text-slate-200">{a.asset_name || 'Block'}</p>
-                                                        {a.asset_key && <p className="text-[10px] text-slate-400 font-mono">{a.asset_key}</p>}
-                                                        {a.notes && <p className="text-[10px] text-slate-400 italic">{a.notes}</p>}
-                                                    </div>
-                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.asset_status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                                                        {a.asset_status || '—'}
-                                                    </span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                    {/* Assigned Work — Block Grid (replaces static LBD list) */}
+                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                        <div 
+                            className="flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+                            onClick={() => setIsGridCollapsed(!isGridCollapsed)}
+                        >
+                            <div className="flex items-center gap-2">
+                                <Grid3X3 className="w-4 h-4 text-orange-500" />
+                                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Block Grid</h4>
+                            </div>
+                            <button className="text-slate-400 hover:text-slate-600">
+                                {isGridCollapsed ? 'Expand' : 'Collapse'}
+                            </button>
+                        </div>
+                        {!isGridCollapsed && (
+                            <div className="p-4 border-t border-slate-100">
+                                <LBDDocumentGrid
+                                    deploymentId={mission.id}
+                                    userRole="pilot_technician"
+                                />
                             </div>
                         )}
                     </div>
@@ -937,16 +897,27 @@ const MissionCard: React.FC<{
                         </button>
 
                         {/* Upload Flight Data */}
-                        <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-900/30 hover:border-emerald-400/60 transition-all shadow-sm ${uploading ? 'opacity-60' : ''}`}>
-                            <Upload className="w-3.5 h-3.5" />
-                            {uploading ? 'Uploading...' : 'Upload Data'}
-                            <input
-                                type="file" multiple className="hidden"
-                                disabled={uploading}
-                                accept=".jpg,.jpeg,.png,.webp,.tiff,.heic,.mp4,.mov,.kml,.kmz,.zip,.csv,.xls,.xlsx,.pdf,.las,.laz"
-                                onChange={handleUpload}
-                            />
-                        </label>
+                        <div className="flex flex-col gap-2">
+                            <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-900/30 hover:border-emerald-400/60 transition-all shadow-sm ${uploading ? 'opacity-60' : ''}`}>
+                                <Upload className="w-3.5 h-3.5" />
+                                {uploading ? 'Uploading...' : 'Upload Files'}
+                                <input
+                                    type="file" multiple className="hidden"
+                                    disabled={uploading}
+                                    accept=".jpg,.jpeg,.png,.webp,.tiff,.heic,.mp4,.mov,.kml,.kmz,.zip,.csv,.xls,.xlsx,.pdf,.las,.laz"
+                                    onChange={handleUpload}
+                                />
+                            </label>
+                            <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-900/30 hover:border-emerald-400/60 transition-all shadow-sm ${uploading ? 'opacity-60' : ''}`}>
+                                <FolderUp className="w-3.5 h-3.5" />
+                                {uploading ? 'Uploading...' : 'Upload Folder'}
+                                <input
+                                    type="file" webkitdirectory="" directory="" className="hidden"
+                                    disabled={uploading}
+                                    onChange={handleUpload}
+                                />
+                            </label>
+                        </div>
 
                         {/* Daily Report */}
                         <button
@@ -956,10 +927,243 @@ const MissionCard: React.FC<{
                             <FileText className="w-3.5 h-3.5" />
                             Daily Report
                         </button>
+                        
+                        {/* View Submitted Reports */}
+                        <button
+                            onClick={onViewReports}
+                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-blue-500/40 text-blue-300 text-xs font-bold hover:bg-blue-900/30 hover:border-blue-400/60 transition-all shadow-sm"
+                        >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            View Past Reports
+                        </button>
                     </div>
                     </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+const PilotCompliancePanel: React.FC = () => {
+    const [banking, setBanking] = useState<any>(null);
+    const [documents, setDocuments] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [uploading, setUploading] = useState(false);
+    const [bankForm, setBankForm] = useState({ bankName: '', routingNumber: '', accountNumber: '', accountType: 'checking' });
+    const [editingBank, setEditingBank] = useState(false);
+
+    useEffect(() => { loadCompliance(); }, []);
+
+    const loadCompliance = async () => {
+        try {
+            const [bRes, dRes] = await Promise.all([
+                apiClient.get('/pilot/secure/me/banking'),
+                apiClient.get('/pilot/secure/me/documents')
+            ]);
+            if (bRes.data?.success && bRes.data.data) {
+                setBanking(bRes.data.data);
+                setBankForm({
+                    bankName: bRes.data.data.bank_name || '',
+                    routingNumber: bRes.data.data.routing_number || '',
+                    accountNumber: bRes.data.data.account_number || '',
+                    accountType: bRes.data.data.account_type || 'checking'
+                });
+            }
+            if (dRes.data?.success) setDocuments(dRes.data.data || []);
+        } catch (e) {
+            console.error(e);
+        } finally { setLoading(false); }
+    };
+
+    const saveBanking = async () => {
+        try {
+            const res = await apiClient.post('/pilot/secure/me/banking', bankForm);
+            if (res.data.success) {
+                alert('Banking Saved Successfully');
+                setEditingBank(false);
+                loadCompliance();
+            }
+        } catch(e) { alert('Failed to save direct deposit vector'); }
+    };
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploading(true);
+        const data = new FormData();
+        data.append('file', file);
+        try {
+            const res = await apiClient.post('/pilot/secure/me/documents/upload', data, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if(res.data.success) {
+                if (res.data.document?.aiResult?.documentType) {
+                    alert(`AI Detected: ${res.data.document.aiResult.documentType}`);
+                }
+                loadCompliance();
+            }
+        } catch(e) { alert('Upload failed'); } 
+        finally { 
+            setUploading(false);
+            e.target.value = '';
+        }
+    };
+
+    if (loading) return <div className="text-slate-400 animate-pulse text-xs">Loading Compliance Modules...</div>;
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Banknote className="w-4 h-4 text-emerald-400" />
+                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Direct Deposit</h3>
+                    </div>
+                </div>
+                <div className="p-4 space-y-4">
+                    {editingBank ? (
+                        <div className="space-y-3">
+                            <input value={bankForm.bankName} onChange={e => setBankForm({...bankForm, bankName: e.target.value})} placeholder="Bank Name (e.g. Chase)" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200" />
+                            <input value={bankForm.routingNumber} onChange={e => setBankForm({...bankForm, routingNumber: e.target.value})} placeholder="Routing Number (9 digits)" maxLength={9} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono" />
+                            <input value={bankForm.accountNumber} onChange={e => setBankForm({...bankForm, accountNumber: e.target.value})} placeholder="Account Number" type="password" className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono" />
+                            <div className="flex gap-2">
+                                <button onClick={saveBanking} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 rounded-lg transition-colors">Lock Destination</button>
+                                <button onClick={() => setEditingBank(false)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-2 rounded-lg transition-colors">Cancel</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {banking ? (
+                                <>
+                                    <div className="flex bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                                        <Building className="w-5 h-5 text-slate-400 mr-3 flex-shrink-0" />
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-200">{banking.bank_name}</p>
+                                            <p className="text-[10px] text-slate-500 font-mono tracking-widest mt-0.5">•••• {banking.account_number?.slice(-4) || '****'}</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setEditingBank(true)} className="w-full border border-slate-600 text-slate-300 hover:bg-slate-800 text-xs font-bold py-2 rounded-lg transition-colors">Modify Routing</button>
+                                </>
+                            ) : (
+                                <div className="text-center py-4">
+                                    <p className="text-xs text-slate-400 mb-3">No direct deposit vector linked.</p>
+                                    <button onClick={() => setEditingBank(true)} className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 font-bold text-xs py-2 px-4 rounded-lg transition-colors">Initialize Payload Route</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-violet-400" />
+                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Compliance Vault</h3>
+                    </div>
+                </div>
+                <div className="p-4 flex flex-col flex-1">
+                    <div className="flex-1 space-y-2 mb-4 overflow-y-auto max-h-36">
+                        {documents.length === 0 ? (
+                            <p className="text-[10px] text-slate-500 italic text-center mt-4">Awaiting document upload.</p>
+                        ) : (
+                            documents.map(doc => (
+                                <div key={doc.id} className="flex items-center justify-between bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5">
+                                    <div className="overflow-hidden pr-2">
+                                        <p className="text-[11px] font-bold text-slate-200 truncate flex items-center gap-1.5 focus:outline-none">
+                                            {doc.category || doc.name} 
+                                            {doc.aiMetadata && JSON.parse(doc.aiMetadata).confidence > 0.8 && <CheckCircle2 className="w-3 h-3 text-emerald-500"/>}
+                                        </p>
+                                        {doc.expirationDate && <p className="text-[9px] text-amber-500/80 font-mono tracking-wider mt-0.5">EXP: {doc.expirationDate}</p>}
+                                    </div>
+                                    <a href={doc.url} target="_blank" rel="noreferrer" className="text-[9px] uppercase tracking-widest text-violet-400 hover:text-violet-300 font-bold bg-violet-900/40 border border-violet-700/50 px-2 py-1 rounded transition-colors">Verify</a>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <label className={`mt-auto border border-dashed border-slate-600 hover:border-violet-400/60 rounded-xl p-3 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-800/30 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <UploadCloud className="w-4 h-4 text-violet-400 mb-1" />
+                        <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{uploading ? 'Executing Scan...' : 'Upload Compliance Form'}</span>
+                        <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleUpload} />
+                    </label>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const SubmittedReportsModal: React.FC<{
+    missionId: string; onClose: () => void;
+}> = ({ missionId, onClose }) => {
+    const [reports, setReports] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        apiClient.get(`/pilot/secure/missions/${missionId}/daily-reports`)
+            .then(res => setReports(res.data.data || []))
+            .catch(err => console.error(err))
+            .finally(() => setLoading(false));
+    }, [missionId]);
+
+    return (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-50 rounded-lg">
+                            <FileText className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-bold text-slate-800">Submitted Daily Reports</h3>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors text-lg leading-none">&times;</button>
+                </div>
+                <div className="p-6 space-y-4">
+                    {loading ? (
+                        <div className="py-8 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+                    ) : reports.length === 0 ? (
+                        <div className="py-8 text-center text-slate-500 text-sm">No daily reports submitted yet.</div>
+                    ) : (
+                        reports.map(rep => (
+                            <div key={rep.id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Date</p>
+                                        <p className="text-sm font-bold text-slate-800">{new Date(rep.report_date).toLocaleDateString()}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Hours</p>
+                                        <p className="text-sm font-bold text-slate-800">{rep.hours_worked || 0}h</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Flights</p>
+                                        <p className="text-sm font-bold text-slate-800">{rep.missions_flown_count || 0}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Blocks</p>
+                                        <p className="text-sm font-bold text-slate-800">{rep.blocks_completed || 0}</p>
+                                    </div>
+                                </div>
+                                {rep.issues_encountered && (
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">Issues</p>
+                                        <p className="text-xs text-slate-700 bg-red-50 p-2 rounded-lg border border-red-100">{rep.issues_encountered}</p>
+                                    </div>
+                                )}
+                                {rep.notes && (
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-1">Notes</p>
+                                        <p className="text-xs text-slate-700 bg-white p-2 rounded-lg border border-slate-200">{rep.notes}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
@@ -970,6 +1174,7 @@ const PilotDashboardV2: React.FC = () => {
     const [perf, setPerf] = useState<PerformanceData | null>(null);
     const [loading, setLoading] = useState(true);
     const [reportMissionId, setReportMissionId] = useState<string | null>(null);
+    const [viewReportsMissionId, setViewReportsMissionId] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -1062,6 +1267,7 @@ const PilotDashboardV2: React.FC = () => {
                                     key={mission.id}
                                     mission={mission}
                                     onDailyReport={() => setReportMissionId(mission.id)}
+                                    onViewReports={() => setViewReportsMissionId(mission.id)}
                                 />
                             ))}
                         </div>
@@ -1108,7 +1314,7 @@ const PilotDashboardV2: React.FC = () => {
                     )}
 
                     {/* Zero financial disclosure notice */}
-                    <p className="text-[10px] text-slate-600 text-center mt-3">
+                    <p className="text-[10px] text-slate-600 text-center mt-3 mb-6">
                         Performance metrics shown are operational only. Financial data is not accessible through pilot accounts.
                     </p>
                 </section>
@@ -1119,6 +1325,14 @@ const PilotDashboardV2: React.FC = () => {
                 <DailyReportModal
                     missionId={reportMissionId}
                     onClose={() => setReportMissionId(null)}
+                />
+            )}
+
+            {/* Submitted Reports Modal */}
+            {viewReportsMissionId && (
+                <SubmittedReportsModal
+                    missionId={viewReportsMissionId}
+                    onClose={() => setViewReportsMissionId(null)}
                 />
             )}
         </div>

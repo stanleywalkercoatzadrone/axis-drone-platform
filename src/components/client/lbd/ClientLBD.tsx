@@ -7,16 +7,17 @@ import apiClient from '../../../../src/services/apiClient';
 interface LBDIssue {
     id: string; block: string | null; row: string | null;
     issue_type: string; status: 'identified' | 'in_progress' | 'resolved';
+    confidence: number;
     resolved_date: string | null; created_at: string;
     mission_name: string; project_name: string;
 }
 interface LBDStats { total:number; resolved:number; inProgress:number; identified:number; }
 
 const MOCK: LBDIssue[] = [
-    { id:'1', block:'A', row:'3', issue_type:'Hotspot', status:'resolved', resolved_date:'2026-03-04', created_at:'2026-03-01', mission_name:'Block A Thermal', project_name:'Riverstart Phase I' },
-    { id:'2', block:'B', row:'7', issue_type:'Diode failure', status:'in_progress', resolved_date:null, created_at:'2026-03-02', mission_name:'Block B Survey', project_name:'Riverstart Phase I' },
-    { id:'3', block:'C', row:'1', issue_type:'Soiling', status:'identified', resolved_date:null, created_at:'2026-03-03', mission_name:'Block C Thermal', project_name:'Riverstart Phase I' },
-    { id:'4', block:'1', row:'2', issue_type:'Hotspot', status:'resolved', resolved_date:'2026-03-06', created_at:'2026-03-04', mission_name:'Section 1 Survey', project_name:'Desert Ridge' },
+    { id:'1', block:'A', row:'3', issue_type:'Hotspot', status:'resolved', confidence: 96, resolved_date:'2026-03-04', created_at:'2026-03-01', mission_name:'Block A Thermal', project_name:'Riverstart Phase I' },
+    { id:'2', block:'B', row:'7', issue_type:'Diode failure', status:'in_progress', confidence: 85, resolved_date:null, created_at:'2026-03-02', mission_name:'Block B Survey', project_name:'Riverstart Phase I' },
+    { id:'3', block:'C', row:'1', issue_type:'Soiling', status:'identified', confidence: 64, resolved_date:null, created_at:'2026-03-03', mission_name:'Block C Thermal', project_name:'Riverstart Phase I' },
+    { id:'4', block:'1', row:'2', issue_type:'Hotspot', status:'resolved', confidence: 91, resolved_date:'2026-03-06', created_at:'2026-03-04', mission_name:'Section 1 Survey', project_name:'Desert Ridge' },
 ];
 const STATUS_CFG = {
     resolved:    { label:'Resolved',    color:'text-emerald-400', bg:'bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle },
@@ -76,33 +77,29 @@ const ClientLBD: React.FC = () => {
             </div>
 
             {/* Stats row */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 {/* Donut */}
-                <div className="md:col-span-1 bg-slate-800/40 border border-slate-700/40 rounded-2xl p-5 flex flex-col items-center justify-center gap-2">
+                <div className="col-span-1 md:col-span-1 bg-slate-800/40 border border-slate-700/40 rounded-2xl p-5 flex flex-col items-center justify-center gap-2">
                     <div className="relative">
                         <DonutRing pct={resPct} size={90} />
                         <div className="absolute inset-0 flex items-center justify-center">
                             <span className="text-xl font-black text-white">{resPct}%</span>
                         </div>
                     </div>
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Resolution Rate</span>
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Resolution Rate</span>
                 </div>
                 {/* Stat cards */}
                 {[
                     { label:'Total Found',  value:stats.total,       color:'text-white',         border:'border-slate-700/50' },
-                    { label:'Resolved',     value:stats.resolved,    color:'text-emerald-400',   border:'border-emerald-500/20' },
+                    { label:'Identified',   value:stats.identified,  color:'text-rose-400',      border:'border-rose-500/20' },
                     { label:'In Progress',  value:stats.inProgress,  color:'text-amber-400',     border:'border-amber-500/20' },
-                    // { label:'Identified', value:stats.identified, color:'text-rose-400', border:'border-rose-500/20' },
+                    { label:'Resolved',     value:stats.resolved,    color:'text-emerald-400',   border:'border-emerald-500/20' },
                 ].map(s => (
-                    <div key={s.label} className={`bg-slate-800/40 border ${s.border} rounded-2xl p-5 flex flex-col justify-center`}>
+                    <div key={s.label} className={`col-span-1 bg-slate-800/40 border ${s.border} rounded-2xl p-5 flex flex-col justify-center`}>
                         <div className={`text-3xl font-black tabular-nums ${s.color}`}>{s.value}</div>
                         <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">{s.label}</div>
                     </div>
                 ))}
-                <div className="bg-slate-800/40 border border-rose-500/20 rounded-2xl p-5 flex flex-col justify-center">
-                    <div className="text-3xl font-black tabular-nums text-rose-400">{stats.identified}</div>
-                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Identified</div>
-                </div>
             </div>
 
             {/* Filters + table */}
@@ -128,7 +125,7 @@ const ClientLBD: React.FC = () => {
                     <table className="w-full">
                         <thead>
                             <tr className="border-b border-slate-700/50">
-                                {['Status','Issue Type','Block','Project','Mission','Found','Resolved'].map(h => (
+                                {['Status','AI Confidence','Issue Type','Block','Project','Mission','Found','Resolved'].map(h => (
                                     <th key={h} className="px-5 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-500">{h}</th>
                                 ))}
                             </tr>
@@ -142,6 +139,15 @@ const ClientLBD: React.FC = () => {
                                         <td className="px-5 py-3.5">
                                             <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest border rounded-md ${cfg.bg} ${cfg.color}`}>
                                                 <Icon size={9} />{cfg.label}
+                                            </span>
+                                        </td>
+                                        <td className="px-5 py-3.5">
+                                            <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${
+                                                issue.confidence >= 90 ? 'bg-emerald-500/20 text-emerald-400' :
+                                                issue.confidence >= 70 ? 'bg-amber-500/20 text-amber-400' :
+                                                'bg-rose-500/20 text-rose-400'
+                                            }`}>
+                                                {issue.confidence}%
                                             </span>
                                         </td>
                                         <td className="px-5 py-3.5 text-sm font-bold text-white">{issue.issue_type}</td>
