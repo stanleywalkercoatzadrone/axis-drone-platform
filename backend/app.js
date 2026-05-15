@@ -113,7 +113,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: isDev ? ["'self'", "'unsafe-inline'"] : ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             imgSrc: ["'self'", "data:", "https:", "blob:"],
             connectSrc: [
@@ -1047,10 +1047,9 @@ try {
     console.warn('[startup] AI worker failed to start (non-fatal):', err.message);
 }
 
-// Error handling for API routes — §12 errorTracker must come BEFORE errorHandler
-app.use('/api/*', notFound);
-app.use(errorTracker);
-app.use(errorHandler);
+// Ensure error handling is at the very end of the stack
+// app.use('/api/*', notFound); moved down
+
 
 
 // Serve uploaded files (onboarding templates, documents, etc.)
@@ -1086,12 +1085,21 @@ app.use(express.static(distPath, {
 }));
 
 // SPA fallback
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) {
+        return next();
+    }
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // Export httpServer and io
+
+// Global Error handling — §12 errorTracker must come BEFORE errorHandler
+app.use('/api/*', notFound);
+app.use(errorTracker);
+app.use(errorHandler);
+
 export { httpServer, app, io };
 
 console.log('✅ App Logic Loaded');

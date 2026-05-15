@@ -10,14 +10,13 @@ console.log(`ℹ️  NODE_ENV: ${process.env.NODE_ENV}`);
 process.on('uncaughtException', (err) => {
     console.error('🔥 CRITICAL: UNCAUGHT EXCEPTION 🔥');
     console.error(err);
-    // On Cloud Run, it is better to exit so a new container is started
-    process.exit(1);
+    // On Cloud Run, logging is sufficient. Exiting causes intermittent 503s.
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 CRITICAL: UNHANDLED REJECTION 🔥');
     console.error(reason);
-    process.exit(1);
+    // Logging is sufficient. Exiting causes intermittent 503s.
 });
 
 // STARTUP WRAPPER
