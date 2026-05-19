@@ -1,19 +1,19 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 
 import db from './backend/config/database.js';
 
-async function checkTable() {
+async function migratePhases() {
     try {
-        const res = await db.query("SELECT * FROM information_schema.tables WHERE table_name = 'client_onboarding_configs'");
-        console.log('client_onboarding_configs table exists:', res.rows.length > 0);
-
-        const resSettings = await db.query("SELECT * FROM information_schema.tables WHERE table_name = 'client_settings'");
-        console.log('client_settings table exists:', resSettings.rows.length > 0);
-
+        console.log('Running migration on construction_phases...');
+        await db.query(`ALTER TABLE construction_phases ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`);
+        await db.query(`ALTER TABLE construction_phases ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES construction_projects(id) ON DELETE CASCADE`);
+        console.log('Migration successful!');
         process.exit(0);
     } catch (err) {
-        console.error('Error:', err);
+        console.error('Error during migration:', err);
         process.exit(1);
     }
 }
 
-checkTable();
+migratePhases();

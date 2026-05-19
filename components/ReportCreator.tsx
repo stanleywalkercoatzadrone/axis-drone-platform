@@ -1,7 +1,7 @@
 import React from 'react';
 import ReportWizard from './report-wizard/ReportWizard';
 import { Industry, InspectionReport } from '../types';
-import { useIndustry } from '../src/context/IndustryContext';
+import { useIndustry } from '../context/IndustryContext';
 
 interface ReportCreatorProps {
   initialIndustry?: Industry | null;

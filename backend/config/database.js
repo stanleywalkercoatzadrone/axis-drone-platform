@@ -12,7 +12,7 @@ const envPath = path.resolve(__dirname, '../../.env.local');
 dotenv.config({ path: envPath });
 
 // Fallback connection string from .env.local
-const DEFAULT_CONNECTION_STRING = "postgresql://postgres.nkhiiwleyjsmvvdtkcud:d9hn6m1radFKNmFY@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
+const DEFAULT_CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
 
 // Helper to parse connection string
 const parseConnectionString = (connectionString) => {
@@ -20,7 +20,7 @@ const parseConnectionString = (connectionString) => {
         const url = new URL(connectionString);
         return {
             user: url.username,
-            password: url.password,
+            password: decodeURIComponent(url.password),
             host: url.hostname,
             port: url.port,
             database: url.pathname.split('/')[1],
@@ -61,6 +61,7 @@ if (process.env.DATABASE_URL) {
 
 
 
+console.log("Pool Config:", JSON.stringify(poolConfig, null, 2));
 const pool = new Pool(poolConfig);
 
 // Don't test connection immediately - let it happen lazily on first query

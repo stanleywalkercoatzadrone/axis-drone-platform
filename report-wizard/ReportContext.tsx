@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Industry, ReportTheme, Branding, InspectionReport, InspectionImage, Annotation, IndustryTemplate, INDUSTRY_TEMPLATES } from '../../types';
-import apiClient from '../../src/services/apiClient';
+import { Industry, ReportTheme, Branding, InspectionReport, InspectionImage, Annotation, IndustryTemplate, INDUSTRY_TEMPLATES } from '../types';
+import apiClient from '../src/services/apiClient';
 
 interface ReportContextType {
     // State
@@ -17,8 +17,20 @@ interface ReportContextType {
     isAnalyzing: boolean;
     selectedTemplate: IndustryTemplate;
 
+    // Intelligence State
+    missionId: string | null;
+    weather: InspectionReport['weather'];
+    altitude: number | null;
+    technicianId: string | null;
+    assignedPersonnel: any[];
+    isPopulating: boolean;
+
     // Actions
     setStep: (step: number) => void;
+    setMissionId: (id: string | null) => void;
+    setWeather: (weather: InspectionReport['weather']) => void;
+    setAltitude: (altitude: number | null) => void;
+    setTechnicianId: (id: string | null) => void;
     setTitle: (title: string) => void;
     setClient: (client: string) => void;
     setIndustry: (industry: Industry) => void;
@@ -51,6 +63,14 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
     const [selectedTemplate, setSelectedTemplate] = useState<IndustryTemplate>(
         INDUSTRY_TEMPLATES[industry][0]
     );
+
+    // Intelligence State
+    const [missionId, setMissionId] = useState<string | null>(initialReport?.missionId || null);
+    const [weather, setWeather] = useState<InspectionReport['weather']>(initialReport?.weather || null);
+    const [altitude, setAltitude] = useState<number | null>(initialReport?.altitude || null);
+    const [technicianId, setTechnicianId] = useState<string | null>(initialReport?.technicianId || null);
+    const [assignedPersonnel, setAssignedPersonnel] = useState<any[]>([]);
+    const [isPopulating, setIsPopulating] = useState(false);
 
     // Update template when industry changes
     const setIndustry = (ind: Industry) => {
@@ -122,6 +142,10 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
             theme,
             branding,
             images,
+            missionId,
+            technicianId,
+            weather,
+            altitude,
             status: 'DRAFT'
         };
 
@@ -135,6 +159,46 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
         } catch (err) {
             console.error('Failed to save draft', err);
             throw err;
+        }
+    };
+
+    const fetchMissionIntelligence = async (mid: string | number) => {
+        if (!mid) return;
+        
+        const idStr = mid.toString();
+        // ALWAYS update the ID immediately so the dropdown reflects the user's choice
+        setMissionId(idStr);
+        setIsPopulating(true);
+
+        try {
+            // Use correct /v1 prefix for the new intelligence layer
+            const res = await apiClient.get(`/v1/missions/${mid}/intelligence`);
+            const intel = res.data.data;
+
+            // Auto-populate
+            setMissionId(mid);
+            if (intel.clientName) setClient(intel.clientName);
+            if (intel.title) setTitle(`${intel.title} - Inspection Report`);
+            
+            setWeather({
+                temperature: intel.weather?.temperature || null,
+                windSpeed: intel.weather?.windSpeed || null,
+                cloudCover: intel.weather?.cloudCover || null,
+                condition: intel.weather?.weatherCode ? `Code: ${intel.weather.weatherCode}` : 'Clear'
+            });
+
+            setAltitude(intel.altitude);
+            setAssignedPersonnel(intel.assignedPersonnel || []);
+            
+            // If only one personnel, auto-select
+            if (intel.assignedPersonnel?.length === 1) {
+                setTechnicianId(intel.assignedPersonnel[0].id);
+            }
+
+        } catch (err) {
+            console.error('Failed to fetch mission intelligence', err);
+        } finally {
+            setIsPopulating(false);
         }
     };
 
@@ -211,6 +275,16 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
             uploadProgress,
             isAnalyzing,
             selectedTemplate,
+            missionId,
+            weather,
+            altitude,
+            technicianId,
+            assignedPersonnel,
+            isPopulating,
+            setMissionId: fetchMissionIntelligence,
+            setWeather,
+            setAltitude,
+            setTechnicianId,
             addImages,
             removeImage,
             updateImage,

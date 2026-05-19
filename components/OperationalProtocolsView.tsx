@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   BookOpen, Plus, ChevronRight, ChevronDown, Shield, AlertTriangle, CheckCircle,
-  Edit3, Trash2, X, Save, Search, CheckSquare, Link2, Loader2, Layers
+  Edit3, Trash2, X, Save, Search, CheckSquare, Link2, Loader2, Layers, FileText
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
@@ -13,7 +13,7 @@ interface Protocol {
   id: string;
   title: string;
   description: string;
-  category: 'pre_flight' | 'mission' | 'post_flight' | 'emergency' | 'general';
+  category: 'pre_flight' | 'mission' | 'post_flight' | 'emergency' | 'general' | 'daily_report';
   mission_type: string;
   steps: ProtocolStep[];
   version: string;
@@ -33,11 +33,12 @@ interface ProtocolStep {
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string; border: string }> = {
-  pre_flight:  { label: 'Pre-Flight',  icon: <Shield className="w-3.5 h-3.5" />,       color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200' },
-  mission:     { label: 'Mission',     icon: <CheckSquare className="w-3.5 h-3.5" />,   color: 'text-violet-700', bg: 'bg-violet-50',  border: 'border-violet-200' },
-  post_flight: { label: 'Post-Flight', icon: <CheckCircle className="w-3.5 h-3.5" />,   color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
-  emergency:   { label: 'Emergency',   icon: <AlertTriangle className="w-3.5 h-3.5" />, color: 'text-red-700',    bg: 'bg-red-50',     border: 'border-red-200' },
-  general:     { label: 'General',     icon: <BookOpen className="w-3.5 h-3.5" />,      color: 'text-slate-700',  bg: 'bg-slate-50',   border: 'border-slate-200' },
+  pre_flight:   { label: 'Pre-Flight',    icon: <Shield className="w-3.5 h-3.5" />,        color: 'text-blue-700',   bg: 'bg-blue-50',    border: 'border-blue-200' },
+  mission:      { label: 'Mission',       icon: <CheckSquare className="w-3.5 h-3.5" />,    color: 'text-violet-700', bg: 'bg-violet-50',  border: 'border-violet-200' },
+  post_flight:  { label: 'Post-Flight',   icon: <CheckCircle className="w-3.5 h-3.5" />,    color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  daily_report: { label: 'Daily Report',  icon: <FileText className="w-3.5 h-3.5" />,       color: 'text-amber-700',  bg: 'bg-amber-50',   border: 'border-amber-200' },
+  emergency:    { label: 'Emergency',     icon: <AlertTriangle className="w-3.5 h-3.5" />,  color: 'text-red-700',    bg: 'bg-red-50',     border: 'border-red-200' },
+  general:      { label: 'General',       icon: <BookOpen className="w-3.5 h-3.5" />,       color: 'text-slate-700',  bg: 'bg-slate-50',   border: 'border-slate-200' },
 };
 
 const MISSION_TYPE_LABELS: Record<string, string> = {
@@ -224,8 +225,11 @@ const MissionProtocolAssign: React.FC<{ protocols: Protocol[] }> = ({ protocols 
     }
   };
 
-  const filtered = protocols.filter(p => !search || p.title.toLowerCase().includes(search.toLowerCase()));
   const selectedMission = missions.find(m => m.id === missionId);
+  const assignedProtocols = protocols.filter(p => attached.has(p.id));
+  const unassignedProtocols = protocols.filter(p => !attached.has(p.id) &&
+    (!search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description?.toLowerCase().includes(search.toLowerCase()))
+  );
 
   return (
     <div className="space-y-5">
@@ -272,39 +276,103 @@ const MissionProtocolAssign: React.FC<{ protocols: Protocol[] }> = ({ protocols 
 
       {missionId && (
         <>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter protocols..."
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-          </div>
           {loadingAttached ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
           ) : (
-            <div className="space-y-2">
-              {filtered.map(p => {
-                const meta = CATEGORY_META[p.category] || CATEGORY_META.general;
-                const isAttached = attached.has(p.id);
-                const isSaving = saving === p.id;
-                return (
-                  <div key={p.id} className={`flex items-center justify-between px-4 py-3 border rounded-xl transition-all ${isAttached ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${meta.color} ${meta.bg} ${meta.border}`}>
-                        {meta.icon}{meta.label}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-800 truncate">{p.title}</p>
-                        <p className="text-[10px] text-slate-400">{p.step_count} steps · {MISSION_TYPE_LABELS[p.mission_type] || p.mission_type}{p.is_required && <span className="ml-1 text-red-500 font-bold"> · Required</span>}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => toggle(p.id)} disabled={isSaving}
-                      className={`flex-shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isAttached ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}>
-                      {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : isAttached ? '✓ Attached' : '+ Attach'}
-                    </button>
+            <>
+              {/* ── Assigned Protocols ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">Assigned to this Mission</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">{assignedProtocols.length}</span>
+                </div>
+                {assignedProtocols.length === 0 ? (
+                  <div className="text-center py-8 border border-dashed border-slate-200 rounded-2xl text-slate-400">
+                    <p className="text-sm font-medium">No explicitly attached protocols</p>
+                    <p className="text-xs mt-1">Standard protocols auto-apply by industry type</p>
                   </div>
-                );
-              })}
-              {filtered.length === 0 && <p className="text-center text-xs text-slate-400 py-8">No protocols found</p>}
-            </div>
+                ) : (
+                  <div className="space-y-2">
+                    {assignedProtocols.map(p => {
+                      const meta = CATEGORY_META[p.category] || CATEGORY_META.general;
+                      const isSaving = saving === p.id;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between px-4 py-3 border border-emerald-200 bg-emerald-50/30 rounded-xl hover:border-emerald-300 transition-all">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${meta.color} ${meta.bg} ${meta.border}`}>
+                              {meta.icon}{meta.label}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{p.title}</p>
+                              <p className="text-[10px] text-slate-500">{p.step_count} steps · {MISSION_TYPE_LABELS[p.mission_type] || p.mission_type}{p.is_required && <span className="ml-1 text-red-500 font-bold"> · Required</span>}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => toggle(p.id)}
+                            disabled={isSaving}
+                            className="flex-shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-white text-red-500 border-red-200 hover:bg-red-500 hover:text-white hover:border-red-500 disabled:opacity-60"
+                          >
+                            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                            {isSaving ? 'Removing…' : 'Remove'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Divider ── */}
+              <div className="border-t border-slate-100" />
+
+              {/* ── Add Protocols ── */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Plus className="w-4 h-4 text-blue-500" />
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">Add Protocol</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{unassignedProtocols.length} available</span>
+                </div>
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search protocols to add..."
+                    className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                </div>
+                {unassignedProtocols.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 py-6">
+                    {search ? 'No protocols match your search' : 'All library protocols are assigned'}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {unassignedProtocols.map(p => {
+                      const meta = CATEGORY_META[p.category] || CATEGORY_META.general;
+                      const isSaving = saving === p.id;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between px-4 py-3 border border-slate-200 bg-white rounded-xl hover:border-slate-300 transition-all">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${meta.color} ${meta.bg} ${meta.border}`}>
+                              {meta.icon}{meta.label}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{p.title}</p>
+                              <p className="text-[10px] text-slate-400">{p.step_count} steps · {MISSION_TYPE_LABELS[p.mission_type] || p.mission_type}{p.is_required && <span className="ml-1 text-red-500 font-bold"> · Required</span>}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => toggle(p.id)}
+                            disabled={isSaving}
+                            className="flex-shrink-0 ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-600 hover:text-white hover:border-blue-600 disabled:opacity-60"
+                          >
+                            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                            {isSaving ? 'Adding…' : 'Add'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </>
       )}
@@ -312,7 +380,7 @@ const MissionProtocolAssign: React.FC<{ protocols: Protocol[] }> = ({ protocols 
         <div className="text-center py-16 text-slate-400">
           <Link2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p className="text-sm font-medium">Select a mission above to manage its protocols</p>
-          <p className="text-xs mt-1">Attach or detach protocols — pilots see them immediately</p>
+          <p className="text-xs mt-1">Add or remove protocols — pilots see changes immediately</p>
         </div>
       )}
     </div>
@@ -327,7 +395,20 @@ const ProtocolCard: React.FC<{
   onAttach: (p: Protocol) => void;
 }> = ({ protocol, onEdit, onDelete, onAttach }) => {
   const [expanded, setExpanded] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const meta = CATEGORY_META[protocol.category] || CATEGORY_META.general;
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirmDelete) {
+      onDelete(protocol.id);
+      setConfirmDelete(false);
+    } else {
+      setConfirmDelete(true);
+      // Auto-reset confirm state after 3 seconds
+      setTimeout(() => setConfirmDelete(false), 3000);
+    }
+  };
 
   return (
     <div className={`bg-white border rounded-xl overflow-hidden transition-all shadow-sm hover:shadow-md ${expanded ? `border-slate-300` : 'border-slate-200'}`}>
@@ -350,9 +431,37 @@ const ProtocolCard: React.FC<{
             <h3 className="font-bold text-slate-800 text-sm leading-tight">{protocol.title}</h3>
             <p className="text-xs text-slate-500 mt-1 line-clamp-2">{protocol.description}</p>
           </div>
-          <div className="flex-shrink-0 flex items-center gap-2">
+          <div className="flex-shrink-0 flex items-center gap-2" onClick={e => e.stopPropagation()}>
             <span className="text-[10px] text-slate-400 whitespace-nowrap">{protocol.step_count} steps</span>
-            {expanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+            {/* Quick-action edit button */}
+            <button
+              onClick={e => { e.stopPropagation(); onEdit(protocol); }}
+              title="Edit protocol"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+            </button>
+            {/* Inline delete confirmation */}
+            {confirmDelete ? (
+              <button
+                onClick={handleDeleteClick}
+                title="Click again to confirm removal"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500 text-white text-[10px] font-black uppercase tracking-wider animate-pulse"
+              >
+                <Trash2 className="w-3 h-3" /> Confirm?
+              </button>
+            ) : (
+              <button
+                onClick={handleDeleteClick}
+                title="Remove / deactivate protocol"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <div onClick={() => setExpanded(e => !e)}>
+              {expanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+            </div>
           </div>
         </div>
       </div>
@@ -389,9 +498,13 @@ const ProtocolCard: React.FC<{
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
               <Edit3 className="w-3 h-3" /> Edit
             </button>
-            <button onClick={() => onDelete(protocol.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-500 border border-red-100 rounded-lg hover:bg-red-50 transition-colors">
-              <Trash2 className="w-3 h-3" /> Deactivate
+            <button onClick={handleDeleteClick}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                confirmDelete
+                  ? 'bg-red-500 text-white border-red-500 animate-pulse'
+                  : 'text-red-500 border-red-100 hover:bg-red-50'
+              }`}>
+              <Trash2 className="w-3 h-3" /> {confirmDelete ? 'Confirm Remove' : 'Remove Protocol'}
             </button>
           </div>
         </div>
@@ -486,6 +599,7 @@ const ProtocolFormModal: React.FC<{
                   <option value="pre_flight">Pre-Flight</option>
                   <option value="mission">Mission</option>
                   <option value="post_flight">Post-Flight</option>
+                  <option value="daily_report">Daily Report</option>
                   <option value="emergency">Emergency</option>
                   <option value="general">General</option>
                 </select>
@@ -586,12 +700,11 @@ const OperationalProtocolsView: React.FC = () => {
   useEffect(() => { load(); }, [load]);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deactivate this protocol? It will no longer appear for pilots.')) return;
     try {
       await apiClient.delete(`/protocols/${id}`);
       load();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Failed');
+      alert(e?.response?.data?.message || 'Failed to remove protocol');
     }
   };
 
@@ -605,7 +718,7 @@ const OperationalProtocolsView: React.FC = () => {
     return true;
   });
 
-  const grouped = (['pre_flight', 'mission', 'post_flight', 'emergency', 'general'] as const).reduce((acc, cat) => {
+  const grouped = (['pre_flight', 'mission', 'post_flight', 'daily_report', 'emergency', 'general'] as const).reduce((acc, cat) => {
     const items = filtered.filter(p => p.category === cat);
     if (items.length > 0) acc[cat] = items;
     return acc;
@@ -622,7 +735,7 @@ const OperationalProtocolsView: React.FC = () => {
             <BookOpen className="w-4 h-4 text-blue-600" />
             <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Axis Operations</span>
           </div>
-          <h1 className="text-2xl font-black text-slate-900">Operational Protocols</h1>
+          <h1 className="text-2xl font-black text-white">Operational Protocols</h1>
           <p className="text-xs text-slate-500 mt-1">
             FAA Part 107-aligned SOPs — {protocols.length} protocols · {totalSteps} total checklist steps
           </p>
@@ -659,7 +772,7 @@ const OperationalProtocolsView: React.FC = () => {
       ) : (
         <>
           {/* Stats Bar */}
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
             {Object.entries(CATEGORY_META).map(([cat, meta]) => {
               const count = protocols.filter(p => p.category === cat).length;
               return (

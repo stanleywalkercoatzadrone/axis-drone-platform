@@ -17,10 +17,12 @@ const OnboardingStep1: React.FC = () => {
         address: { street: '', city: '', state: '', zip: '' }
     });
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
+        setError('');
         try {
             // 1. Create the Client
             const clientRes = await apiClient.post('/clients', form);
@@ -36,6 +38,7 @@ const OnboardingStep1: React.FC = () => {
             navigate(`/clients/new/step-2?clientId=${client.id}&configId=${configId || ''}`);
         } catch (err) {
             console.error('Failed to save Step 1:', err);
+            setError('Failed to save. Check your connection and try again.');
         } finally {
             setIsLoading(false);
         }
@@ -109,25 +112,35 @@ const OnboardingStep1: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="pt-8 flex items-center justify-end gap-4">
+                    <div className="pt-8 flex items-center justify-between gap-4">
                         <button
                             type="button"
-                            onClick={() => navigate('/clients/new/start')}
-                            className="px-6 py-3 text-slate-600 font-bold hover:text-slate-900 transition-colors"
+                            onClick={() => navigate('/')}
+                            className="px-6 py-3 text-slate-400 font-medium hover:text-slate-700 transition-colors text-sm"
                         >
-                            Back
+                            ✕ Exit to Dashboard
                         </button>
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-8 py-3 text-white font-bold rounded-xl transition-all active:scale-95 shadow-[0_10px_30px_rgba(37,99,235,0.3)] disabled:opacity-50"
-                        >
-                            {isLoading ? 'Creating...' : (
-                                <>
-                                    Save & Continue <ChevronRight className="w-5 h-5" />
-                                </>
-                            )}
-                        </button>
+                        <div className="flex items-center gap-4">
+                            {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
+                            <button
+                                type="button"
+                                onClick={() => navigate('/clients/new/start')}
+                                className="px-6 py-3 text-slate-600 font-bold hover:text-slate-900 transition-colors"
+                            >
+                                Back
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-8 py-3 text-white font-bold rounded-xl transition-all active:scale-95 shadow-[0_10px_30px_rgba(37,99,235,0.3)] disabled:opacity-50"
+                            >
+                                {isLoading ? 'Creating...' : (
+                                    <>
+                                        Save &amp; Continue <ChevronRight className="w-5 h-5" />
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

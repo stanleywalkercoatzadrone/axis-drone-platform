@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutGrid, Plus, Search, MapPin, ExternalLink, Calendar, MoreVertical } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 import ProjectForm from './ProjectForm';
 
 interface Project {

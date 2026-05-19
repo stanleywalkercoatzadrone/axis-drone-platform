@@ -6,6 +6,8 @@
  *   key:  `axis_ai_reports_index` → JSON array of ReportMeta (lightweight list)
  */
 
+import apiClient from '../../../src/services/apiClient';
+
 export type ReportIndustry =
     | 'insurance'
     | 'solar'
@@ -20,6 +22,11 @@ export interface ReportMeta {
     filename: string;
     sizeBytes: number;
     createdAt: string; // ISO string
+    rawData?: any;     // Optional JSON payload for rich dashboard viewing
+    missionId?: string;
+    missionTitle?: string;
+    siteName?: string;
+    clientName?: string;
 }
 
 const INDEX_KEY = 'axis_ai_reports_index';
@@ -66,7 +73,8 @@ export function saveReport(
     industry: ReportIndustry,
     title: string,
     filename: string,
-    pdfArrayBuffer: ArrayBuffer
+    pdfArrayBuffer: ArrayBuffer,
+    rawData?: any
 ): string {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const b64 = arrayBufferToBase64(pdfArrayBuffer);
@@ -94,6 +102,7 @@ export function saveReport(
         filename,
         sizeBytes: pdfArrayBuffer.byteLength,
         createdAt: new Date().toISOString(),
+        rawData
     };
 
     const index = readIndex();
@@ -109,6 +118,34 @@ export function saveReport(
 /** List all saved reports (metadata only, newest first). */
 export function listReports(): ReportMeta[] {
     return readIndex();
+}
+
+/**
+ * Fetch all AI reports across the entire platform.
+ */
+export async function listAllGlobalReports(): Promise<ReportMeta[]> {
+    try {
+        const response = await apiClient.get('/ai/reports');
+        if (response.data.success) {
+            return response.data.data.map((r: any) => ({
+                id: r.id,
+                industry: r.industry,
+                title: r.report_data?.title || r.report_type || 'AI Report',
+                filename: r.report_data?.filename || 'report.pdf',
+                createdAt: r.created_at,
+                rawData: r.report_data,
+                sizeBytes: 0,
+                missionId: r.mission_id,
+                missionTitle: r.mission_title,
+                siteName: r.site_name,
+                clientName: r.client_name
+            }));
+        }
+        return [];
+    } catch (err) {
+        console.error('[listAllGlobalReports] Failed:', err);
+        return [];
+    }
 }
 
 /** Get a blob URL for inline viewing. Caller must revoke when done. */
@@ -136,6 +173,64 @@ export function deleteReport(id: string) {
     localStorage.removeItem(dataKey(id));
     const index = readIndex().filter(m => m.id !== id);
     writeIndex(index);
+}
+
+/**
+ * Save a report directly to the Mission database archive.
+ */
+export async function saveReportToMission(
+    missionId: string,
+    meta: Omit<ReportMeta, 'id' | 'createdAt'>,
+    rawData: any // Can contain form, findings, aiSummary, faults
+): Promise<string> {
+    try {
+        const response = await apiClient.post('/ai/reports/save', {
+            missionId,
+            industry: meta.industry,
+            reportType: meta.industry === 'insurance' ? 'Claim Analysis' : 'Industrial Inspection',
+            title: meta.title,
+            filename: meta.filename,
+            reportData: rawData
+        });
+
+        if (response.data.success) {
+            // Also notify local listeners so the UI refreshes
+            window.dispatchEvent(new CustomEvent('axis-report-saved', { 
+                detail: { ...meta, id: response.data.data.id, createdAt: response.data.data.created_at, rawData } 
+            }));
+            return response.data.data.id;
+        }
+        throw new Error(response.data.message || 'Failed to save to mission');
+    } catch (err: any) {
+        console.error('[saveReportToMission] Failed:', err);
+        throw err;
+    }
+}
+
+/**
+ * Fetch all reports saved for a specific mission.
+ */
+export async function listMissionReports(missionId: string): Promise<ReportMeta[]> {
+    try {
+        const response = await apiClient.get(`/ai/reports/mission/${missionId}`);
+        if (response.data.success) {
+            return response.data.data.map((r: any) => ({
+                id: r.id,
+                industry: r.industry,
+                title: r.report_data?.title || `${r.industry} Report`,
+                filename: r.report_data?.filename || 'report.pdf',
+                createdAt: r.created_at,
+                rawData: r.report_data,
+                sizeBytes: 0,
+                missionId: missionId,
+                rawData_extracted: !!r.report_data // helper flag
+            }));
+        }
+        return [];
+    } catch (err) {
+        console.error('[listMissionReports] Failed:', err);
+        return [];
+    }
 }
 
 /** Format bytes as human-readable size string. */

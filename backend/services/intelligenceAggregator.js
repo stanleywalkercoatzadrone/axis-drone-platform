@@ -16,6 +16,8 @@
  */
 
 import { query } from '../config/database.js';
+import { getAltitudeFromUrl } from './exifService.js';
+import jwt from 'jsonwebtoken';
 
 /**
  * Parse lat/lng from a deployment location string (e.g. "25.7617,-80.1918")
@@ -30,9 +32,124 @@ function parseCoordinates(locationStr) {
 }
 
 /**
+ * Generate a JWT token for Apple WeatherKit REST API
+ */
+function generateAppleWeatherToken() {
+    const { APPLE_TEAM_ID, APPLE_SERVICE_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY } = process.env;
+    if (!APPLE_TEAM_ID || !APPLE_SERVICE_ID || !APPLE_KEY_ID || !APPLE_PRIVATE_KEY) return null;
+
+    const payload = {
+        iss: APPLE_TEAM_ID,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiration
+        sub: APPLE_SERVICE_ID,
+    };
+
+    const header = {
+        alg: 'ES256',
+        kid: APPLE_KEY_ID,
+        id: `${APPLE_TEAM_ID}.${APPLE_SERVICE_ID}`
+    };
+
+    // Fix formatting issues if the key was passed as a single line string
+    const privateKey = APPLE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+    try {
+        return jwt.sign(payload, privateKey, { header });
+    } catch (err) {
+        console.error('[IntelAggregator] Failed to sign Apple Weather JWT:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Map Apple WeatherKit conditionCode to WMO weather code (used by our system)
+ * Basic mapping, covers most common conditions
+ */
+function mapAppleConditionToWmo(conditionCode) {
+    const mapping = {
+        Clear: 0,
+        MostlyClear: 1,
+        PartlyCloudy: 2,
+        MostlyCloudy: 3,
+        Cloudy: 3,
+        Drizzle: 51,
+        Rain: 61,
+        HeavyRain: 65,
+        Snow: 71,
+        HeavySnow: 75,
+        Flurries: 71,
+        Sleet: 79,
+        FreezingDrizzle: 56,
+        FreezingRain: 66,
+        Breezy: 1,
+        Windy: 1,
+        Blizzard: 75,
+        BlowingSnow: 71,
+        FreezingPellets: 79,
+        Hail: 95,
+        Thunderstorm: 95,
+        Tornado: 95,
+        Hurricane: 95,
+        TropicalStorm: 95,
+        Duststorm: 0,
+        Fog: 45,
+        Haze: 45,
+        Smoke: 45,
+        ScatteredThunderstorms: 95,
+    };
+    return mapping[conditionCode] ?? 0;
+}
+
+/**
+ * Fetch weather data from Apple WeatherKit REST API
+ */
+async function fetchAppleWeather(lat, lng) {
+    const token = generateAppleWeatherToken();
+    if (!token) return null;
+
+    try {
+        const url = `https://weatherkit.apple.com/api/v1/weather/en/${lat}/${lng}?dataSets=currentWeather,forecastDaily`;
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (!response.ok) {
+            console.error('[IntelAggregator] Apple WeatherKit error:', response.status, await response.text());
+            return null;
+        }
+        const data = await response.json();
+        
+        const current = data.currentWeather || {};
+        const daily = data.forecastDaily?.days?.[0] || {};
+        
+        // Convert to match expected output structure
+        return {
+            temperature: current.temperature ?? null,
+            windSpeed: current.windSpeed ? current.windSpeed * 3.6 : null, // Convert m/s or km/h based on units returned, assuming Apple returns kph natively if metric? Apple returns km/h if unit=m, but REST API returns km/h natively by default for metric regions.
+            cloudCover: current.cloudCover ? current.cloudCover * 100 : null, // Apple returns 0.0 - 1.0
+            precipitation: current.precipitationAmount ?? null,
+            weatherCode: mapAppleConditionToWmo(current.conditionCode),
+            irradianceGHI: daily.solarClearSky?.[0] ?? null, // Approximate mapping
+        };
+    } catch (err) {
+        console.error('[IntelAggregator] Apple Weather fetch failed:', err.message);
+        return null;
+    }
+}
+
+/**
  * Fetch weather data from Open-Meteo (free public API, no key required)
  */
 async function fetchWeatherData(lat, lng) {
+    // 1. Try Apple WeatherKit if credentials exist
+    const appleWeather = await fetchAppleWeather(lat, lng);
+    if (appleWeather) {
+        return appleWeather;
+    }
+
+    // 2. Fallback to Open-Meteo
     try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,wind_speed_10m,cloud_cover,precipitation,weathercode&daily=shortwave_radiation_sum&timezone=auto&forecast_days=1`;
         const response = await fetch(url);
@@ -92,15 +209,29 @@ export async function aggregateMissionData(missionId) {
 
     const mission = missionResult.rows[0];
 
-    // 2. Count assigned pilot personnel
-    const personnelResult = await query(
-        `SELECT COUNT(*) AS count 
-         FROM deployment_personnel 
-         WHERE deployment_id = $1`,
+    // 2. Fetch all unique personnel associated with this mission
+    // We look at BOTH official links (deployment_personnel) AND active loggers (daily_logs)
+    const assignedPersonnelResult = await query(
+        `WITH mission_personnel AS (
+            SELECT personnel_id FROM deployment_personnel WHERE deployment_id = $1
+            UNION
+            SELECT technician_id FROM daily_logs WHERE deployment_id = $1
+        )
+        SELECT p.id, p.full_name, p.role, p.email, p.photo_url
+        FROM personnel p
+        JOIN mission_personnel mp ON p.id = mp.personnel_id`,
         [missionId]
-    ).catch(() => ({ rows: [{ count: 0 }] }));
+    ).catch(() => ({ rows: [] }));
 
-    const assignedPilotsCount = parseInt(personnelResult.rows[0]?.count || 0, 10);
+    const assignedPersonnel = assignedPersonnelResult.rows.map(p => ({
+        id: p.id,
+        fullName: p.full_name,
+        role: p.role,
+        email: p.email,
+        photoUrl: p.photo_url
+    }));
+
+    const assignedPilotsCount = assignedPersonnel.length;
 
     // 3. Fetch uploaded file metadata (correct column names: name, url, type, size)
     const filesResult = await query(
@@ -157,6 +288,19 @@ export async function aggregateMissionData(missionId) {
         }
     }
 
+    // 6.5 Extraction of Flight Altitude from first image
+    let altitudeMeters = null;
+    const firstImage = files.find(f =>
+        f.type?.includes('image') ||
+        f.name?.toLowerCase().endsWith('.jpg') ||
+        f.name?.toLowerCase().endsWith('.jpeg')
+    );
+
+    if (firstImage?.url) {
+        console.log(`[IntelAggregator] Extracting altitude from ${firstImage.name}...`);
+        altitudeMeters = await getAltitudeFromUrl(firstImage.url);
+    }
+
     // 7. Derive complexity metrics from available data
     const assetDensity = kmlFiles.length > 0 ? 'High' : (files.length > 5 ? 'Medium' : 'Low');
     const terrainComplexity = mission.location ? 'Standard' : 'Unknown';
@@ -175,22 +319,27 @@ export async function aggregateMissionData(missionId) {
         type: mission.type,
         status: mission.status,
         inspectionType: mission.type || 'General',
-        siteName: mission.site_name,
+        siteName: mission.site_name || mission.title,
         clientName: mission.client_name,
         countryName: mission.country_name,
         daysOnSite: mission.days_on_site,
         scheduledDate: mission.date,
+        installedKw: mission.installed_power_kw,
+        panelCount: mission.panel_count,
+        panelModel: mission.panel_model,
         baseCost: parseFloat(mission.base_cost || 0),
         totalLogs: parseInt(logStats.total_logs || 0, 10),
         totalFilesUploaded: files.length,
         kmlFilesUploaded: kmlFiles.length,
         weather,
         irradiance,
+        altitude: altitudeMeters,
         historicalDefectRate: historicalDefectRate ? parseFloat(historicalDefectRate) : null,
         assetDensity,
         terrainComplexity,
         laborAvailability,
         assignedPilotsCount,
+        assignedPersonnel,
         siteSize,
     };
 }

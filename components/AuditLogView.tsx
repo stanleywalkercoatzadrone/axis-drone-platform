@@ -12,7 +12,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { AuditLogEntry, UserRole } from '../types';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { Button } from '../src/stitch/components/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../src/stitch/components/Card';
 import { Input } from '../src/stitch/components/Input';

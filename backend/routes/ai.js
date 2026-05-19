@@ -1,19 +1,12 @@
 import express from 'express';
 import { protect, authorize } from '../middleware/auth.js';
 import { aiLimiter } from '../middleware/rateLimiter.js';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { query } from '../config/database.js';
-import { getFlag } from '../config/featureFlags.js';
-import * as aiQueue from '../queues/aiQueue.js';
-import { eventBus, EVENT_TYPES } from '../events/eventBus.js';
-import { normalizeRole } from '../utils/roleNormalizer.js';
 
 const router = express.Router();
 
-// Apply protection to all AI routes
-router.use(protect);
-
-// ── GET /api/ai/health ───────────────────────────────────────────────────────
+// ── GET /api/ai/health — PUBLIC (no auth required) ───────────────────────────
 // Returns Gemini key status + today's activity stats
 router.get('/health', async (req, res) => {
     try {
@@ -35,13 +28,14 @@ router.get('/health', async (req, res) => {
         let geminiModel = 'gemini-2.0-flash';
         if (keySet) {
             try {
-                const ai = new GoogleGenAI({ apiKey });
-                await ai.models.generateContent({
-                    model: geminiModel,
-                    contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-                });
+                const ai = new GoogleGenerativeAI(apiKey);
+                const model = ai.getGenerativeModel({ model: geminiModel });
+                await model.generateContent('ping');
                 geminiOk = true;
-            } catch { geminiOk = false; }
+            } catch (pErr) { 
+                console.error('Gemini Health Check Failed:', pErr.message);
+                geminiOk = false; 
+            }
         }
 
         res.json({ success: true, data: { keySet, geminiOk, model: geminiModel, analyzedToday, pendingCount } });
@@ -49,6 +43,130 @@ router.get('/health', async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
+// ── GET /api/ai/geocode/search?q= — PUBLIC proxy to Nominatim forward geocode ─
+// Avoids browser CSP/CORS issues by making the request server-side
+router.get('/geocode/search', async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ success: false, message: 'q is required' });
+    try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&addressdetails=1`;
+        const r = await fetch(url, {
+            headers: {
+                'User-Agent': 'AxisDronePlatform/1.0 (axisplatform.app)',
+                'Referer': 'https://axisplatform.app',
+            }
+        });
+        if (!r.ok) return res.status(502).json({ success: false, message: `Geocode upstream error: ${r.status}` });
+        const data = await r.json();
+        res.json({ success: true, results: data });
+    } catch (err) {
+        console.error('[geocode/search]', err.message);
+        res.status(502).json({ success: false, message: 'Geocode service unavailable' });
+    }
+});
+
+// ── GET /api/ai/geocode/reverse?lat=&lon= — PUBLIC proxy to Nominatim reverse ─
+router.get('/geocode/reverse', async (req, res) => {
+    const { lat, lon } = req.query;
+    if (!lat || !lon) return res.status(400).json({ success: false, message: 'lat and lon are required' });
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`;
+        const r = await fetch(url, {
+            headers: {
+                'User-Agent': 'AxisDronePlatform/1.0 (axisplatform.app)',
+                'Referer': 'https://axisplatform.app',
+            }
+        });
+        if (!r.ok) return res.status(502).json({ success: false, message: `Reverse geocode upstream error: ${r.status}` });
+        const data = await r.json();
+        res.json({ success: true, result: data });
+    } catch (err) {
+        console.error('[geocode/reverse]', err.message);
+        res.status(502).json({ success: false, message: 'Geocode service unavailable' });
+    }
+});
+
+// ── GET /api/ai/weather/ensemble?lat=&lon=&days= — PUBLIC proxy to Open-Meteo Ensemble API ─
+// Returns merged (member-averaged) 30-day daily forecast. Bypasses browser CSP.
+router.get('/weather/ensemble', async (req, res) => {
+    const { lat, lon, days = '30' } = req.query;
+    if (!lat || !lon) return res.status(400).json({ success: false, message: 'lat and lon are required' });
+    try {
+        const dailyVars = [
+            'temperature_2m_max', 'temperature_2m_min', 'precipitation_sum',
+            'wind_speed_10m_max', 'uv_index_max',
+            'weather_code', 'precipitation_probability_max',
+        ];
+        const url = `https://ensemble-api.open-meteo.com/v1/ensemble` +
+            `?latitude=${lat}&longitude=${lon}` +
+            `&models=gfs_seamless` +
+            `&daily=${dailyVars.join(',')}` +
+            `&temperature_unit=fahrenheit` +
+            `&wind_speed_unit=kmh` +
+            `&forecast_days=${days}` +
+            `&timezone=auto`;
+
+        const r = await fetch(url);
+        if (!r.ok) return res.status(502).json({ success: false, message: `Ensemble API error: ${r.status}` });
+        const raw = await r.json();
+
+        if (!raw.daily?.time) {
+            return res.status(502).json({ success: false, message: 'Ensemble API returned no daily data' });
+        }
+
+        // Fields where we use MODE (most common value) — averaging WMO codes produces
+        // meaningless floats like 39.4 that don't map to any WMO condition label.
+        const modeFields = new Set(['weather_code']);
+
+        // Returns the most frequently occurring integer value in an array
+        const mode = (arr) => {
+            const freq = {};
+            let maxCount = 0, result = Math.round(arr[0]);
+            for (const v of arr) {
+                const k = Math.round(v);
+                freq[k] = (freq[k] || 0) + 1;
+                if (freq[k] > maxCount) { maxCount = freq[k]; result = k; }
+            }
+            return result;
+        };
+
+        const merged = { time: raw.daily.time };
+        for (const field of dailyVars) {
+            const memberKeys = Object.keys(raw.daily).filter(
+                k => k === field || k.startsWith(field + '_member')
+            );
+            if (!memberKeys.length) { merged[field] = []; continue; }
+
+            const len = raw.daily[memberKeys[0]].length;
+            merged[field] = Array.from({ length: len }, (_, i) => {
+                const vals = memberKeys
+                    .map(k => raw.daily[k][i])
+                    .filter(v => v !== null && v !== undefined && !isNaN(Number(v)));
+                if (!vals.length) return 0;
+
+                if (modeFields.has(field)) {
+                    return mode(vals);          // most common WMO code
+                }
+                // Ensemble mean, rounded to 1 decimal place
+                const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                return Math.round(mean * 10) / 10;
+            });
+        }
+
+        // Fill sunrise/sunset as empty (not in ensemble model)
+        merged.sunrise = raw.daily.time.map(() => '');
+        merged.sunset  = raw.daily.time.map(() => '');
+
+        res.json({ success: true, daily: merged });
+    } catch (err) {
+        console.error('[weather/ensemble]', err.message);
+        res.status(502).json({ success: false, message: 'Ensemble forecast unavailable' });
+    }
+});
+
+// Apply protection to all remaining AI routes
+router.use(protect);
 
 // GET /analysis/:reportId — stub
 router.get('/analysis/:reportId', (req, res) => {
@@ -72,12 +190,12 @@ router.post('/generate-text', aiLimiter, async (req, res) => {
         if (!prompt) return res.status(400).json({ success: false, message: 'prompt is required' });
         const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
         if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
-        const ai = new GoogleGenAI({ apiKey });
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        });
-        res.json({ success: true, text: result.text || '' });
+        
+        const ai = new GoogleGenerativeAI(apiKey);
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text() || '';
+        res.json({ success: true, text });
     } catch (err) {
         console.error('[/ai/generate-text]', err.message);
         res.status(500).json({ success: false, message: err.message });
@@ -87,7 +205,6 @@ router.post('/generate-text', aiLimiter, async (req, res) => {
 // ── POST /api/ai/solar-analyze ───────────────────────────────────────────────
 router.post('/solar-analyze', aiLimiter, async (req, res) => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '' });
         const { form = {}, images = [], deploymentId } = req.body;
 
         let existingResults = '';
@@ -111,37 +228,56 @@ router.post('/solar-analyze', aiLimiter, async (req, res) => {
             });
         }
 
-        const prompt = `You are a senior solar drone inspection AI analyst. Analyze the provided site inspection data and return ONLY a JSON object (no markdown, no explanation).
+        const prompt = `You are a Senior Solar PV Inspector and AI Analyst. Analyze the provided site inspection data and imagery to identify technical defects. 
 
 Site context:
 - Site Name: ${form.siteName || 'Unknown'}
 - Client: ${form.clientName || 'Unknown'}
 - Installed Capacity: ${form.installedKw || '—'} kW
 - Panel Count: ${form.panelCount || '—'}
+- Panel Model: ${form.panelMake || '—'}
 - Inspection Date: ${form.inspectionDate || new Date().toISOString().split('T')[0]}
 
-Raw Inspection Data to Summary:
-${existingResults || 'Analyze the provided imagery'}
+Analysis Guidelines:
+1. **Defect Recognition**: 
+   - Look for 'Thermal Hotspots' (individual cell overheating).
+   - Identify 'Bypass Diode Failures' (typically visible as 1/3 rectangular block of the panel being warmer).
+   - Identify 'String Failures' (entire rows of panels showing uniform elevated temperature).
+   - Distinguish 'Soiling/Shading' from internal electrical faults.
+2. **Prioritization**:
+   - CRITICAL: Safety risks or >10% string power loss.
+   - HIGH: Major hotspots or diode failures in high-yield areas.
+   - MEDIUM/LOW: Minor soiling or tracking issues.
+3. **Data Synthesis**: Use the raw inspection results below to generate specific finding records.
 
-Return this exact JSON structure:
+Raw Inspection Context:
+${existingResults || 'Analyze the provided imagery for anomalies.'}
+
+Return ONLY a JSON object with this structure:
 {
   "findings": [
     {
-      "id": "1",
-      "type": "Thermal Hotspot | Physical Damage | Soiling | String Issue | General",
+      "id": "UX_ID",
+      "type": "Thermal Hotspot | Diode Failure | String Outage | Physical Damage | Soiling",
       "severity": "Critical | High | Medium | Low",
-      "description": "...",
-      "recommendation": "..."
+      "location": "Specify row/block if possible",
+      "description": "Technical observation of the anomaly.",
+      "recommendation": "Corrective action (e.g., bypass diode replacement, panel cleaning, electrical testing)",
+      "estimatedKwhLoss": 12.5,
+      "estimatedCostMin": 150
     }
   ],
-  "aiSummary": "Executive paragraph summary of actual findings and priority actions."
+  "aiSummary": "Executive summary of plant health and highest-impact issues."
 }
 
-Generate 3-6 key findings based STRICTLY on the raw inspection data provided. Do not make up faults; map the existing raw data into this format. Return ONLY the JSON object.`;
+Return ONLY the raw JSON object. Do not include markdown or explanations.`;
 
+        const ai = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '');
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        
         const parts = [{ text: prompt }];
         if (images.length > 0) {
-            for (const img of images.slice(0, 4)) {
+            for (const img of images.slice(0, 20)) {
                 if (img.dataUrl && img.dataUrl.includes(',')) {
                     const [header, data] = img.dataUrl.split(',');
                     const mimeType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
@@ -150,19 +286,19 @@ Generate 3-6 key findings based STRICTLY on the raw inspection data provided. Do
             }
         }
 
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [{ role: 'user', parts }],
-        });
-
-        let text = (result.text || '{}').trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
+        const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+        const rawText = result.response.text() || '{}';
+        let text = rawText.trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
+        
         let parsed;
-        try { parsed = JSON.parse(text); } catch {
+        try { 
+            parsed = JSON.parse(text); 
+        } catch {
             const match = text.match(/\{[\s\S]*\}/);
             parsed = match ? JSON.parse(match[0]) : { findings: [], aiSummary: 'Analysis complete. Unable to parse structured response.' };
         }
 
-        res.json({ success: true, findings: parsed.findings || [], aiSummary: parsed.aiSummary || '' });
+        res.json({ success: true, findings: parsed.findings || [], aiSummary: parsed.aiSummary || parsed.summary || '' });
     } catch (err) {
         console.error('[solar-analyze] Error:', err.message);
         res.status(500).json({ success: false, message: err.message });
@@ -189,34 +325,16 @@ router.post('/thermal-scan', aiLimiter, async (req, res) => {
             ? faultsRes.rows.map(f => `- ${f.fault_type}: ΔT ${f.temperature_delta}°C (${f.severity})`).join('\n')
             : 'No pre-existing fault records.';
 
-        const ai = new GoogleGenAI({ apiKey });
-        const prompt = `You are a thermal drone inspection analyst specializing in solar PV systems. Analyze the following mission data and return ONLY a JSON object.
-
-Mission: ${siteName || missionId}
-Existing fault records:
-${faultContext}
-
-Return this JSON:
-{
-  "riskLevel": "Critical | High | Medium | Low",
-  "confidence": 85,
-  "maxTempDelta": 42,
-  "estimatedHotspots": 12,
-  "priorityActions": ["Action 1", "Action 2", "Action 3"],
-  "summary": "2-3 sentence technical summary of thermal condition and recommended next steps",
-  "recommendedInspectionDate": "YYYY-MM-DD"
-}
-
-Return ONLY the JSON object.`;
-
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        });
-
-        let text = (result.text || '{}').trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
+        const ai = new GoogleGenerativeAI(apiKey);
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(prompt);
+        const rawText = result.response.text() || '{}';
+        let text = rawText.trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
+        
         let parsed;
-        try { parsed = JSON.parse(text); } catch {
+        try { 
+            parsed = JSON.parse(text); 
+        } catch {
             const match = text.match(/\{[\s\S]*\}/);
             parsed = match ? JSON.parse(match[0]) : { riskLevel: 'Unknown', summary: 'Unable to parse AI response.' };
         }
@@ -278,31 +396,11 @@ router.post('/reanalyze/:jobId', aiLimiter, async (req, res) => {
         const job = jobRes.rows[0];
         const files = jobRes.rows.filter(r => r.file_id).map(r => ({ id: r.file_id, name: r.file_name, url: r.storage_url }));
 
-        const ai = new GoogleGenAI({ apiKey });
-        const prompt = `You are a drone inspection AI analyst. Analyze this upload job and return ONLY a JSON object.
-
-Job: ${job.site_name || job.mission_id || jobId}
-Files: ${files.map(f => f.name).join(', ') || 'No files listed'}
-Industry: ${job.industry || 'General'}
-File count: ${files.length}
-
-Return this JSON:
-{
-  "summary": "Brief inspection summary",
-  "overallCondition": "Good | Fair | Poor | Critical",
-  "faults": [],
-  "totalFaults": 0,
-  "confidence": 80,
-  "recommendations": ["recommendation 1"],
-  "riskScore": 3
-}`;
-
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        });
-
-        let text = (result.text || '{}').trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
+        const ai = new GoogleGenerativeAI(apiKey);
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(prompt);
+        const rawText = result.response.text() || '{}';
+        let text = rawText.trim().replace(/^```json\n?/i, '').replace(/```$/, '').trim();
         let parsed;
         try { parsed = JSON.parse(text); } catch {
             const match = text.match(/\{[\s\S]*\}/);
@@ -325,142 +423,103 @@ Return this JSON:
 // ── POST /report-generate ────────────────────────────────────────────────────
 router.post('/report-generate', aiLimiter, async (req, res) => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '' });
+        const ai = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '');
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
         const { prompt, context = '' } = req.body;
         if (!prompt) return res.status(400).json({ success: false, message: 'prompt is required' });
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [{ role: 'user', parts: [{ text: `${context}\n\n${prompt}` }] }],
-        });
-        res.json({ success: true, result: result.text });
+        const result = await model.generateContent(`${context}\n\n${prompt}`);
+        res.json({ success: true, result: result.response.text() });
     } catch (err) {
         console.error('[report-generate] Error:', err.message);
         res.status(500).json({ success: false, message: err.message });
     }
 });
 
-// ── SECTION 2: Async AI Job Endpoints (flag-gated, additive) ─────────────────
-// These endpoints are only meaningful when ENABLE_ASYNC_AI=true.
-// When flag is OFF, they still work — just the queue will always be empty.
-
-/**
- * GET /api/ai/jobs
- * List AI analysis jobs for the current user (or all for admin).
- * Supports: ?status=pending|processing|completed|failed&limit=N&offset=N
- */
-router.get('/jobs', async (req, res) => {
+// ── POST /api/ai/reports/save ────────────────────────────────────────────────
+// Persists a generated AI report to the mission database
+router.post('/reports/save', aiLimiter, async (req, res) => {
     try {
-        const userRole = normalizeRole(req.user.role);
-        const isAdmin  = userRole === 'admin';
-        const { limit = 20, offset = 0 } = req.query;
+        const { 
+            missionId, 
+            industry, 
+            reportType, 
+            reportData, 
+            title, 
+            filename 
+        } = req.body;
+        
+        if (!missionId) return res.status(400).json({ success: false, message: 'missionId is required' });
 
-        const jobs = await aiQueue.listJobs({
-            userId:   req.user.id,
-            tenantId: req.user.tenantId,
-            isAdmin,
-            limit:    Math.min(parseInt(limit, 10) || 20, 100),
-            offset:   parseInt(offset, 10) || 0,
-        });
+        const result = await query(
+            `INSERT INTO ai_reports (deployment_id, industry, report_type, report_data, generated_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             RETURNING id, created_at`,
+            [
+                missionId, 
+                industry, 
+                reportType || 'Standard', 
+                JSON.stringify({ ...reportData, title, filename }), 
+                req.user?.id
+            ]
+        );
 
-        res.json({
-            success: true,
-            data:    jobs,
-            meta: {
-                asyncEnabled: getFlag('ENABLE_ASYNC_AI'),
-                count: jobs.length,
-                requestId: req.requestId,
-            },
+        res.json({ 
+            success: true, 
+            data: result.rows[0],
+            message: 'Report saved to mission archive' 
         });
     } catch (err) {
-        console.error('[/ai/jobs]', err.message);
-        res.status(500).json({ success: false, message: err.message, requestId: req.requestId });
+        console.error('[/reports/save] Error:', err.message);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 
-/**
- * GET /api/ai/jobs/:jobId
- * Poll a specific AI job's status.
- * Returns result_json when status === 'completed'.
- */
-router.get('/jobs/:jobId', async (req, res) => {
+// ── GET /api/ai/reports ────────────────────────────────────────────────────────
+// Fetches all AI reports across all missions for the global archive hub
+router.get('/reports', async (req, res) => {
     try {
-        const job = await aiQueue.getJobById(req.params.jobId);
-
-        if (!job) {
-            return res.status(404).json({ success: false, message: 'AI job not found', requestId: req.requestId });
-        }
-
-        // Scope check: pilots/clients can only see their own jobs
-        const userRole = normalizeRole(req.user.role);
-        const isAdmin  = userRole === 'admin';
-        if (!isAdmin && job.user_id !== req.user.id) {
-            return res.status(403).json({ success: false, message: 'Not authorized to view this job' });
-        }
-
-        res.json({
-            success: true,
-            data: {
-                id:            job.id,
-                missionId:     job.mission_id,
-                mediaId:       job.media_id,
-                analysisType:  job.analysis_type,
-                status:        job.status,
-                attempts:      job.attempts,
-                maxAttempts:   job.max_attempts,
-                result:        job.result_json,
-                error:         job.error,
-                createdAt:     job.created_at,
-                updatedAt:     job.updated_at,
-            },
-            requestId: req.requestId,
-        });
+        const result = await query(
+            `SELECT 
+                r.id, 
+                r.industry, 
+                r.report_type, 
+                r.report_data, 
+                r.created_at,
+                d.title as mission_title,
+                d.site_name,
+                d.id as mission_id,
+                c.name as client_name
+             FROM ai_reports r
+             JOIN deployments d ON r.deployment_id = d.id
+             LEFT JOIN clients c ON d.client_id = c.id
+             ORDER BY r.created_at DESC
+             LIMIT 100`
+        );
+        
+        res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error('[/ai/jobs/:jobId]', err.message);
-        res.status(500).json({ success: false, message: err.message, requestId: req.requestId });
+        console.error('[/api/ai/reports] Global Fetch Error:', err.message);
+        res.status(500).json({ success: false, message: 'Failed to fetch global reports' });
     }
 });
 
-/**
- * POST /api/ai/jobs
- * Manually enqueue an AI job (admin/field_operator only).
- * Body: { missionId, mediaId, analysisType }
- * Only available when ENABLE_ASYNC_AI=true.
- */
-router.post('/jobs', aiLimiter, authorize('ADMIN', 'admin', 'field_operator', 'senior_inspector'), async (req, res) => {
-    if (!getFlag('ENABLE_ASYNC_AI')) {
-        return res.status(503).json({
-            success: false,
-            message: 'Async AI processing is not enabled (ENABLE_ASYNC_AI=false)',
-            requestId: req.requestId,
-        });
-    }
-
+// ── GET /api/ai/reports/mission/:missionId ────────────────────────────────────
+// Fetches all reports linked to a specific mission
+router.get('/reports/mission/:missionId', async (req, res) => {
     try {
-        const { missionId, mediaId, analysisType = 'inspection' } = req.body;
-
-        const jobId = await aiQueue.enqueue(missionId, mediaId, {
-            userId:       req.user.id,
-            tenantId:     req.user.tenantId,
-            analysisType,
-        });
-
-        // Emit event for audit trail
-        eventBus.emit(EVENT_TYPES.AI_JOB_QUEUED, {
-            jobId, missionId, mediaId, analysisType,
-            userId:    req.user.id,
-            tenantId:  req.user.tenantId,
-            requestId: req.requestId,
-        });
-
-        res.status(202).json({
-            success:   true,
-            jobId,
-            message:   'AI analysis job queued. Poll GET /api/ai/jobs/:jobId for status.',
-            requestId: req.requestId,
-        });
+        const { missionId } = req.params;
+        const result = await query(
+            `SELECT id, industry, report_type, report_data, created_at
+             FROM ai_reports 
+             WHERE deployment_id = $1 
+             ORDER BY created_at DESC`,
+            [missionId]
+        );
+        
+        res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error('[POST /ai/jobs]', err.message);
-        res.status(500).json({ success: false, message: err.message, requestId: req.requestId });
+        console.error('[/reports/mission] Error:', err.message);
+        res.status(500).json({ success: false, message: err.message });
     }
 });
 

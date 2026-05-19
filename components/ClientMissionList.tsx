@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plane, Search, MapPin, Calendar, Clock, ChevronRight } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 import { Deployment, DeploymentStatus } from '../types';
 
 interface ClientMissionListProps {

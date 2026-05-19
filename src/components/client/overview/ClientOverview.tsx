@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import apiClient from '../../../../src/services/apiClient';
 import { useNavigate } from 'react-router-dom';
-
 import { WeatherWidget } from '../../widgets/WeatherWidget';
 
 interface ProjectSummary {
@@ -285,6 +284,30 @@ const ClientOverview: React.FC = () => {
                                 <span className="text-lg font-black tabular-nums text-emerald-400">{totals.resolved}</span>
                             </div>
                         </div>
+                    </div>
+
+                    <div className="bg-slate-800/30 border border-slate-700/40 rounded-2xl overflow-hidden">
+                        {activity.length === 0 && (
+                            <div className="p-8 text-center text-slate-600 text-sm">No recent activity</div>
+                        )}
+                        {activity.map((ev, i) => {
+                            const cfg = EVENT_CONFIG[ev.event_type] ?? EVENT_CONFIG.mission;
+                            const Icon = cfg.icon;
+                            return (
+                                <div key={ev.event_id} className={`flex items-start gap-3 p-4 ${i < activity.length - 1 ? 'border-b border-slate-800/60' : ''} hover:bg-slate-800/20 transition-colors`}>
+                                    <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center shrink-0 mt-0.5`}>
+                                        <Icon size={13} className={cfg.color} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-bold text-slate-200 leading-tight">{ev.title}</p>
+                                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">{ev.subtitle}</p>
+                                        <p className="text-[10px] text-slate-700 mt-1">
+                                            {new Date(ev.event_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     {/* Quick links */}

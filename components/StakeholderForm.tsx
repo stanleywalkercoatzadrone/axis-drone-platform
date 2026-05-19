@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 import { X, Save, User, Mail, Lock } from 'lucide-react';
 import { Input } from '../src/stitch/components/Input';
 
@@ -18,7 +18,7 @@ const StakeholderForm: React.FC<StakeholderFormProps> = ({ clientId, onClose, on
     const [email, setEmail] = useState('');
     const [title, setTitle] = useState('');
     const [phone, setPhone] = useState('');
-    const [type, setType] = useState('client'); // client, vendor, internal
+    const [type, setType] = useState('poc'); // poc, escort
     const [createUser, setCreateUser] = useState(true);
     const [sendInvite, setSendInvite] = useState(true);
     const [password, setPassword] = useState('');
@@ -108,9 +108,8 @@ const StakeholderForm: React.FC<StakeholderFormProps> = ({ clientId, onClose, on
                                     onChange={(e) => setType(e.target.value)}
                                     className="flex h-10 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/10 transition-all"
                                 >
-                                    <option value="client">Client Representative</option>
-                                    <option value="vendor">Vendor / Contractor</option>
-                                    <option value="internal">Internal Contact</option>
+                                    <option value="poc">Point of Contact (POC)</option>
+                                    <option value="escort">Site Escort</option>
                                 </select>
                             </div>
                         </div>

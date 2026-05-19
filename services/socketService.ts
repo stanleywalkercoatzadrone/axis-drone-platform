@@ -10,7 +10,7 @@ class SocketService {
     connect(userId: string) {
         if (this.socket?.connected) return;
 
-        const token = localStorage.getItem('skylens_token');
+        const token = sessionStorage.getItem('skylens_token');
 
         this.socket = io(SOCKET_URL, {
             auth: { token },

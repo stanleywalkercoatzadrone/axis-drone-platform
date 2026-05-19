@@ -311,7 +311,7 @@ const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Mission Type</label>
                                     <select
@@ -334,7 +334,7 @@ const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Site</label>
                                     <select
@@ -454,7 +454,7 @@ const ClientSettingsForm: React.FC<{ client: any, onSuccess: (data: any) => void
 
     return (
         <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Company Name</label>
                     <input
@@ -511,7 +511,7 @@ const ClientSettingsForm: React.FC<{ client: any, onSuccess: (data: any) => void
 
             <div className="border-t border-slate-100 pt-6">
                 <h4 className="text-sm font-medium text-slate-900 mb-4">Address Details</h4>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="col-span-2">
                         <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Street Address</label>
                         <input

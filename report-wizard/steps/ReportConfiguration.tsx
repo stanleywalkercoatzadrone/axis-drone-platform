@@ -1,6 +1,6 @@
 import React from 'react';
 import { useReport } from '../ReportContext';
-import { Industry, INDUSTRY_TEMPLATES, ReportTheme } from '../../../types';
+import { Industry, INDUSTRY_TEMPLATES, ReportTheme } from '../../types';
 import { Sun, Zap, LayoutTemplate, BrainCircuit, FileText, ChevronRight, Sparkles } from 'lucide-react';
 
 const ReportConfiguration: React.FC = () => {
@@ -11,8 +11,28 @@ const ReportConfiguration: React.FC = () => {
         theme, setTheme,
         branding, setBranding,
         selectedTemplate,
-        step, setStep
+        step, setStep,
+        missionId, setMissionId,
+        weather, setWeather,
+        altitude, setAltitude,
+        technicianId, setTechnicianId,
+        assignedPersonnel,
+        isPopulating
     } = useReport();
+
+    const [availableMissions, setAvailableMissions] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        const fetchMissions = async () => {
+            try {
+                const res = await (await import('../src/services/apiClient')).default.get('/deployments');
+                setAvailableMissions(res.data.data || []);
+            } catch (err) {
+                console.error('Failed to load missions', err);
+            }
+        };
+        fetchMissions();
+    }, []);
 
     const handleNext = () => {
         if (title && client) setStep(2);
@@ -32,6 +52,25 @@ const ReportConfiguration: React.FC = () => {
 
                     <div className="space-y-6">
                         <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2 flex justify-between">
+                                Linked Mission
+                                {isPopulating && <Sparkles className="w-4 h-4 text-blue-500 animate-pulse" />}
+                            </label>
+                             <select
+                                 value={missionId?.toString() || ''}
+                                 onChange={e => setMissionId(e.target.value)}
+                                 className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
+                             >
+                                 <option value="">Select a mission to auto-populate...</option>
+                                 {availableMissions.map(m => (
+                                     <option key={m.id.toString()} value={m.id.toString()}>
+                                         {m.mission_name || m.title || m.site_name || 'Unnamed Mission'}
+                                     </option>
+                                 ))}
+                             </select>
+                        </div>
+
+                        <div>
                             <label className="block text-sm font-medium text-slate-700 mb-2">Report Title</label>
                             <input
                                 type="text"
@@ -50,6 +89,56 @@ const ReportConfiguration: React.FC = () => {
                                 placeholder="e.g. Acme Energy Corp"
                                 className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-medium"
                             />
+                        </div>
+                    </div>
+                </section>
+
+                {/* Environment & Metadata */}
+                <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
+                        <span className="w-1 h-6 bg-emerald-600 rounded-full block"></span>
+                        Field & Flight Data
+                    </h3>
+                    
+                    <div className="grid grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ambient Air Temp</label>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={weather?.temperature !== null ? `${weather?.temperature}°C` : ''}
+                                    readOnly
+                                    className="w-full px-4 py-3 rounded-lg border border-slate-100 bg-slate-50 text-slate-900 font-bold"
+                                />
+                                {weather?.temperature && <Sparkles className="absolute right-3 top-3 w-4 h-4 text-emerald-500" />}
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Flight Altitude (AGL)</label>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={altitude !== null ? `${altitude.toFixed(1)}m` : ''}
+                                    readOnly
+                                    className="w-full px-4 py-3 rounded-lg border border-slate-100 bg-slate-50 text-slate-900 font-bold"
+                                />
+                                {altitude && <Sparkles className="absolute right-3 top-3 w-4 h-4 text-blue-500" />}
+                            </div>
+                        </div>
+
+                        <div className="col-span-2">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Primary Technician</label>
+                            <select
+                                value={technicianId || ''}
+                                onChange={e => setTechnicianId(e.target.value)}
+                                className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-white focus:ring-2 focus:ring-blue-500/20 outline-none transition-all font-medium"
+                            >
+                                <option value="">Select Technician...</option>
+                                {assignedPersonnel.map(p => (
+                                    <option key={p.id} value={p.id}>{p.fullName} ({p.role})</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
                 </section>

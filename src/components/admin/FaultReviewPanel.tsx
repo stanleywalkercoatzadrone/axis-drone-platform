@@ -159,9 +159,9 @@ export const FaultReviewPanel: React.FC<FaultReviewPanelProps> = ({ deploymentId
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {filtered.slice(0, 50).map(fault => {
-                        const edits = editing[fault.id] || {};
-                        const currentType = edits.fault_type || fault.fault_type;
-                        const currentSev = edits.severity || fault.severity;
+                        const edits = editing[fault.id];
+                        const currentType = edits?.fault_type || fault.fault_type;
+                        const currentSev = edits?.severity || fault.severity;
                         const revColor = REVIEW_COLORS[fault.review_status] || '#6b7280';
 
                         return (

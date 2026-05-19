@@ -36,6 +36,32 @@ router.use(protect);
 router.use(pilotOrAdmin);
 router.use(pilotResponseSanitizer); // Strip financial fields from ALL responses
 
+// ── TEMPORARY DEBUG ENDPOINT (secret-key protected) ──────────────────────────
+// GET /api/pilot/secure/debug/pilot-lookup?email=walkerst@me.com&key=axis-debug-2026
+router.get('/debug/pilot-lookup', async (req, res) => {
+    if (req.query.key !== 'axis-debug-2026') return res.status(403).json({ success: false, message: 'Forbidden' });
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ success: false, message: 'email query param required' });
+    try {
+        const user = await query(`SELECT id, email, full_name, role FROM users WHERE LOWER(email) = LOWER($1)`, [email]);
+        const pers = await query(`SELECT id, full_name, email FROM personnel WHERE LOWER(email) = LOWER($1)`, [email]);
+        let persByName = { rows: [] };
+        if (user.rows[0]?.full_name) {
+            persByName = await query(`SELECT id, full_name, email FROM personnel WHERE LOWER(full_name) = LOWER($1)`, [user.rows[0].full_name]);
+        }
+        const allPers = [...pers.rows, ...persByName.rows].filter((v, i, a) => a.findIndex(x => x.id === v.id) === i);
+        const assignments = [];
+        for (const p of allPers) {
+            const dp = await query(`SELECT dp.deployment_id, d.title, d.status, d.mission_status_v2 FROM deployment_personnel dp JOIN deployments d ON d.id=dp.deployment_id WHERE dp.personnel_id=$1`, [p.id]);
+            const pwa = await query(`SELECT pwa.deployment_id, d.title, d.status, d.mission_status_v2 FROM pilot_work_assignments pwa JOIN deployments d ON d.id=pwa.deployment_id WHERE pwa.personnel_id=$1`, [p.id]);
+            assignments.push({ personnelId: p.id, personnelName: p.full_name, deployment_personnel: dp.rows, pilot_work_assignments: pwa.rows });
+        }
+        res.json({ success: true, user: user.rows[0] || null, personnel: allPers, assignments });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 // ── FILE UPLOAD CONFIG ────────────────────────────────────────────────────────
 const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg', 'image/png', 'image/webp', 'image/tiff', 'image/heic',
@@ -879,10 +905,11 @@ router.get('/me/performance', async (req, res) => {
         let assignedMissions = [];
         if (personnelId) {
             const mRes = await query(
-                `SELECT d.id, d.status, d.date
+                `SELECT DISTINCT d.id, d.status, d.date
                  FROM deployments d
-                 INNER JOIN deployment_personnel dp ON dp.deployment_id = d.id
-                 WHERE dp.personnel_id = $1`,
+                 LEFT JOIN deployment_personnel dp ON dp.deployment_id = d.id
+                 LEFT JOIN pilot_work_assignments pwa ON pwa.deployment_id = d.id
+                 WHERE dp.personnel_id = $1 OR pwa.personnel_id = $1`,
                 [personnelId]
             );
             assignedMissions = mRes.rows;
@@ -959,13 +986,15 @@ router.get('/missions', async (req, res) => {
             const personnelIds = pRes.rows.map(r => r.id);
             console.log(`[pilotSecure GET /missions] Found ${personnelIds.length} personnel record(s) for ${userEmail}`);
             result = await query(
-                `SELECT d.id, d.title, d.status, d.mission_status_v2, d.date, d.site_name, d.location,
+                `SELECT DISTINCT d.id, d.title, d.status, d.mission_status_v2, d.date, d.site_name, d.location,
                         d.type, d.industry_key, d.notes, d.days_on_site,
                         d.latitude, d.longitude, d.city, d.state, d.client_id,
-                        COALESCE(d.site_name, d.title) AS project_name
+                        COALESCE(d.site_name, d.title) AS project_name,
+                        d.date as _sort_date
                  FROM deployments d
-                 INNER JOIN deployment_personnel dp ON dp.deployment_id = d.id
-                 WHERE dp.personnel_id = ANY($1)
+                 LEFT JOIN deployment_personnel dp ON dp.deployment_id = d.id
+                 LEFT JOIN pilot_work_assignments pwa ON pwa.deployment_id = d.id
+                 WHERE dp.personnel_id = ANY($1) OR pwa.personnel_id = ANY($1)
                  ORDER BY d.date DESC`,
                 [personnelIds]
             );
@@ -1164,6 +1193,222 @@ router.post('/missions/:missionId/issues', verifyPilotMissionOwnership, async (r
         res.json({ success: true, message: 'Issue reported successfully' });
     } catch (e) {
         res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// ── GET /me/profile ──────────────────────────────────────────────────────────
+// Returns editable pilot profile fields (address + travel distance only)
+router.get('/me/profile', async (req, res) => {
+    try {
+        const pRes = await query(
+            `SELECT full_name, email, phone, home_address, max_travel_distance, country
+             FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+            [req.user.email]
+        );
+        const p = pRes.rows[0];
+        if (!p) return res.json({ success: true, data: null });
+        res.json({ success: true, data: {
+            fullName: p.full_name,
+            email: p.email,
+            phone: p.phone,
+            homeAddress: p.home_address,
+            maxTravelDistance: p.max_travel_distance,
+            country: p.country,
+        }});
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to load profile' });
+    }
+});
+
+// ── PATCH /me/profile ─────────────────────────────────────────────────────────
+// Pilot updates their own address and travel distance (no financial fields)
+router.patch('/me/profile', async (req, res) => {
+    try {
+        const { homeAddress, maxTravelDistance, phone } = req.body;
+        const pRes = await query(
+            `SELECT id FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+            [req.user.email]
+        );
+        const personnelId = pRes.rows[0]?.id;
+        if (!personnelId) return res.status(404).json({ success: false, message: 'Personnel record not found' });
+
+        await query(
+            `UPDATE personnel
+             SET home_address       = COALESCE($1, home_address),
+                 max_travel_distance = COALESCE($2, max_travel_distance),
+                 phone              = COALESCE($3, phone)
+             WHERE id = $4`,
+            [homeAddress ?? null, maxTravelDistance ?? null, phone ?? null, personnelId]
+        );
+        res.json({ success: true, message: 'Profile updated.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to update profile' });
+    }
+});
+
+// ── GET /me/onboarding ───────────────────────────────────────────────────────
+// Pilot fetches their own onboarding package status (no token needed — auth-gated)
+router.get('/me/onboarding', async (req, res) => {
+    try {
+        const personnelRes = await query(
+            `SELECT id FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+            [req.user.email]
+        );
+        const personnelId = personnelRes.rows[0]?.id;
+        if (!personnelId) return res.json({ success: true, data: null });
+
+        const pkgRes = await query(
+            `SELECT op.id, op.status, op.created_at, op.expires_at, op.token,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', od.id,
+                                'type', od.document_type,
+                                'name', od.document_name,
+                                'status', od.status,
+                                'completedAt', od.completed_at,
+                                'templateUrl', od.template_url
+                            ) ORDER BY od.created_at
+                        ) FILTER (WHERE od.id IS NOT NULL),
+                        '[]'::json
+                    ) AS documents
+             FROM onboarding_packages op
+             LEFT JOIN onboarding_documents od ON od.package_id = op.id
+             WHERE op.personnel_id = $1
+             GROUP BY op.id
+             ORDER BY op.created_at DESC
+             LIMIT 1`,
+            [personnelId]
+        );
+
+        if (pkgRes.rows.length === 0) return res.json({ success: true, data: null });
+
+        const pkg = pkgRes.rows[0];
+        res.json({
+            success: true,
+            data: {
+                id: pkg.id,
+                status: pkg.status,
+                token: pkg.token,
+                createdAt: pkg.created_at,
+                expiresAt: pkg.expires_at,
+                documents: pkg.documents || [],
+            }
+        });
+    } catch (err) {
+        console.error('[/me/onboarding]', err.message);
+        res.status(500).json({ success: false, message: 'Failed to retrieve onboarding status' });
+    }
+});
+
+// ── GET /me/banking ──────────────────────────────────────────────────────────
+router.get('/me/banking', async (req, res) => {
+    try {
+        const personnelRes = await query(`SELECT id FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`, [req.user.email]);
+        const personnelId = personnelRes.rows[0]?.id;
+        if (!personnelId) return res.json({ success: true, data: null });
+
+        const bRes = await query(`SELECT * FROM banking_info WHERE pilot_id = $1 LIMIT 1`, [personnelId]);
+        res.json({ success: true, data: bRes.rows[0] || null });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to retrieve banking data' });
+    }
+});
+
+// ── POST /me/banking ─────────────────────────────────────────────────────────
+router.post('/me/banking', async (req, res) => {
+    try {
+        const personnelRes = await query(`SELECT id FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`, [req.user.email]);
+        const personnelId = personnelRes.rows[0]?.id;
+        if (!personnelId) return res.status(404).json({ success: false, message: 'Personnel record not linked' });
+
+        const { bankName, accountNumber, routingNumber, accountType } = req.body;
+        await query(
+            `INSERT INTO banking_info (pilot_id, bank_name, account_number, routing_number, account_type, currency, updated_at)
+             VALUES ($1, $2, $3, $4, $5, 'USD', NOW())
+             ON CONFLICT (pilot_id) DO UPDATE SET
+                bank_name = EXCLUDED.bank_name,
+                account_number = EXCLUDED.account_number,
+                routing_number = EXCLUDED.routing_number,
+                account_type = EXCLUDED.account_type,
+                updated_at = NOW()`,
+            [personnelId, bankName, accountNumber, routingNumber, accountType || 'checking']
+        );
+        res.json({ success: true, message: 'Direct deposit information secured.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to update banking data' });
+    }
+});
+
+// ── GET /me/documents ────────────────────────────────────────────────────────
+router.get('/me/documents', async (req, res) => {
+    try {
+        const personnelRes = await query(`SELECT id FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`, [req.user.email]);
+        const personnelId = personnelRes.rows[0]?.id;
+        if (!personnelId) return res.json({ success: true, data: [] });
+
+        const docRes = await query(`SELECT * FROM pilot_documents WHERE personnel_id = $1 ORDER BY created_at DESC`, [personnelId]);
+        // Format columns from snake_case database schema
+        const mapped = docRes.rows.map(r => ({
+            id: r.id,
+            name: r.name,
+            url: r.url,
+            category: r.category,
+            expirationDate: r.expiration_date,
+            aiMetadata: r.ai_metadata,
+            createdAt: r.created_at
+        }));
+        res.json({ success: true, data: mapped });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to retrieve documents' });
+    }
+});
+
+// ── POST /me/documents/upload ────────────────────────────────────────────────
+router.post('/me/documents/upload', upload.single('file'), async (req, res) => {
+    try {
+        const personnelRes = await query(`SELECT id, full_name FROM personnel WHERE LOWER(email) = LOWER($1) LIMIT 1`, [req.user.email]);
+        const personnel = personnelRes.rows[0];
+        if (!personnel) return res.status(404).json({ success: false, message: 'Personnel record not found' });
+
+        if (!req.file) return res.status(400).json({ success: false, message: 'No document attached' });
+
+        // 1. Run Gemini AI Document detection wrapper
+        const { extractDocumentMetadata } = await import('../services/documentScanner.js');
+        const docMetadata = await extractDocumentMetadata(req.file.buffer, req.file.mimetype, personnel.full_name);
+
+        // 2. Transmit base payload to Google Cloud Storage
+        const { Storage } = await import('@google-cloud/storage');
+        const storage = new Storage();
+        const bucketName = process.env.GCS_BUCKET_NAME || 'axis-platform-uploads';
+        const destPath = `personnel/${personnel.id}/compliance/${Date.now()}-${req.file.originalname}`;
+        const fileBlob = storage.bucket(bucketName).file(destPath);
+        
+        await fileBlob.save(req.file.buffer, { contentType: req.file.mimetype, resumable: false });
+        const finalUrl = `https://storage.googleapis.com/${bucketName}/${destPath}`;
+
+        // 3. Save standard document mapping
+        const result = await query(
+            `INSERT INTO pilot_documents (personnel_id, name, url, category, expiration_date, ai_metadata, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) RETURNING id`,
+            [
+                personnel.id, 
+                req.file.originalname, 
+                finalUrl, 
+                docMetadata.documentType || 'Compliance Document', 
+                docMetadata.expirationDate || null, 
+                JSON.stringify(docMetadata)
+            ]
+        );
+
+        res.json({ 
+            success: true, 
+            message: 'Document successfully parsed and secured.',
+            document: { id: result.rows[0].id, url: finalUrl, aiResult: docMetadata }
+        });
+    } catch (err) {
+        console.error('[Document Upload]', err.message);
+        res.status(500).json({ success: false, message: 'Failed to process document upload' });
     }
 });
 

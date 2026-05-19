@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Axis Enterprise — Investor Deck 2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#030712;color:#fff;height:100vh;overflow:hidden}
+.deck{width:100%;height:100vh;position:relative}
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:5vw;opacity:0;pointer-events:none;transition:opacity .5s}
+.slide.active{opacity:1;pointer-events:all}
+.nav{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);display:flex;gap:.75rem;z-index:100;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.2);cursor:pointer;transition:.3s}
+.dot.active{background:#3b82f6;width:24px;border-radius:4px}
+.btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#fff;padding:.5rem 1.2rem;border-radius:8px;cursor:pointer;font-size:.8rem;font-family:inherit}
+.btn:hover{background:rgba(255,255,255,.15)}
+.tag{display:inline-block;padding:.25rem .75rem;border-radius:999px;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.tag-blue{background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#60a5fa}
+.tag-green{background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#34d399}
+.tag-amber{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:#fbbf24}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:2rem;width:100%;max-width:900px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.5rem;width:100%;max-width:960px}
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:1.75rem}
+.num{font-size:3rem;font-weight:900;background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.h1{font-size:clamp(2.5rem,6vw,5rem);font-weight:900;line-height:1.05;text-align:center}
+.h2{font-size:clamp(1.6rem,3.5vw,2.8rem);font-weight:900;margin-bottom:1rem}
+.sub{color:#94a3b8;font-size:1rem;line-height:1.7;max-width:640px;text-align:center}
+.bar{height:6px;border-radius:3px;background:rgba(255,255,255,.07);margin-top:.75rem}
+.bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#3b82f6,#06b6d4)}
+.glow{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(59,130,246,.12),transparent 70%);pointer-events:none}
+.logo{font-size:1.5rem;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+.logo span{color:#3b82f6}
+kbd{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:.2rem .5rem;font-size:.75rem}
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- Slide 1: Cover -->
+<div class="slide active" id="s0">
+  <div class="glow" style="top:-200px;left:-200px"></div>
+  <div style="margin-bottom:1.5rem"><span class="tag tag-blue">Seed Round · 2026</span></div>
+  <div class="h1">The Operating System<br>for <span style="background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Enterprise Drone<br>Inspection</span></div>
+  <p class="sub" style="margin-top:1.5rem">Axis Enterprise unifies mission management, AI defect analysis, pilot operations, and client deliverables into a single production-grade platform.</p>
+  <div style="margin-top:2.5rem;display:flex;gap:1rem;align-items:center">
+    <span class="tag tag-green">Live Platform</span>
+    <span class="tag tag-blue">Google Cloud Run</span>
+    <span class="tag tag-amber">Multi-Industry</span>
+  </div>
+</div>
+
+<!-- Slide 2: Problem -->
+<div class="slide" id="s1">
+  <div style="max-width:900px;width:100%">
+    <div class="tag tag-amber" style="margin-bottom:1rem">The Problem</div>
+    <div class="h2">Drone inspection is broken<br>across the board</div>
+    <div class="grid3" style="margin-top:2rem">
+      <div class="card">
+        <div style="font-size:2rem;margin-bottom:.75rem">🗂️</div>
+        <div style="font-weight:700;margin-bottom:.5rem">Fragmented Workflows</div>
+        <div style="color:#94a3b8;font-size:.875rem">Dispatch, flight, upload, report — handled across 5+ disconnected tools</div>
+      </div>
+      <div class="card">
+        <div style="font-size:2rem;margin-bottom:.75rem">💸</div>
+        <div style="font-weight:700;margin-bottom:.5rem">Zero Financial Visibility</div>
+        <div style="color:#94a3b8;font-size:.875rem">Pilot pay, expenses, and invoicing managed in spreadsheets with no audit trail</div>
+      </div>
+      <div class="card">
+        <div style="font-size:2rem;margin-bottom:.75rem">🕵️</div>
+        <div style="font-weight:700;margin-bottom:.5rem">No Client Transparency</div>
+        <div style="color:#94a3b8;font-size:.875rem">Clients receive static PDFs weeks after missions with no real-time visibility</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 3: Solution -->
+<div class="slide" id="s2">
+  <div style="max-width:900px;width:100%">
+    <div class="tag tag-blue" style="margin-bottom:1rem">The Solution</div>
+    <div class="h2">One platform.<br>Three role-isolated portals.</div>
+    <div class="grid3" style="margin-top:2rem">
+      <div class="card" style="border-color:rgba(59,130,246,.3)">
+        <div style="color:#60a5fa;font-weight:900;font-size:.9rem;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem">⚡ Admin</div>
+        <ul style="color:#94a3b8;font-size:.85rem;line-height:2;list-style:none">
+          <li>✓ Mission Terminal</li><li>✓ Pilot Dispatch</li><li>✓ AI Intelligence Hub</li><li>✓ Payroll + Finance</li><li>✓ Interest Inquiry</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(6,182,212,.3)">
+        <div style="color:#22d3ee;font-weight:900;font-size:.9rem;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem">✈️ Pilot Terminal</div>
+        <ul style="color:#94a3b8;font-size:.85rem;line-height:2;list-style:none">
+          <li>✓ Assigned Missions</li><li>✓ Weather Intelligence</li><li>✓ File Uploads</li><li>✓ Daily Reports</li><li>✓ Banking + Compliance</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(16,185,129,.3)">
+        <div style="color:#34d399;font-weight:900;font-size:.9rem;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem">🏢 Client Portal</div>
+        <ul style="color:#94a3b8;font-size:.85rem;line-height:2;list-style:none">
+          <li>✓ Mission Tracking</li><li>✓ LBD Block Progress</li><li>✓ Deliverables</li><li>✓ Real-Time Status</li><li>✓ AI Reports</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 4: AI -->
+<div class="slide" id="s3">
+  <div style="max-width:860px;width:100%;text-align:center">
+    <div class="tag tag-blue" style="margin-bottom:1rem">AI-Powered Core</div>
+    <div class="h2" style="text-align:center">Gemini Vision AI<br>built into every mission</div>
+    <p class="sub" style="margin:1rem auto 2rem">Axis uses Google Gemini Vision to automatically analyze drone imagery, classify defects, generate field reports, and calculate confidence scores — all without manual review.</p>
+    <div class="grid2" style="text-align:left;margin:0 auto">
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:.5rem">🔍 Defect Detection</div>
+        <div style="color:#94a3b8;font-size:.875rem">Automated fault tagging with coordinate mapping across solar, telecom, and utility assets</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:.5rem">📄 Report Generation</div>
+        <div style="color:#94a3b8;font-size:.875rem">AI drafts full inspection reports with weather data, EXIF metadata, and pilot field notes</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:.5rem">📊 Confidence Scoring</div>
+        <div style="color:#94a3b8;font-size:.875rem">Multi-provider scoring engine (OpenAI + Gemini) with automatic fallback logic</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:.5rem">🌤️ Flight Intelligence</div>
+        <div style="color:#94a3b8;font-size:.875rem">Real-time FAR Part 107 GO/NO-GO assessment with 16-day weather forecasting</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 5: Market -->
+<div class="slide" id="s4">
+  <div style="max-width:860px;width:100%">
+    <div class="tag tag-green" style="margin-bottom:1rem">Market Opportunity</div>
+    <div class="h2">A $45B market with<br>no dominant SaaS player</div>
+    <div style="margin-top:2rem;display:flex;flex-direction:column;gap:1.25rem">
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:.4rem"><span style="font-weight:700">TAM — Commercial Drone Services</span><span class="tag tag-blue">$45B by 2030</span></div>
+        <div class="bar"><div class="bar-fill" style="width:100%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:.4rem"><span style="font-weight:700">SAM — Drone Inspection Software</span><span class="tag tag-blue">$8.2B</span></div>
+        <div class="bar"><div class="bar-fill" style="width:65%"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:.4rem"><span style="font-weight:700">SOM — Enterprise Ops Platform (Y3)</span><span class="tag tag-green">$120M ARR target</span></div>
+        <div class="bar"><div class="bar-fill" style="width:20%"></div></div>
+      </div>
+    </div>
+    <div class="grid3" style="margin-top:2rem">
+      <div class="card" style="text-align:center"><div class="num">5+</div><div style="color:#94a3b8;font-size:.85rem;margin-top:.25rem">Industries Served</div></div>
+      <div class="card" style="text-align:center"><div class="num">29%</div><div style="color:#94a3b8;font-size:.85rem;margin-top:.25rem">CAGR Drone Market</div></div>
+      <div class="card" style="text-align:center"><div class="num">3</div><div style="color:#94a3b8;font-size:.85rem;margin-top:.25rem">Billable User Roles</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 6: Business Model -->
+<div class="slide" id="s5">
+  <div style="max-width:860px;width:100%">
+    <div class="tag tag-amber" style="margin-bottom:1rem">Business Model</div>
+    <div class="h2">Three compounding<br>revenue streams</div>
+    <div class="grid3" style="margin-top:2rem">
+      <div class="card">
+        <div style="font-size:1.75rem;font-weight:900;color:#3b82f6;margin-bottom:.5rem">$599–$2,499</div>
+        <div style="font-weight:700;margin-bottom:.5rem">Platform License</div>
+        <div style="color:#94a3b8;font-size:.85rem">Monthly SaaS per enterprise org. Includes admin + pilot + client portals, unlimited missions.</div>
+        <div class="tag tag-blue" style="margin-top:.75rem">Recurring MRR</div>
+      </div>
+      <div class="card">
+        <div style="font-size:1.75rem;font-weight:900;color:#06b6d4;margin-bottom:.5rem">$12–$45</div>
+        <div style="font-weight:700;margin-bottom:.5rem">Per-Mission AI</div>
+        <div style="color:#94a3b8;font-size:.85rem">Gemini AI analysis, PDF report generation, and confidence scoring billed per mission processed.</div>
+        <div class="tag tag-blue" style="margin-top:.75rem">Usage-Based</div>
+      </div>
+      <div class="card">
+        <div style="font-size:1.75rem;font-weight:900;color:#10b981;margin-bottom:.5rem">15%</div>
+        <div style="font-weight:700;margin-bottom:.5rem">Pilot Network Take</div>
+        <div style="color:#94a3b8;font-size:.85rem">Commission on pilot pay processed through the platform. Banking integration enables payroll-as-a-service.</div>
+        <div class="tag tag-green" style="margin-top:.75rem">Marketplace</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 7: Tech -->
+<div class="slide" id="s6">
+  <div style="max-width:860px;width:100%;text-align:center">
+    <div class="tag tag-blue" style="margin-bottom:1rem">Technology</div>
+    <div class="h2" style="text-align:center">Production-grade infrastructure<br>built to scale</div>
+    <div class="grid2" style="margin:2rem auto 0;text-align:left">
+      <div class="card">
+        <div style="font-weight:700;color:#60a5fa;margin-bottom:1rem">Frontend</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+          <span class="tag tag-blue">React + TypeScript</span><span class="tag tag-blue">Vite</span><span class="tag tag-blue">Tailwind CSS</span><span class="tag tag-blue">Leaflet Maps</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;color:#34d399;margin-bottom:1rem">Backend</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+          <span class="tag tag-green">Node.js</span><span class="tag tag-green">PostgreSQL</span><span class="tag tag-green">JWT Auth</span><span class="tag tag-green">REST API</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;color:#fbbf24;margin-bottom:1rem">AI Stack</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+          <span class="tag tag-amber">Gemini Vision</span><span class="tag tag-amber">OpenAI Fallback</span><span class="tag tag-amber">Confidence Scorer</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;color:#a78bfa;margin-bottom:1rem">Infrastructure</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem">
+          <span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa" class="tag">Google Cloud Run</span><span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa" class="tag">Cloud Build CI/CD</span><span style="background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa" class="tag">Google Drive API</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 8: Traction -->
+<div class="slide" id="s7">
+  <div style="max-width:860px;width:100%;text-align:center">
+    <div class="tag tag-green" style="margin-bottom:1rem">Traction</div>
+    <div class="h2" style="text-align:center">Built, deployed,<br>and demo-ready</div>
+    <div class="grid3" style="margin-top:2rem;text-align:left">
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">✅</div>
+        <div style="font-weight:700;margin-bottom:.4rem">Live Platform</div>
+        <div style="color:#94a3b8;font-size:.8rem">Deployed on Google Cloud Run with real missions, pilots, and client data</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">🤖</div>
+        <div style="font-weight:700;margin-bottom:.4rem">AI Reports Live</div>
+        <div style="color:#94a3b8;font-size:.8rem">Gemini Vision generating real inspection reports with defect classification</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">💰</div>
+        <div style="font-weight:700;margin-bottom:.4rem">Finance Engine</div>
+        <div style="color:#94a3b8;font-size:.8rem">Pilot payroll, expense tracking, and invoice management operational</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">🌍</div>
+        <div style="font-weight:700;margin-bottom:.4rem">Multi-Country</div>
+        <div style="color:#94a3b8;font-size:.8rem">Multi-region architecture with country-level filtering and aviation authority tracking</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">📡</div>
+        <div style="font-weight:700;margin-bottom:.4rem">3 Portals Active</div>
+        <div style="color:#94a3b8;font-size:.8rem">Admin, Pilot Terminal V2, and Client Portal all production-deployed</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="font-size:2rem;margin-bottom:.5rem">🔒</div>
+        <div style="font-weight:700;margin-bottom:.4rem">Enterprise Auth</div>
+        <div style="color:#94a3b8;font-size:.8rem">Role-based access control with financial data isolation and audit logging</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Slide 9: Ask -->
+<div class="slide" id="s8">
+  <div class="glow" style="bottom:-200px;right:-200px"></div>
+  <div style="max-width:760px;width:100%;text-align:center">
+    <div class="tag tag-blue" style="margin-bottom:1rem">The Ask</div>
+    <div class="h2" style="text-align:center">Raising <span style="background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent">$1.5M Seed</span><br>to dominate the category</div>
+    <p class="sub" style="margin:1.25rem auto 2rem">We have the platform. We have the data. We need GTM fuel to sign the first 20 enterprise accounts and build the pilot marketplace network effect.</p>
+    <div class="grid3" style="text-align:left;margin:0 auto 2rem">
+      <div class="card" style="text-align:center">
+        <div style="color:#3b82f6;font-weight:900;font-size:1.1rem;margin-bottom:.4rem">40%</div>
+        <div style="color:#94a3b8;font-size:.8rem">Sales &amp; GTM</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="color:#06b6d4;font-weight:900;font-size:1.1rem;margin-bottom:.4rem">35%</div>
+        <div style="color:#94a3b8;font-size:.8rem">Product &amp; Engineering</div>
+      </div>
+      <div class="card" style="text-align:center">
+        <div style="color:#10b981;font-weight:900;font-size:1.1rem;margin-bottom:.4rem">25%</div>
+        <div style="color:#94a3b8;font-size:.8rem">Infrastructure &amp; Ops</div>
+      </div>
+    </div>
+    <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:16px;padding:1.5rem">
+      <div style="font-size:1rem;color:#94a3b8;margin-bottom:.5rem">18-month milestones</div>
+      <div style="font-weight:700;font-size:.95rem;line-height:2">20 Enterprise Clients · $480K ARR · 200+ Pilot Network · Series A Ready</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- Nav -->
+<div class="nav">
+  <button class="btn" onclick="prev()">←</button>
+  <div id="dots" style="display:flex;gap:.5rem"></div>
+  <button class="btn" onclick="next()">→</button>
+</div>
+
+<script>
+const total=9,dots=document.getElementById('dots');
+let cur=0;
+for(let i=0;i<total;i++){const d=document.createElement('div');d.className='dot'+(i===0?' active':'');d.onclick=()=>go(i);dots.appendChild(d)}
+function go(n){document.getElementById('s'+cur).classList.remove('active');cur=(n+total)%total;document.getElementById('s'+cur).classList.add('active');document.querySelectorAll('.dot').forEach((d,i)=>d.classList.toggle('active',i===cur))}
+function next(){go(cur+1)}function prev(){go(cur-1)}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='ArrowDown')next();if(e.key==='ArrowLeft'||e.key==='ArrowUp')prev()})
+</script>
+</body>
+</html>

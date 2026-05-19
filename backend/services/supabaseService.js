@@ -45,7 +45,7 @@ export const uploadToSupabase = async (file, path, options = {}) => {
     }
 };
 
-export const getSignedUrl = async (path, expiresIn = 3600, bucketName = 'documents') => {
+export const getSignedUrl = async (path, expiresIn = 900, bucketName = 'documents') => {
     if (!supabase) {
         throw new AppError('Supabase is not configured', 500);
     }

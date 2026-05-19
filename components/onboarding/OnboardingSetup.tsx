@@ -73,6 +73,8 @@ const OnboardingSetup: React.FC = () => {
         });
     };
 
+    const handleSkip = () => navigate('/');
+
     const handleStart = async () => {
         try {
             const response = await apiClient.post('/onboarding/configs', {
@@ -82,6 +84,8 @@ const OnboardingSetup: React.FC = () => {
             navigate(`/clients/new/step-1?configId=${response.data.data.id}`);
         } catch (err) {
             console.error('Failed to create config:', err);
+            // Navigate anyway so user is never stuck
+            navigate('/');
         }
     };
 
@@ -132,7 +136,13 @@ const OnboardingSetup: React.FC = () => {
                 ))}
             </div>
 
-            <div className="mt-12 flex justify-end">
+            <div className="mt-12 flex justify-between items-center">
+                <button
+                    onClick={handleSkip}
+                    className="text-sm font-medium text-slate-500 hover:text-slate-800 px-6 py-3 rounded-xl border border-slate-200 hover:border-slate-400 transition-all"
+                >
+                    Skip Setup — Go to Dashboard
+                </button>
                 <button
                     onClick={handleStart}
                     className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-10 py-4 text-white font-bold rounded-2xl transition-all shadow-[0_10px_30px_rgba(37,99,235,0.3)]"

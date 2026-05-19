@@ -109,23 +109,23 @@ export const SolarCommandCenter: React.FC = () => {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2">
                         <Sun className="w-7 h-7 text-amber-400" />
-                        <Heading level={2} className="text-white">Solar Command Center</Heading>
+                        <Heading level={2} className="text-white text-xl sm:text-2xl">Solar Command Center</Heading>
                     </div>
-                    <Text variant="muted" className="mt-1 text-slate-400">
+                    <Text variant="muted" className="mt-1 text-slate-400 text-xs sm:text-sm">
                         Global solar inspection fleet status
                     </Text>
                 </div>
-                <Button variant="ghost" size="sm" onClick={fetchSites} isLoading={loading}>
+                <Button variant="ghost" size="sm" onClick={fetchSites} isLoading={loading} className="w-full sm:w-auto">
                     <RefreshCw className="w-4 h-4 mr-2" /> Refresh
                 </Button>
             </div>
 
             {/* Fleet Health Summary */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card className="border-emerald-500/20 bg-emerald-900/10">
                     <CardContent className="pt-6">
                         <div className="flex items-center gap-3">

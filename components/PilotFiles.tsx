@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import {
     Upload, FileText, Download, CheckCircle2,
     AlertCircle, Clock, Search, FolderOpen, Loader2

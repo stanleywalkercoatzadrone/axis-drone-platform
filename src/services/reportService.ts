@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import type { InspectionReport } from '../types';
+import type { InspectionReport } from '../../types';
 
 export const reportService = {
     async getReports(filters?: { status?: string; industry?: string }) {

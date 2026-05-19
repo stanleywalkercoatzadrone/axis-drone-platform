@@ -9,14 +9,14 @@ export const googleAuthService = {
     async linkGoogleDrive(code: string) {
         const response = await apiClient.post('/auth/google/link', { code });
         const user = response.data.data;
-        localStorage.setItem('skylens_current_user', JSON.stringify(user));
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(user));
         return user;
     },
 
     async unlinkGoogleDrive() {
         const response = await apiClient.post('/auth/google/unlink');
         const user = response.data.data;
-        localStorage.setItem('skylens_current_user', JSON.stringify(user));
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(user));
         return user;
     },
 

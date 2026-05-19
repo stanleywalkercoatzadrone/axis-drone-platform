@@ -41,7 +41,8 @@ import {
   Upload,
   FileText,
   BrainCircuit,
-  Edit2
+  Edit2,
+  Trash2
 } from 'lucide-react';
 
 import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry, Region, Country } from '../types';
@@ -55,7 +56,7 @@ import { AxisPerformanceTab } from '../src/components/personnel/AxisPerformanceT
 import { useAuth } from '../context/AuthContext';
 import { useCountry } from '../src/context/CountryContext';
 import OrganizationPanel from './OrganizationPanel';
-import ClientBillingPanel from './ClientBillingPanel';
+
 import RegionConfig from './RegionConfig';
 
 const SettingsView: React.FC = () => {
@@ -105,6 +106,26 @@ const SettingsView: React.FC = () => {
     } catch (error) {
       console.error('Failed to update user:', error);
       alert('Failed to update user details');
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user?')) return;
+    try {
+      await apiClient.delete(`/users/${userId}`);
+      fetchUsers();
+    } catch (error: any) {
+      alert(error.response?.data?.error?.message || error.response?.data?.message || 'Failed to delete user');
+    }
+  };
+
+  const handleResendInvite = async (userId: string) => {
+    if (!confirm('Resend setup invitation email to this user?')) return;
+    try {
+      await apiClient.post(`/users/${userId}/resend-invite`);
+      alert('Invitation sent successfully');
+    } catch (error: any) {
+      alert(error.response?.data?.error?.message || error.response?.data?.message || 'Failed to resend invitation');
     }
   };
 
@@ -278,7 +299,8 @@ const SettingsView: React.FC = () => {
         });
       }
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to create user');
+      const backendError = error.response?.data?.error?.message || error.response?.data?.message;
+      alert(backendError || 'Failed to create user');
     }
   };
 
@@ -589,7 +611,7 @@ const SettingsView: React.FC = () => {
                   <p className="text-sm text-slate-500">Manage subscription invoices for each client organisation.</p>
                 </div>
               </div>
-              <ClientBillingPanel />
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 text-center text-slate-500">Billing Panel Unavailable</div>
             </div>
           )}
 
@@ -886,7 +908,7 @@ const SettingsView: React.FC = () => {
           )}
 
           {activeSection === 'locations' && isAdmin(currentUser) && (
-            <RegionConfig apiClient={apiClient} />
+            <RegionConfig apiClient={apiClient} onRefreshContext={refreshCountries} />
           )}
 
           {activeSection === 'team' && (isAdmin(currentUser)) && (
@@ -934,8 +956,18 @@ const SettingsView: React.FC = () => {
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
+                      <button onClick={() => handleResendInvite(user.id as string)} className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-600" title="Resend Invite">
+                        <Mail className="w-4 h-4" />
+                      </button>
                       <button onClick={() => setResetPasswordValues({ userId: user.id || null, new: '' })} className="p-1.5 hover:bg-slate-200 rounded text-slate-500 hover:text-blue-600" title="Reset Password">
                         <Lock className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(user.id as string)}
+                        className="p-1.5 hover:bg-red-50 rounded text-slate-500 hover:text-red-600"
+                        title="Delete User"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

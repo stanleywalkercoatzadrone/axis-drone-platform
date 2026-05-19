@@ -29,15 +29,16 @@ import {
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
 import { getRoleDisplayName } from '../utils/roleUtils';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { Input } from '../src/stitch/components/Input';
 import { cn } from '../src/stitch/utils/cn';
+import { useAuth } from '../context/AuthContext';
 
-interface UserManagementProps {
-    currentUser: UserAccount;
-}
-
-const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
+const UserManagement: React.FC = () => {
+    const { user: currentUser } = useAuth();
+    if (!currentUser) {
+        return <div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading…</div>;
+    }
     const [users, setUsers] = useState<UserAccount[]>([]);
     const [filteredUsers, setFilteredUsers] = useState<UserAccount[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -135,7 +136,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                 });
             }
         } catch (error: any) {
-            alert(error.response?.data?.message || 'Failed to create user');
+            const backendError = error.response?.data?.error?.message || error.response?.data?.message;
+            alert(backendError || 'Failed to create user');
         }
     };
 
@@ -688,7 +690,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ currentUser }) => {
                                 <option value="">NO CLIENT ASSOCIATION (INTERNAL ONLY)</option>
                                 {clients.map(client => (
                                     <option key={client.id} value={client.id}>
-                                        {client.name.toUpperCase()} ({client.industry_name})
+                                        {client.name.toUpperCase()}
                                     </option>
                                 ))}
                             </select>

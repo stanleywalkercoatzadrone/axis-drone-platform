@@ -5,9 +5,12 @@ import { protect, authorize } from '../middleware/auth.js';
 const router = express.Router();
 
 // ── All migration routes require authentication + admin role ──────────────────
-// SECURITY: Removed hardcoded secret 'axis2026' — anyone with the secret could
-// run arbitrary migrations or reset any user's password.
-// Now enforced via JWT protect + admin RBAC like all other sensitive routes.
+router.use((req, res, next) => {
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(403).json({ success: false, message: 'Migrations are disabled via HTTP in production. Use CLI.' });
+    }
+    next();
+});
 router.use(protect);
 router.use(authorize('admin', 'ADMIN'));
 

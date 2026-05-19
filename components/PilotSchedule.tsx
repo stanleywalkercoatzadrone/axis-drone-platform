@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar as CalendarIcon, Clock, Plus, Trash2, Calendar, AlertTriangle } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface AvailabilityBlock {
     id?: string;

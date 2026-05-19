@@ -19,11 +19,11 @@ export function normalizeRole(roleString: string | undefined | null): string | n
     const normalized = roleString.toLowerCase().replace(/[\/\s-]/g, '_');
 
     // Map variants to standard roles
-    if (['admin', 'administrator'].includes(normalized)) {
+    if (['admin', 'administrator', 'super_admin', 'superuser'].includes(normalized)) {
         return 'admin';
     }
 
-    if (['pilot_technician', 'pilot', 'technician'].includes(normalized)) {
+    if (['pilot_technician', 'pilot', 'technician', 'field_operator', 'senior_inspector'].includes(normalized)) {
         return 'pilot_technician';
     }
 

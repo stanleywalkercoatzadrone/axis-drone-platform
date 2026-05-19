@@ -9,19 +9,19 @@ import path from 'path';
 // Send a magical link to a new candidate
 export const sendCandidatePacket = async (req, res, next) => {
     try {
-        const { candidate_email, payload } = req.body;
+        const { candidate_email, payload, countryId } = req.body;
         if (!candidate_email) throw new AppError('Candidate email is required', 400);
 
         const token = crypto.randomBytes(32).toString('hex');
 
-        // Expires in 7 days
+        // Expires in 30 days (extended from 7 — onboarding takes time)
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
+        expiresAt.setDate(expiresAt.getDate() + 30);
 
         const result = await pool.query(
-            `INSERT INTO candidate_packets (candidate_email, token, status, payload_json, expires_at)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id, token`,
-            [candidate_email, token, 'sent', payload || {}, expiresAt]
+            `INSERT INTO candidate_packets (candidate_email, token, status, payload_json, expires_at, country_id)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, token`,
+            [candidate_email, token, 'sent', payload || {}, expiresAt, countryId || null]
         );
 
         const packet = result.rows[0];
@@ -140,10 +140,19 @@ export const getCandidateUploadUrl = async (req, res, next) => {
 // Admin view for all packets
 export const listCandidatePackets = async (req, res, next) => {
     try {
-        const result = await pool.query(
-            `SELECT id, candidate_email, status, expires_at, created_at, updated_at 
-             FROM candidate_packets ORDER BY created_at DESC`
-        );
+        const { countryId } = req.query;
+        let queryStr = `SELECT id, candidate_email, status, expires_at, created_at, updated_at 
+                        FROM candidate_packets `;
+        let params = [];
+        
+        if (countryId) {
+            queryStr += `WHERE country_id = $1 OR country_id IS NULL `;
+            params.push(countryId);
+        }
+        
+        queryStr += `ORDER BY created_at DESC`;
+        
+        const result = await pool.query(queryStr, params);
 
         res.status(200).json({
             success: true,

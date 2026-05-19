@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useReport } from '../ReportContext';
 import { FileCheck, ChevronLeft, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
-import { Severity } from '../../../types';
+import { Severity } from '../../types';
 
 interface ReportReviewProps {
     onBack: () => void;

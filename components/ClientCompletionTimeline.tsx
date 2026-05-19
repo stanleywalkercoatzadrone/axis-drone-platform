@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, CloudRain, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface Props {
     missionId: string;

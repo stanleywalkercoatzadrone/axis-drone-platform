@@ -4,6 +4,7 @@ import {
     getClients,
     getClient,
     createClient,
+    updateClient,
     getStakeholders,
     addStakeholder
 } from '../controllers/clientController.js';
@@ -15,6 +16,7 @@ router.use(protect);
 router.get('/', getClients);
 router.post('/', authorize('admin'), createClient);
 router.get('/:id', getClient);
+router.put('/:id', authorize('admin'), updateClient);
 router.get('/:id/stakeholders', getStakeholders);
 router.post('/:id/stakeholders', authorize('admin'), addStakeholder);
 

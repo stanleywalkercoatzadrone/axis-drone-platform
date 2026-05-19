@@ -140,8 +140,13 @@ export const uploadToGCS = async (file, folder = 'images') => {
 export const uploadLBDToGCS = async (file, projectName, pilotName, lbdBlock) => {
     if (!gcs) throw new Error('GCS not initialised');
 
+    // SECURITY: Strip null bytes, limit length, and allow only safe path characters
     const sanitize = str =>
-        (str || 'Unknown').trim().replace(/[^\w\s\-().]/g, '').replace(/\s+/g, ' ').trim() || 'Unknown';
+        String(str || 'Unknown').trim()
+            .replace(/\0/g, '')                      // null bytes
+            .replace(/[^\w\s\-().]/g, '')            // non-safe chars
+            .replace(/\s+/g, ' ').trim()
+            .slice(0, 100) || 'Unknown';
 
     const folder = [
         sanitize(projectName),
@@ -190,7 +195,7 @@ export const deleteFromGCS = async (key) => {
  * @param {string} key - GCS object path (e.g. 'kml/abc123.kml')
  * @param {number} expiresInSeconds - default 1 hour
  */
-export const getGCSSignedUrl = async (key, expiresInSeconds = 3600) => {
+export const getGCSSignedUrl = async (key, expiresInSeconds = 900) => {
     if (!gcs) return null;
     try {
         const [url] = await gcs.bucket(GCS_BUCKET_NAME).file(key).getSignedUrl({
@@ -245,7 +250,7 @@ export const deleteFromS3 = async (key) => {
     }
 };
 
-export const getSignedUrl = async (key, expiresIn = 3600) => {
+export const getSignedUrl = async (key, expiresIn = 900) => {
     const params = {
         Bucket: BUCKET_NAME,
         Key: key,
@@ -476,6 +481,10 @@ export async function classifyAerialImage(file) {
  * @returns {Promise<{ url, key, imageType, exifMeta, bucket }>}
  */
 export const uploadAerialImage = async (file, missionId, forceType = null, siteName = null) => {
+    if (!gcs) {
+        throw new Error('Google Cloud Storage not initialized. Please configure GCS_BUCKET_NAME');
+    }
+
     // Classify using EXIF (unless pilot explicitly chose IR/RGB)
     let imageType, exifMeta;
     if (forceType === 'IR' || forceType === 'RGB') {
@@ -487,8 +496,7 @@ export const uploadAerialImage = async (file, missionId, forceType = null, siteN
 
     const ext = path.extname(file.originalname);
 
-    // Build site folder: sanitize for S3 key (preserve slashes for sub-folders like "Site/M14")
-    // Each path segment is sanitized separately, then rejoined with /
+    // Build site folder: sanitize for GCS key
     const sanitizeSegment = (s) =>
         s.trim().replace(/[^a-zA-Z0-9\-_.() ]/g, '').replace(/\s+/g, ' ').trim() || 'Unknown';
 
@@ -497,21 +505,19 @@ export const uploadAerialImage = async (file, missionId, forceType = null, siteN
         : 'Missions';
 
     // Final key: {prefix}{SiteName}/M{N}/IR|RGB/{uuid}{ext}
-    // e.g. "Coatza Solar/M14/RGB/abc123.jpg"
-    const s3Key = `${S3_PATH_PREFIX}${siteFolder}/${imageType}/${uuidv4()}${ext}`;
+    const gcsKey = `${S3_PATH_PREFIX}${siteFolder}/${imageType}/${uuidv4()}${ext}`;
 
-    // Extract mission label (last path segment of siteFolder, e.g. 'M14') for metadata
     const folderSegments = siteFolder.split('/');
     const missionLabel = folderSegments.length > 1 ? folderSegments[folderSegments.length - 1] : null;
     const siteFolderRoot = folderSegments.length > 1 ? folderSegments.slice(0, -1).join('/') : siteFolder;
 
-    // Build S3 metadata from EXIF (all values must be strings for S3)
-    const s3ObjectMeta = {
+    // Build GCS metadata from EXIF (all values must be strings)
+    const metadata = {
         originalName:  file.originalname,
         missionId,
         imageType,
-        ...(missionLabel   && { missionLabel }),           // e.g. "M14"
-        ...(siteFolderRoot && { siteName: siteFolderRoot }),// e.g. "Coatza Solar Farm"
+        ...(missionLabel   && { missionLabel }),           
+        ...(siteFolderRoot && { siteName: siteFolderRoot }),
         ...(exifMeta?.Make           && { cameraMake:  String(exifMeta.Make)  }),
         ...(exifMeta?.Model          && { cameraModel: String(exifMeta.Model) }),
         ...(exifMeta?.DateTimeOriginal && { capturedAt: String(exifMeta.DateTimeOriginal) }),
@@ -520,35 +526,38 @@ export const uploadAerialImage = async (file, missionId, forceType = null, siteN
         ...(exifMeta?.GPSAltitude  != null && { gpsAlt: String(exifMeta.GPSAltitude)  }),
     };
 
-    const params = {
-        Bucket:      BUCKET_NAME,
-        Key:         s3Key,
-        Body:        file.buffer,
-        ContentType: file.mimetype,
-        // ACL omitted: bucket uses Object Ownership 'Bucket owner enforced' which disables ACLs
-        Metadata:    s3ObjectMeta,
-    };
-
     try {
-        const result = await s3.upload(params).promise();
-        console.log(`[storageService] Aerial → S3 ${imageType}: ${s3Key}`);
+        const bucket = gcs.bucket(GCS_BUCKET_NAME);
+        const blob = bucket.file(gcsKey);
+
+        await blob.save(file.buffer, {
+            contentType: file.mimetype,
+            metadata: {
+                metadata: metadata,
+                cacheControl: 'private, max-age=3600',
+            }
+        });
+
+        const gcsUri = `gs://${GCS_BUCKET_NAME}/${gcsKey}`;
+        console.log(`[storageService] Aerial → GCS ${imageType}: ${gcsKey}`);
+        
         return {
-            url:       result.Location,
-            key:       result.Key,
+            url:       gcsUri,
+            key:       gcsKey,
             imageType,
             exifMeta,
-            bucket:    BUCKET_NAME,
+            bucket:    GCS_BUCKET_NAME,
         };
     } catch (error) {
-        console.error('[storageService] S3 aerial upload error:', error.message);
-        throw new Error(`Failed to upload aerial image to S3: ${error.message}`);
+        console.error('[storageService] GCS aerial upload error:', error.message);
+        throw new Error(`Failed to upload aerial image to GCS: ${error.message}`);
     }
 };
 
 /**
  * Generate a signed URL for downloading a private aerial image from S3.
  */
-export const getAerialSignedUrl = async (key, expiresIn = 3600) => {
+export const getAerialSignedUrl = async (key, expiresIn = 900) => {
     try {
         return await s3.getSignedUrlPromise('getObject', { Bucket: BUCKET_NAME, Key: key, Expires: expiresIn });
     } catch (e) {

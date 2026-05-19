@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
-import { useAuth } from '../src/context/AuthContext';
+import apiClient from '../services/apiClient';
+import { useAuth } from '../context/AuthContext';
 
 const ForcePasswordReset: React.FC = () => {
     const { logout, syncProfile } = useAuth();

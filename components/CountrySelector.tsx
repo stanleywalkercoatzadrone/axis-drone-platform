@@ -1,37 +1,43 @@
-import React, { useEffect, useState, useContext } from 'react';
-import apiClient from '../src/services/apiClient';
-import { useCountry } from '../src/context/CountryContext';
+import React, { useEffect, useState } from 'react';
+import apiClient from '../services/apiClient';
+import { useCountry } from '../context/CountryContext';
 import { Globe, ChevronDown } from 'lucide-react';
 
 export default function CountrySelector() {
-    const { activeCountryId, setActiveCountryId } = useCountry();
-    const [countries, setCountries] = useState<any[]>([]);
+    const { activeCountryId, setActiveCountryId, countries: contextCountries, loading } = useCountry();
+
+    // Local fallback list — used only when the context data is unavailable.
+    // Populated by a direct fetch so the dropdown is never empty due to a
+    // context timing issue or session mismatch.
+    const [fallbackCountries, setFallbackCountries] = useState<any[]>([]);
 
     useEffect(() => {
-        async function fetchCountries() {
-            try {
-                const res = await apiClient.get('/regions/countries', { params: { status: 'ENABLED' } });
-                setCountries(res.data.data || []);
-            } catch (err) {
-                console.error('Failed to fetch countries', err);
-            }
+        // Only hit the API if the context is done loading and still returned nothing
+        if (!loading && contextCountries.length === 0) {
+            apiClient
+                .get('/regions/countries', { params: { status: 'ENABLED' } })
+                .then(res => setFallbackCountries(res.data.data || []))
+                .catch(() => {}); // silently ignore — nothing to show
         }
-        fetchCountries();
-    }, []);
+    }, [loading, contextCountries.length]);
 
-    const regions = [...new Set(countries.map(c => c.region_name || 'Other'))];
+    // Prefer live context data; fall back to independently-fetched data
+    const countries = contextCountries.length > 0 ? contextCountries : fallbackCountries;
 
     const regionOrder: Record<string, number> = {
         'North America': 1,
         'Central America': 2,
-        'South America': 3
+        'South America': 3,
+        'Caribbean': 4,
+        'Europe': 5,
+        'Asia Pacific': 6,
     };
 
+    const regions = [...new Set(countries.map(c => c.region_name || 'Other'))];
     const sortedRegions = [...regions].sort((a, b) => (regionOrder[a] || 99) - (regionOrder[b] || 99));
 
     function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-        const val = e.target.value;
-        setActiveCountryId(val || null);
+        setActiveCountryId(e.target.value || null);
     }
 
     return (
@@ -43,12 +49,9 @@ export default function CountrySelector() {
                     value={activeCountryId || ''}
                     onChange={handleChange}
                     className="appearance-none text-white text-sm rounded-md pl-8 pr-8 py-1.5 focus:ring-1 focus:ring-cyan-400 focus:border-cyan-400 outline-none cursor-pointer min-w-[160px] font-medium transition-shadow shadow-sm"
-                    style={{
-                        backgroundColor: '#007ACC',
-                        border: '1px solid #005A99'
-                    }}
+                    style={{ backgroundColor: '#007ACC', border: '1px solid #005A99' }}
                 >
-                    <option value="" className="text-slate-900 bg-white">United States (Default)</option>
+                    <option value="" className="text-slate-900 bg-white">All Countries</option>
                     {sortedRegions.map(region => (
                         <optgroup key={region} label={region} className="text-slate-900 bg-white font-bold">
                             {countries

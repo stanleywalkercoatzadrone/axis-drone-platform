@@ -23,6 +23,8 @@
  */
 import express from 'express';
 import multer from 'multer';
+import ExcelJS from 'exceljs';
+import { Readable } from 'stream';
 import { protect, authorize } from '../middleware/auth.js';
 import { query } from '../config/database.js';
 import { getCache, setCache, deleteCache } from '../config/redis.js';
@@ -61,7 +63,7 @@ router.get('/my-blocks', async (req, res) => {
                     d.title                                                AS mission_title,
                     d.site_name                                            AS site_name
              FROM solar_blocks sb
-             JOIN deployments d ON d.id = sb.mission_id
+             JOIN deployments d ON d.id = COALESCE(sb.deployment_id, sb.mission_id)
              WHERE sb.assigned_to = $1
              ORDER BY sb.block_name ASC`,
             [pilotId]
@@ -76,30 +78,44 @@ router.get('/my-blocks', async (req, res) => {
 router.get('/:deploymentId', async (req, res) => {
     try {
         const { deploymentId } = req.params;
-        const result = await query(
-            `SELECT sb.*,
-                    COALESCE(
-                        (SELECT json_agg(row_to_json(bp))
-                         FROM block_progress bp WHERE bp.block_id = sb.id),
-                        '[]'
-                    ) as progress_entries,
-                    COALESCE((
-                        SELECT COUNT(*) FROM lbd_units lu WHERE lu.block_id = sb.id
-                    ), 0)::int AS total_lbd_units,
-                    COALESCE((
-                        SELECT COUNT(*) FROM lbd_units lu
-                        WHERE lu.block_id = sb.id AND lu.status = 'completed'
-                    ), 0)::int AS completed_lbds
-             FROM solar_blocks sb
-             WHERE sb.mission_id = $1
-             ORDER BY sb.block_number ASC, sb.block_name ASC`,
-            [deploymentId]
-        );
+
+        // Try full query with lbd_units counts (preferred)
+        let result;
+        try {
+            result = await query(
+                `SELECT sb.*,
+                        COALESCE((
+                            SELECT COUNT(*) FROM lbd_units lu WHERE lu.block_id = sb.id
+                        ), 0)::int AS total_lbd_units,
+                        COALESCE((
+                            SELECT COUNT(*) FROM lbd_units lu
+                            WHERE lu.block_id = sb.id AND lu.status = 'completed'
+                        ), 0)::int AS completed_lbds
+                 FROM solar_blocks sb
+                 WHERE sb.deployment_id = $1 OR sb.mission_id = $1
+                 ORDER BY sb.block_number ASC NULLS LAST, LOWER(sb.block_name) ASC`,
+                [deploymentId]
+            );
+        } catch (innerErr) {
+            // lbd_units or mission_id column may not exist — fall back to basics
+            result = await query(
+                `SELECT sb.*,
+                        sb.total_lbds AS total_lbd_units,
+                        0 AS completed_lbds
+                 FROM solar_blocks sb
+                 WHERE sb.deployment_id = $1
+                 ORDER BY LOWER(sb.block_name) ASC`,
+                [deploymentId]
+            );
+        }
+
         res.json({ success: true, data: result.rows });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
+
 
 // ── GET /api/blocks/:deploymentId/summary ─────────────────────────────────────
 // Full coverage summary with Redis cache (Phase 14)
@@ -318,13 +334,11 @@ router.post('/upload', authorize('admin'), upload.single('file'), async (req, re
         if (!deployment_id) return res.status(400).json({ success: false, message: 'deployment_id required' });
         if (!req.file)      return res.status(400).json({ success: false, message: 'File required (csv or xlsx)' });
 
-        const { default: ExcelJS } = await import('exceljs');
         const workbook = new ExcelJS.Workbook();
         const ext = (req.file.originalname || '').toLowerCase();
         const isCSV = ext.endsWith('.csv') || req.file.mimetype === 'text/csv';
 
         if (isCSV) {
-            const { Readable } = await import('stream');
             await workbook.csv.read(Readable.from(req.file.buffer));
         } else {
             await workbook.xlsx.load(req.file.buffer);
@@ -357,8 +371,9 @@ router.post('/upload', authorize('admin'), upload.single('file'), async (req, re
         };
 
         // ── Step 1: keyword header detection ─────────────────────────────────
+        // Priority: prefer columns whose header explicitly contains 'lbd' for the count col
         const headerRow = worksheet.getRow(1);
-        const headers = { block: null, count: null, assign: null };
+        const headers = { block: null, count: null, lbdCount: null, assign: null };
         const headerNames = {};
         headerRow.eachCell((cell, col) => {
             const v = String(cell.value ?? '').toLowerCase().trim();
@@ -368,13 +383,20 @@ router.post('/upload', authorize('admin'), upload.single('file'), async (req, re
                 !v.match(/count|qty|num|#|total|lbd|unit|panel|module|string|inverter|pcs/)) {
                 headers.block = col;
             }
-            if (v.match(/count|lbd|total|qty|num|#|unit|panel|module|string|inverter|pcs|quantity/)) {
+            // Highest priority: column header explicitly contains 'lbd' + a count word
+            if (v.includes('lbd') && v.match(/count|qty|num|#|total|unit|quantity/)) {
+                headers.lbdCount = col;
+            }
+            // Fallback: any count-like column (may be overwritten by lbdCount later)
+            if (!headers.lbdCount && v.match(/count|total|qty|num|#|unit|panel|module|string|inverter|pcs|quantity/) && !v.includes('tbx') && !v.includes('uploaded') && !v.includes('pending') && !v.includes('status')) {
                 headers.count = col;
             }
             if (v.match(/assign|pilot|tech|oper|user/)) {
                 headers.assign = col;
             }
         });
+        // Use lbd-specific column if found, otherwise fall back to generic count
+        if (headers.lbdCount) headers.count = headers.lbdCount;
 
         // ── Step 2: validate — if chosen count col has no data, reset ─────────
         if (headers.count && !colHasNumbers(headers.count)) {
@@ -427,27 +449,28 @@ router.post('/upload', authorize('admin'), upload.single('file'), async (req, re
                 if (uRes.rows.length) assignedTo = uRes.rows[0].id;
             }
 
-            // Skip if block_name already exists for this deployment
-            // Use mission_id (guaranteed column) — deployment_id may not exist yet on first run
+            // Skip if block already exists for this deployment (check both id columns)
             const existing = await query(
-                `SELECT id FROM solar_blocks WHERE mission_id = $1 AND block_name = $2`,
+                `SELECT id FROM solar_blocks
+                 WHERE (deployment_id = $1 OR mission_id = $1)
+                   AND block_name = $2`,
                 [deployment_id, blockName]
             );
             if (existing.rows.length > 0) { skipped.push(blockName); continue; }
 
 
-            // INSERT — write mission_id (original column) + deployment_id (new column, may not exist yet)
-            // We try the full insert first; if deployment_id column doesn't exist yet, fall back to mission_id only
+            // INSERT — prefer deployment_id column (always present after bridge migration).
+            // Gracefully fall back to mission_id-only if deployment_id column is somehow absent.
             let blockRes;
             try {
                 blockRes = await query(
-                    `INSERT INTO solar_blocks (mission_id, deployment_id, block_name, total_lbds, assigned_to, status)
-                     VALUES ($1, $1, $2, $3, $4, 'not_started') RETURNING id`,
+                    `INSERT INTO solar_blocks (deployment_id, block_name, total_lbds, assigned_to, status)
+                     VALUES ($1, $2, $3, $4, 'not_started') RETURNING id`,
                     [deployment_id, blockName, totalLbds, assignedTo]
                 );
             } catch (insertErr) {
-                if (insertErr.message.includes('deployment_id')) {
-                    // deployment_id column not yet added by migration — use mission_id only
+                if (insertErr.message.includes('column') || insertErr.message.includes('deployment_id')) {
+                    // Fallback: try with mission_id column (very old schema)
                     blockRes = await query(
                         `INSERT INTO solar_blocks (mission_id, block_name, total_lbds, assigned_to, status)
                          VALUES ($1, $2, $3, $4, 'not_started') RETURNING id`,
@@ -506,7 +529,7 @@ router.get('/:blockId/lbds', async (req, res) => {
         const blockRes = await query(`SELECT * FROM solar_blocks WHERE id = $1`, [blockId]);
         if (!blockRes.rows.length) return res.status(404).json({ success: false, message: 'Block not found' });
         const block = blockRes.rows[0];
-        if (role === 'pilot' && String(block.assigned_to) !== String(req.user.id)) {
+        if (['pilot', 'pilot_technician', 'field_operator'].includes(role) && String(block.assigned_to) !== String(req.user.id)) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 

@@ -10,21 +10,19 @@ const apiClient = axios.create({
     withCredentials: true
 });
 
-// Request interceptor to add auth token
+// Request interceptor — reads token from sessionStorage (cleared on window close)
 apiClient.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('skylens_token');
+        const token = sessionStorage.getItem('skylens_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle errors and token refresh
+// Response interceptor — handles 401 + token refresh
 apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
@@ -33,13 +31,13 @@ apiClient.interceptors.response.use(
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;
 
-            const refreshToken = localStorage.getItem('skylens_refresh_token');
+            const refreshToken = sessionStorage.getItem('skylens_refresh_token');
             if (refreshToken) {
                 try {
                     const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
                     const { token, refreshToken: newRefreshToken } = response.data.data;
-                    localStorage.setItem('skylens_token', token);
-                    if (newRefreshToken) localStorage.setItem('skylens_refresh_token', newRefreshToken);
+                    sessionStorage.setItem('skylens_token', token);
+                    if (newRefreshToken) sessionStorage.setItem('skylens_refresh_token', newRefreshToken);
 
                     apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                     originalRequest.headers.Authorization = `Bearer ${token}`;
@@ -49,12 +47,11 @@ apiClient.interceptors.response.use(
                 }
             }
 
-            // If no refresh token or refresh failed, clear everything and redirect
-            localStorage.removeItem('skylens_token');
-            localStorage.removeItem('skylens_refresh_token');
-            localStorage.removeItem('skylens_current_user');
+            // No refresh token or refresh failed — clear session and redirect to login
+            sessionStorage.removeItem('skylens_token');
+            sessionStorage.removeItem('skylens_refresh_token');
+            sessionStorage.removeItem('skylens_current_user');
 
-            // Public routes that should NOT force a redirect to login if a background call fails
             const PUBLIC_ROUTES = ['/invoice/', '/onboarding/', '/set-password/'];
             const isPublicRoute = PUBLIC_ROUTES.some(route => window.location.pathname.startsWith(route));
 

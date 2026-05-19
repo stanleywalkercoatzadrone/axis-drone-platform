@@ -4,6 +4,7 @@ import { uploadToS3, uploadLocal, deleteFromS3 } from '../services/storageServic
 import { analyzeInspectionImage } from '../services/geminiService.js';
 import { io } from '../app.js';
 import { v4 as uuidv4 } from 'uuid';
+import { getFlightMetadata } from '../services/exifService.js';
 
 const USE_S3 = process.env.USE_S3 === 'true';
 
@@ -183,6 +184,23 @@ export const deleteImage = async (req, res, next) => {
         res.json({
             success: true,
             message: 'Image deleted successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+export const getImageMetadata = async (req, res, next) => {
+    try {
+        const { url } = req.query;
+        if (!url) {
+            throw new AppError('Image URL is required', 400);
+        }
+
+        const metadata = await getFlightMetadata(url);
+        
+        res.json({
+            success: true,
+            data: metadata
         });
     } catch (error) {
         next(error);

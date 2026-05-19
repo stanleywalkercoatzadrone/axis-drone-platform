@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { AppError } from './errorHandler.js';
-import { getCache, setCache } from '../config/redis.js';
+import { getCache, setCache, deleteCache } from '../config/redis.js';
 import crypto from 'crypto';
 import { resolveEffectivePermissions, can } from '../services/permissionService.js';
 import { normalizeRole, isAdmin } from '../utils/roleUtils.js';
@@ -11,6 +11,9 @@ const JWT_SECRET = (() => {
     const secret = process.env.JWT_SECRET;
     if (!secret && process.env.NODE_ENV === 'production') {
         throw new Error('FATAL: JWT_SECRET environment variable is not set. Cannot start in production without it.');
+    }
+    if (!secret) {
+        console.warn('⚠️  WARNING: JWT_SECRET not set — using insecure dev fallback. Do NOT deploy to production without setting JWT_SECRET.');
     }
     return secret || 'dev-only-insecure-jwt-secret-do-not-use-in-prod';
 })();
@@ -53,6 +56,14 @@ export const protect = async (req, res, next) => {
 
         // Check cache for user data
         let user = await getCache(`user:${decoded.id}`);
+
+        // Cache-bust guard: if the cached tenant_id looks like a UUID (legacy format
+        // before the slug migration), force a fresh DB fetch so the correct slug is used.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (user && user.tenant_id && UUID_RE.test(user.tenant_id)) {
+            await deleteCache(`user:${decoded.id}`);
+            user = null;
+        }
 
         if (!user) {
             const { query } = await import('../config/database.js');

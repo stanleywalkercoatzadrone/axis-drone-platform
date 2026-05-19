@@ -1,9 +1,26 @@
 steps:
-  # Build the container image with build args
+  # 0. SMOKE TEST: Ensure the frontend compiles before we allow any deployment.
+  # This prevents destructive commits (like missing dashboard files) from going live.
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['install']
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+
+  # Pull cached image for layer reuse (speeds up builds dramatically)
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/axis-platform:latest || true'
+
+  # Build the container image with cache-from
   - name: 'gcr.io/cloud-builders/docker'
     args: 
       - 'build'
-      - '--no-cache'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/axis-platform:latest'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/axis-platform:$BUILD_ID'
       - '-t'
@@ -36,12 +53,21 @@ steps:
       - '${_MAX_INSTANCES}'
       - '--min-instances'
       - '${_MIN_INSTANCES}'
+      - '--no-cpu-throttling'
       - '--timeout'
       - '600'
       - '--update-env-vars'
-      - 'NODE_ENV=production'
+      - >-
+        NODE_ENV=production,
+        PHOTOGRAMMETRY_ENGINE=axis,
+        PIX4D_API_URL=https://cloud.pix4d.com,
+        GCS_BUCKET_NAME=axis-platform-uploads,
+        PIX4D_CLIENT_ID=${_PIX4D_CLIENT_ID},
+        PIX4D_CLIENT_SECRET=${_PIX4D_CLIENT_SECRET}
       # Note: Sensitive env vars (DATABASE_URL, JWT_SECRET, GEMINI_API_KEY, FRONTEND_URL)
-      # should be set via Cloud Run Console or using --set-secrets flag
+      # should be set via Cloud Run Console or using --set-secrets flag.
+      # PIX4D_CLIENT_ID and PIX4D_CLIENT_SECRET can also be managed via Secret Manager
+      # and passed with --set-secrets instead for better security.
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/axis-platform'
@@ -51,8 +77,10 @@ substitutions:
   _REGION: 'us-central1'
   _MEMORY: '2Gi'
   _CPU: '2'
-  _MAX_INSTANCES: '10'
-  _MIN_INSTANCES: '0'
+  _MAX_INSTANCES: '1'
+  _MIN_INSTANCES: '1'
+  _PIX4D_CLIENT_ID: 'xVpK2bJAgFBMDWE64WKyHIhqEY9kEA3iTOHNgTdH'
+  _PIX4D_CLIENT_SECRET: 'JVuOtmwLNE8p4uQs2rbujgceu1pvqQlYNIaq876VuEywOAgfZOx1yAtkXyVvx8z36ycELoAxIBFui3Kj8zEzTQFvx5RXXEtyvdwEPZXWWEbqKNyCyPHbLcsUAYm2SKQN'
 
 # Set build timeout to 20 minutes (top-level field)
 timeout: '1200s'

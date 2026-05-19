@@ -214,15 +214,23 @@ export const WeatherWidget: React.FC = () => {
                     </div>
 
                     <div className="flex flex-1 overflow-hidden">
-                        {/* Map */}
-                        <div className="flex-1 relative">
-                            <iframe
+                        {/* Map — Carto static tile (no referer restriction, no iframe) */}
+                        <div className="flex-1 relative bg-slate-950">
+                            <img
                                 key={`${mapCenter.lat},${mapCenter.lng}`}
-                                src={mapUrl}
-                                className="w-full h-full border-0"
-                                title="Weather Map"
-                                style={{ filter: 'brightness(0.85) saturate(0.7) hue-rotate(200deg)' }}
+                                src={`https://staticmap.openstreetmap.de/staticmap.php?center=${mapCenter.lat},${mapCenter.lng}&zoom=${zoom}&size=800x600&maptype=osmarender&markers=${mapCenter.lat},${mapCenter.lng},red`}
+                                onError={(e) => {
+                                    // Fallback: show a Carto tile grid preview
+                                    (e.target as HTMLImageElement).src = `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${Math.floor((mapCenter.lng + 180) / 360 * Math.pow(2, zoom))}/${Math.floor((1 - Math.log(Math.tan(mapCenter.lat * Math.PI / 180) + 1 / Math.cos(mapCenter.lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))}.png`;
+                                }}
+                                className="w-full h-full object-cover"
+                                style={{ filter: 'brightness(0.7) saturate(0.6) hue-rotate(200deg)' }}
+                                alt="Weather map"
                             />
+                            {/* Crosshair marker */}
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-4 h-4 rounded-full bg-cyan-400 border-2 border-white shadow-lg shadow-cyan-400/40" />
+                            </div>
                             {/* Layer toggles overlay */}
                             <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
                                 {(Object.keys(TILE_LAYERS) as LayerKey[]).map(key => {

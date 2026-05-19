@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 import { IndustryKey } from '../src/config/industryConfig';
 import { X, Save, Building2 } from 'lucide-react';
-import { useAuth } from '../src/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 interface ClientFormProps {
     onClose: () => void;

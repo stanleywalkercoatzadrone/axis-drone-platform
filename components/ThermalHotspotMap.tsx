@@ -5,7 +5,7 @@
  * Uploads to POST /api/thermal/detect/:deploymentId (already live).
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import {
     Thermometer, AlertTriangle, Upload, RefreshCw, Flame,
     MapPin, CheckCircle2, Camera, Loader2

@@ -18,6 +18,7 @@ body {
     background: linear-gradient(to bottom,
             transparent,
             rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
+    text-align: center;
 }
 
 /* Force dark text only on explicitly light-themed forms.
@@ -43,45 +44,145 @@ body {
 
 @media print {
     @page {
-        margin: 0;
-        size: auto;
+        margin: 0.75in 0.75in 0.75in 0.75in;
+        size: letter portrait;
     }
 
+    /* Hide everything except the invoice */
     body {
         visibility: hidden;
         background: white !important;
+        color: #0f172a !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 
-    /* Show only specific printable content */
-    .mission-cost-report,
-    .mission-cost-report *,
+    /* ------ Make the invoice and ALL its children visible ------ */
     .printable-invoice,
-    .printable-invoice *,
-    #axis-print-root,
-    #axis-print-root * {
+    .printable-invoice * {
         visibility: visible;
     }
 
-    .mission-cost-report,
-    .printable-invoice,
-    #axis-print-root {
-        visibility: visible !important;
-        display: block !important;
-        position: fixed;
-        inset: 0;
+    /* Position correctly for print:
+       - top/left: 0 anchors the invoice to the page origin
+       - NO bottom/right constraint — height must be unconstrained so
+         content below the fold (banking section) is NOT clipped */
+    .printable-invoice {
+        position: absolute;
+        top: 0;
+        left: 0;
         width: 100%;
-        height: auto;
-        margin: 0;
-        padding: 32px;
-        background: white;
-        z-index: 99999;
+        height: auto !important;
+        max-height: none !important;
+        background: white !important;
         box-shadow: none !important;
         border: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
         overflow: visible !important;
     }
 
+    /* Force white background on every nested element (full depth) */
+    .printable-invoice * {
+        background-color: transparent !important;
+    }
+    /* Explicit white on the main content wrapper and section boxes */
+    .printable-invoice > div,
+    .printable-invoice .rounded-2xl,
+    .printable-invoice .rounded-xl,
+    .printable-invoice .rounded-lg {
+        background-color: white !important;
+    }
+
+    /* Force all text dark */
+    .printable-invoice *,
+    .printable-invoice p,
+    .printable-invoice span,
+    .printable-invoice td,
+    .printable-invoice th,
+    .printable-invoice div {
+        color: #1e293b !important;
+        border-color: #e2e8f0 !important;
+    }
+
+    /* Keep the cyan INVOICE heading readable */
+    .printable-invoice h1 {
+        color: #0369a1 !important;
+    }
+
+    /* Keep the "Axis A" logo box */
+    .printable-invoice .bg-cyan-600 {
+        background-color: #0891b2 !important;
+    }
+    .printable-invoice .bg-cyan-600 span {
+        color: white !important;
+    }
+
+    /* Table borders */
+    .printable-invoice table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    .printable-invoice thead {
+        background-color: #f8fafc !important;
+    }
+    .printable-invoice th {
+        border-bottom: 2px solid #cbd5e1 !important;
+        color: #64748b !important;
+    }
+    .printable-invoice td {
+        border-bottom: 1px solid #f1f5f9 !important;
+    }
+
+    /* Total amount box and banking box */
+    .printable-invoice .rounded-2xl,
+    .printable-invoice .rounded-xl {
+        background: #f8fafc !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+
+    /* Banking section — keep on same page */
+    .printable-invoice .border-t {
+        page-break-inside: avoid;
+        border-top-color: #e2e8f0 !important;
+    }
+
+    /* Amount highlight — keep cyan for readability */
+    .printable-invoice .text-cyan-400,
+    .printable-invoice .text-cyan-500 {
+        color: #0284c7 !important;
+    }
+
+    /* Muted text */
+    .printable-invoice .text-slate-400,
+    .printable-invoice .text-slate-500,
+    .printable-invoice .text-slate-600 {
+        color: #64748b !important;
+    }
+
+    /* Hide all interactive controls */
     .no-print,
-    .print\:hidden {
+    .print\:hidden,
+    button,
+    [role="button"] {
         display: none !important;
+    }
+
+    /* Avoid page breaks in awkward places */
+    .printable-invoice table,
+    .printable-invoice tr {
+        page-break-inside: avoid;
+    }
+
+    /* Mission cost report (kept for backwards compat) */
+    .mission-cost-report,
+    .mission-cost-report * {
+        visibility: visible;
+    }
+    .mission-cost-report {
+        position: absolute;
+        inset: 0;
+        background: white !important;
     }
 }

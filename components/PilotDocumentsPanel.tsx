@@ -4,7 +4,7 @@
  * Uses existing routes: GET/POST/DELETE /api/personnel/:id/documents
  */
 import React, { useState, useEffect, useRef } from 'react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import {
     FileText, Plus, Trash2, Clock, CheckCircle2, AlertCircle,
     Link, Calendar, Tag, Loader2, RefreshCw, X, Upload

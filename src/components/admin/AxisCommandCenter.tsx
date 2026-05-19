@@ -1,8 +1,4 @@
-/**
- * AxisCommandCenter.tsx — Phase 11+ Enterprise Command Center
- * Includes: Portfolio, Forecast, Pilot Allocation, Weather Risk,
- * Sessions, Timeline, Thermal Faults, Solar Command, Pilot Performance
- */
+ * Sessions, Timeline, Pilot Performance
 import React, { useEffect, useState, useCallback } from 'react';
 import { SessionsView } from '../dashboard/SessionsView';
 import { MissionTimelineView } from '../dashboard/MissionTimelineView';
@@ -91,7 +87,7 @@ export const AxisCommandCenter: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<
         'portfolio' | 'forecast' | 'pilots' | 'weather' |
-        'sessions' | 'timeline' | 'thermal-faults' | 'solar-command' | 'pilot-performance'
+        'sessions' | 'timeline' | 'pilot-performance'
     >('portfolio');
 
     const fetchData = useCallback(async () => {

@@ -58,13 +58,10 @@ import { FaultReviewCenter } from './src/components/admin/FaultReviewCenter';
 // Enterprise Phase 8+ Views
 import { SessionsView } from './src/components/dashboard/SessionsView';
 import { MissionTimelineView } from './src/components/dashboard/MissionTimelineView';
+import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
 import { ThermalFaultsView } from './src/components/dashboard/ThermalFaultsView';
 import { SolarCommandCenter } from './src/components/dashboard/SolarCommandCenter';
 import { PilotPerformanceView } from './src/components/dashboard/PilotPerformanceView';
-import { InvoicesDashboard } from './src/components/dashboard/InvoicesDashboard';
-import { PayrollView } from './src/components/dashboard/PayrollView';
-import { RevenueDashboard } from './src/components/dashboard/RevenueDashboard';
-import { VendorExpensesDashboard } from './src/components/dashboard/VendorExpensesDashboard';
 
 
 import OnboardingStart from './components/onboarding/OnboardingStart';
@@ -89,17 +86,24 @@ import PilotIssuesV2 from './src/components/dashboard/v2/PilotIssuesV2';
 import PilotChecklistV2 from './src/components/dashboard/v2/PilotChecklistV2';
 import PilotNavV2 from './src/components/layout/v2/PilotNavV2';
 import AIUploadCenter from './components/UploadCenter';
+import PilotComplianceView from './src/components/dashboard/v2/PilotComplianceView';
 import ClientApp from './src/components/client/ClientApp';
+import { usePilotLocale } from './src/hooks/usePilotLocale';
+import ClientSignup from './components/ClientSignup';
+import PilotNetworkApply from './components/PilotNetworkApply';
 
 import apiClient from './services/apiClient';
 import { RequireRole } from './src/components/auth/RequireRole';
 import { PageShell } from './src/components/layout/PageShell';
 import AppShell from './AppShell';
 
+import { InspectionDashboard } from './src/components/dashboard/inspection/InspectionDashboard';
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 const PilotAppV2: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pilot-dashboard' | 'pilot-checklists' | 'pilot-uploads' | 'weather' | 'pilot-issues'>('pilot-dashboard');
+  usePilotLocale(); // auto-switch language based on pilot's registered country
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">
@@ -109,12 +113,11 @@ const PilotAppV2: React.FC = () => {
           <Routes>
             <Route path="dashboard" element={<PilotDashboardV2 />} />
             <Route path="checklist/:id" element={<PilotChecklistV2 />} />
+            <Route path="uploads" element={<PilotUploadV2 />} />
             <Route path="uploads/:id" element={<PilotUploadV2 />} />
-            <Route path="upload-center" element={
-              <div style={{ padding: '24px' }}><AIUploadCenter /></div>
-            } />
             <Route path="weather/:id" element={<PilotWeatherV2 />} />
             <Route path="issues/:id" element={<PilotIssuesV2 />} />
+            <Route path="compliance" element={<PilotComplianceView />} />
             <Route path="*" element={<Navigate to="dashboard" replace />} />
           </Routes>
         </div>
@@ -133,9 +136,7 @@ const AppContent: React.FC = () => {
     'missions' | 'users' | 'ai' | 'checklists' | 'my-tasks' | 'clients' | 'upload' |
     'assets' | 'weather' | 'my-files' | 'solar-intel' |
     // Enterprise Phase 8+ tabs
-    'sessions' | 'timeline' | 'thermal-faults' | 'solar-command' | 'pilot-performance' |
-    // Finance tabs
-    'invoices' | 'payroll' | 'revenue' | 'vendor-expenses'
+    'sessions' | 'timeline' | 'pilot-performance'
   >('dashboard');
 
   const [aiStudioSubTab, setAiStudioSubTab] = useState<'new' | 'archive'>('new');
@@ -240,12 +241,23 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <BrowserRouter>
+      {/* Signup is fully public — rendered outside all auth/data providers */}
+      <Routes>
+        <Route path="/signup" element={<ClientSignup />} />
+        <Route path="/*" element={
       <AuthProvider>
         <CountryProvider>
           <IndustryProvider>
             <MissionProvider>
               <GlobalProvider>
                 <Routes>
+                  {/* ── PUBLIC ROUTES (no auth required) ── */}
+                  <Route path="/signup" element={<ClientSignup />} />
+                  <Route path="/login" element={<AppContent />} />
+
+                  {/* Pilot Network Application — fully public, no auth */}
+                  <Route path="/join" element={<PilotNetworkApply />} />
+
                   {/* Specific route for secure guest view of invoices */}
                   <Route path="/invoice/:token" element={<InvoiceView />} />
 
@@ -262,6 +274,14 @@ const App: React.FC = () => {
                   <Route path="/sites/:siteId/assets" element={
                     <PageShell activeTab="assets" title="Asset Grid">
                       <AssetGrid />
+                    </PageShell>
+                  } />
+
+                  {/* Axis Enterprise Overhauled Engines */}
+
+                  <Route path="/dashboard/inspection/*" element={
+                    <PageShell activeTab="inspection" title="Axis Solar Inspection">
+                      <InspectionDashboard />
                     </PageShell>
                   } />
 
@@ -335,9 +355,6 @@ const App: React.FC = () => {
                     </div>
                   } />
 
-                  {/* Explicit /login route — redirects to root if already logged in */}
-                  <Route path="/login" element={<AppContent />} />
-
                   {/* Main platform routes */}
                   <Route path="/*" element={<AppContent />} />
 
@@ -349,6 +366,8 @@ const App: React.FC = () => {
           </IndustryProvider>
         </CountryProvider>
       </AuthProvider>
+        } />
+      </Routes>
     </BrowserRouter>
   );
 };

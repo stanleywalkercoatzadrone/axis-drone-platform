@@ -15,8 +15,9 @@ import SolarReportGenerator from './generators/SolarReportGenerator';
 import ConstructionReportGenerator from './generators/ConstructionReportGenerator';
 import UtilitiesReportGenerator from './generators/UtilitiesReportGenerator';
 import TelecomReportGenerator from './generators/TelecomReportGenerator';
+import AIReportArchive from './components/AIReportArchive';
 
-type HubView = 'hub' | 'generator';
+type HubView = 'hub' | 'generator' | 'archive';
 
 interface IndustryReportsHubProps {
     missionId?: string;
@@ -53,6 +54,7 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
     const [activeIndustry, setActiveIndustry] = useState<IndustryId>(resolveDefaultIndustry);
     const [view, setView] = useState<HubView>('hub');
     const [activeSection, setActiveSection] = useState<ReportSection | null>(null);
+    const [archiveSearch, setArchiveSearch] = useState('');
 
     const config = INDUSTRY_REPORT_CONFIGS.find(c => c.id === activeIndustry)!
 
@@ -71,6 +73,7 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
     const handleBack = () => {
         setView('hub');
         setActiveSection(null);
+        setArchiveSearch(''); // Clear search when returning to hub
     };
 
     // If we jumped to generator for insurance, render the full existing module
@@ -88,7 +91,28 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
                     <span className="text-slate-600">/</span>
                     <span className="text-slate-300 text-sm font-medium">{activeSection?.title}</span>
                 </div>
-                <EnterpriseAIReporting />
+                <EnterpriseAIReporting missionId={missionId} />
+            </div>
+        );
+    }
+
+    if (view === 'archive') {
+        return (
+            <div className="flex flex-col h-full overflow-hidden">
+                <div className="flex items-center gap-3 px-8 py-3 border-b border-slate-800 bg-slate-900/80 sticky top-0 z-10 shrink-0">
+                    <button
+                        onClick={handleBack}
+                        className="flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors"
+                    >
+                        <ArrowLeft className="w-4 h-4" />
+                        Back to Hub
+                    </button>
+                    <span className="text-slate-600">/</span>
+                    <span className="text-white text-sm font-semibold">Report Archive</span>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                    <AIReportArchive defaultSearch={archiveSearch} />
+                </div>
             </div>
         );
     }
@@ -98,9 +122,14 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
             <GeneratorShell
                 section={activeSection}
                 industryConfig={config}
+                missionId={missionId}
                 missionSiteName={missionSiteName}
                 missionClientName={missionClientName}
                 onBack={handleBack}
+                onShowArchive={(search) => {
+                    setArchiveSearch(search || '');
+                    setView('archive');
+                }}
             />
         );
     }
@@ -129,6 +158,15 @@ const IndustryReportsHub: React.FC<IndustryReportsHubProps> = ({ missionId, miss
                             </div>
                         </div>
                         <p className="text-slate-400 text-sm ml-12">Prism Axis Intelligence Platform — industry-specific AI report generators</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-3">
+                        <button
+                            onClick={() => setView('archive')}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl border border-slate-700/50 transition-all shadow-lg hover:shadow-indigo-500/10 hover:border-slate-500"
+                        >
+                            <FileText className="w-4 h-4 text-indigo-400" />
+                            View Saved Reports
+                        </button>
                     </div>
                 </div>
 
@@ -253,10 +291,10 @@ const SectionCard: React.FC<{
                 style={{ background: section.accentHex }}
             />
             <div
-                className="relative w-12 h-12 rounded-xl flex items-center justify-center text-xl transition-transform duration-300 group-hover:scale-110 shadow-inner"
+                className="relative w-12 h-12 rounded-xl flex items-center justify-center text-xl transition-transform duration-300 group-hover:scale-110"
                 style={{ background: section.accentHex + '11', border: `1px solid ${section.accentHex}30` }}
             >
-                {section.icon}
+                {/* Icon removed to satisfy 'remove abbreviations' request */}
             </div>
         </div>
 
@@ -283,20 +321,22 @@ const SectionCard: React.FC<{
 const GeneratorShell: React.FC<{
     section: ReportSection;
     industryConfig: IndustryReportConfig;
+    missionId?: string;
     missionSiteName?: string;
     missionClientName?: string;
     onBack: () => void;
-}> = ({ section, industryConfig, missionSiteName, missionClientName, onBack }) => {
+    onShowArchive?: (search?: string) => void;
+}> = ({ section, industryConfig, missionId, missionSiteName, missionClientName, onBack, onShowArchive }) => {
     const renderGenerator = () => {
         switch (section.generator) {
             case 'solar':
-                return <SolarReportGenerator section={section} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
+                return <SolarReportGenerator missionId={missionId} section={section} initialSiteName={missionSiteName} initialClientName={missionClientName} onShowArchive={onShowArchive} />;
             case 'construction':
-                return <ConstructionReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
+                return <ConstructionReportGenerator missionId={missionId} section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} onShowArchive={onShowArchive} />;
             case 'utilities':
-                return <UtilitiesReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
+                return <UtilitiesReportGenerator missionId={missionId} section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} onShowArchive={onShowArchive} />;
             case 'telecom':
-                return <TelecomReportGenerator section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} />;
+                return <TelecomReportGenerator missionId={missionId} section={section} industryConfig={industryConfig} initialSiteName={missionSiteName} initialClientName={missionClientName} onShowArchive={onShowArchive} />;
             case 'insurance':
             default:
                 return (

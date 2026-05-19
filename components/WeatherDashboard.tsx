@@ -11,7 +11,9 @@ import {
     Navigation, Gauge, ArrowUp, ArrowDown, Sunrise, Sunset,
     BarChart3, Activity, TrendingUp, TrendingDown, Info
 } from 'lucide-react';
-import { useAuth } from '../src/context/AuthContext';
+import { useAuth } from '../context/AuthContext';
+import { useIndustry } from '../context/IndustryContext';
+import apiClient from '../services/apiClient';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +72,7 @@ interface WeatherData {
     hourly: WeatherHourly;
     daily: WeatherDaily;
     fetchedAt: Date;
+    provider?: string;
 }
 
 // ── WMO Weather Code to description ─────────────────────────────────────────
@@ -408,14 +411,18 @@ const INDUSTRY_LABELS: Record<IndustryId, string> = {
     utilities: '⚡ Utilities', telecom: '📡 Telecom',
 };
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Props ────────────────────────────────────────────────────────────────────
 
 interface WeatherDashboardProps {
-    industry: IndustryId;
+    /** Pre-fill with this location string (e.g. mission site name or coordinates) */
+    initialLocation?: string;
 }
 
-const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryRaw }) => {
-    const industry = (industryRaw?.toLowerCase() ?? 'solar') as IndustryId;
+// ── Main Component ────────────────────────────────────────────────────────────
+
+const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ initialLocation }) => {
+    const { currentIndustry } = useIndustry();
+    const industry = ((currentIndustry as string)?.toLowerCase() ?? 'solar') as IndustryId;
     const { user } = useAuth();
 
     const [geo, setGeo] = useState<GeoLocation | null>(null);
@@ -423,7 +430,13 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
     const [loading, setLoading] = useState(true);
     const [geoError, setGeoError] = useState<string | null>(null);
     const [weatherError, setWeatherError] = useState<string | null>(null);
-    const [activeDay, setActiveDay] = useState(0);
+    const [activeDay,      setActiveDay]      = useState(0);
+    const [forecastRange,  setForecastRange]  = useState<7 | 10 | 16>(7);
+
+
+    const [locationSearch, setLocationSearch] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchError, setSearchError] = useState<string | null>(null);
     const mapRef = useRef<HTMLDivElement>(null);
     const leafletMapRef = useRef<any>(null);
     const leafletMarkerRef = useRef<any>(null);
@@ -434,10 +447,8 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
 
     const fetchGeocode = useCallback(async (lat: number, lon: number) => {
         try {
-            const r = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1`
-            );
-            const d = await r.json();
+            const r = await apiClient.get(`/ai/geocode/reverse?lat=${lat}&lon=${lon}`);
+            const d = r.data?.result ?? {};
             const a = d.address ?? {};
             setGeo({
                 lat, lon,
@@ -454,32 +465,9 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
 
     const fetchWeather = useCallback(async (lat: number, lon: number) => {
         try {
-            const url = new URL('https://api.open-meteo.com/v1/forecast');
-            url.searchParams.set('latitude', lat.toString());
-            url.searchParams.set('longitude', lon.toString());
-            url.searchParams.set('current', [
-                'temperature_2m', 'apparent_temperature', 'relative_humidity_2m',
-                'wind_speed_10m', 'wind_direction_10m', 'wind_gusts_10m',
-                'precipitation', 'cloud_cover', 'visibility', 'surface_pressure',
-                'uv_index', 'weather_code', 'is_day', 'dew_point_2m',
-            ].join(','));
-            url.searchParams.set('hourly', [
-                'temperature_2m', 'precipitation', 'wind_speed_10m',
-                'cloud_cover', 'uv_index', 'precipitation_probability',
-                'shortwave_radiation',
-            ].join(','));
-            url.searchParams.set('daily', [
-                'temperature_2m_max', 'temperature_2m_min', 'precipitation_sum',
-                'wind_speed_10m_max', 'uv_index_max', 'sunrise', 'sunset',
-                'weather_code', 'precipitation_probability_max',
-            ].join(','));
-            url.searchParams.set('temperature_unit', 'fahrenheit');
-            url.searchParams.set('wind_speed_unit', 'kmh');
-            url.searchParams.set('forecast_days', '7');
-            url.searchParams.set('timezone', 'auto');
-
-            const res = await fetch(url.toString());
-            const d = await res.json();
+            // ── Apple WeatherKit Proxy (via backend) ──
+            const r = await apiClient.get(`/weather/forecast?lat=${lat}&lon=${lon}&forecast_days=${forecastRange}`);
+            const d = r.data;
 
             // API may return error body even on 200 — check for it
             if (d.error || !d.current || !d.hourly || !d.daily) {
@@ -518,29 +506,41 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                     cloudCover: h.cloud_cover,
                     uvIndex: h.uv_index,
                     precipitationProbability: h.precipitation_probability,
-                    lightningPotential: h.time.map(() => 0), // derived from weather_code instead
+                    lightningPotential: h.time.map(() => 0),
                     irradiance: h.shortwave_radiation ?? h.time.map(() => 0),
                 },
                 daily: {
-                    time: day.time,
-                    tempMax: day.temperature_2m_max,
-                    tempMin: day.temperature_2m_min,
-                    precipitationSum: day.precipitation_sum,
-                    windSpeedMax: day.wind_speed_10m_max,
-                    uvIndexMax: day.uv_index_max,
-                    sunrise: day.sunrise,
-                    sunset: day.sunset,
-                    weatherCode: day.weather_code,
+                    time:                   day.time,
+                    tempMax:                day.temperature_2m_max,
+                    tempMin:                day.temperature_2m_min,
+                    precipitationSum:       day.precipitation_sum,
+                    windSpeedMax:           day.wind_speed_10m_max,
+                    uvIndexMax:             day.uv_index_max,
+                    sunrise:                day.sunrise,
+                    sunset:                 day.sunset,
+                    weatherCode:            day.weather_code,
                     precipitationProbability: day.precipitation_probability_max,
                 },
                 fetchedAt: new Date(),
+                provider: d._provider || 'open-meteo',
             });
             setWeatherError(null);
         } catch (e: any) {
             console.error('[WeatherDashboard] fetch error:', e);
             setWeatherError(`Could not load weather: ${e?.message ?? 'Check connection'}`);
         }
-    }, []);
+    }, [forecastRange]);
+
+
+    // Re-fetch when forecast range changes (only when we already have a location)
+    useEffect(() => {
+        if (geo) {
+            fetchWeather(geo.lat, geo.lon);
+            setActiveDay(0);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [forecastRange]);
+
 
     // ── Request geolocation on mount ──────────────────────────────────────
 
@@ -568,7 +568,45 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
         );
     }, [fetchGeocode, fetchWeather]);
 
-    useEffect(() => { requestLocation(); }, [requestLocation]);
+    useEffect(() => {
+        if (initialLocation) {
+            // Auto-search the mission's site location instead of using browser geolocation
+            handleLocationSearch(initialLocation);
+        } else {
+            requestLocation();
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // ── Location search (Nominatim forward geocode) ───────────────────────
+
+    const handleLocationSearch = async (query: string) => {
+        const q = query.trim();
+        if (!q) return;
+        setIsSearching(true);
+        setSearchError(null);
+        // Don't wipe weather here — keeps current data visible while searching
+        try {
+            const r = await apiClient.get(`/ai/geocode/search?q=${encodeURIComponent(q)}`);
+            const results = r.data?.results;
+            if (!results || results.length === 0) {
+                setSearchError(`No location found for "${q}". Try a city name or zip code.`);
+                return;
+            }
+            const { lat, lon } = results[0];
+            const latN = parseFloat(lat);
+            const lonN = parseFloat(lon);
+            await Promise.all([fetchGeocode(latN, lonN), fetchWeather(latN, lonN)]);
+            setGeoError(null);
+            setLocationSearch(''); // clear input on success
+        } catch (e: any) {
+            const msg = e?.response?.data?.message || e?.message || 'Check your connection and try again';
+            setSearchError(`Search failed: ${msg}`);
+        } finally {
+            setIsSearching(false);
+            setLoading(false); // always clear loading — covers initialLocation path
+        }
+    };
 
     // ── Leaflet live map ──────────────────────────────────────────────────
     useEffect(() => {
@@ -600,7 +638,10 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
 
             try {
                 const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false });
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+                    maxZoom: 19,
+                }).addTo(map);
                 map.setView([geo.lat, geo.lon], 12);
 
                 const marker = L.marker([geo.lat, geo.lon]).addTo(map)
@@ -609,12 +650,17 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                 leafletMapRef.current = map;
                 leafletMarkerRef.current = marker;
 
-                // Fix for gray tiles when rendered inside flex/grid containers
+                // Fix gray tiles + apply dark mode filter after layout settles
                 setTimeout(() => {
                     if (isMounted && leafletMapRef.current) {
                         leafletMapRef.current.invalidateSize();
+                        // Dark invert so OSM tiles match the dark UI theme
+                        const tilePane = mapRef.current?.querySelector('.leaflet-tile-pane') as HTMLElement | null;
+                        if (tilePane) {
+                            tilePane.style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) saturate(0.7)';
+                        }
                     }
-                }, 250);
+                }, 400);
             } catch (err) {
                 console.error("Leaflet initialization error:", err);
             }
@@ -635,14 +681,20 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                 const script = document.createElement('script');
                 script.id = 'leaflet-js';
                 script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                script.onload = () => {
-                    if (isMounted) initMap();
-                };
+                script.onload = () => { if (isMounted) initMap(); };
                 document.head.appendChild(script);
             } else {
-                // Script tag exists but window.L might not be ready yet
-                const existingScript = document.getElementById('leaflet-js') as HTMLScriptElement;
-                existingScript.addEventListener('load', initMap);
+                // Script tag exists — poll until window.L is ready (handles async race)
+                let attempts = 0;
+                const poll = setInterval(() => {
+                    attempts++;
+                    if ((window as any).L) {
+                        clearInterval(poll);
+                        if (isMounted) initMap();
+                    } else if (attempts > 40) {
+                        clearInterval(poll); // give up after 4s
+                    }
+                }, 100);
             }
         }
 
@@ -669,10 +721,10 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
 
     // ── Render: Loading ─────────────────────────────────────────────────────
 
-    if (loading) return (
+    if (loading || isSearching) return (
         <div className="flex flex-col items-center justify-center py-32 text-slate-400">
             <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-6" />
-            <p className="text-sm font-semibold">Obtaining your location…</p>
+            <p className="text-sm font-semibold">{isSearching ? 'Searching location…' : 'Obtaining your location…'}</p>
             <p className="text-xs text-slate-600 mt-2">Fetching live weather data</p>
         </div>
     );
@@ -750,6 +802,16 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                         </span>
                         {geo && <span>· {geo.lat.toFixed(4)}°, {geo.lon.toFixed(4)}°</span>}
                         <span>· Updated {weather.fetchedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        {weather.provider === 'apple' && (
+                            <span className="flex items-center gap-1 font-semibold text-white ml-2 bg-slate-800 px-2 py-0.5 rounded text-[10px] tracking-wider uppercase">
+                                 Apple WeatherKit
+                            </span>
+                        )}
+                        {weather.provider === 'open-meteo' && (
+                            <span className="flex items-center gap-1 font-medium text-slate-400 ml-2 bg-slate-800 px-2 py-0.5 rounded text-[10px] tracking-wider uppercase">
+                                Open-Meteo
+                            </span>
+                        )}
                     </div>
                     {geoError && (
                         <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
@@ -759,6 +821,30 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Location search bar */}
+                    <form
+                        onSubmit={(e) => { e.preventDefault(); handleLocationSearch(locationSearch); }}
+                        className="flex items-center gap-1.5"
+                    >
+                        <div className="relative">
+                            <MapPin size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                            <input
+                                type="text"
+                                value={locationSearch}
+                                onChange={e => setLocationSearch(e.target.value)}
+                                placeholder="Change location…"
+                                className="pl-7 pr-3 py-1.5 bg-slate-800 border border-white/10 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 w-44 transition-all"
+                            />
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={!locationSearch.trim()}
+                            className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-all"
+                        >
+                            Search
+                        </button>
+                    </form>
+
                     {/* Industry badge */}
                     <span className={`text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-full border ${colours.tailwind} ${colours.light} border-current/20`}>
                         {INDUSTRY_LABELS[industry]} Operations
@@ -766,12 +852,26 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                     <button
                         onClick={requestLocation}
                         className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-blue-400 hover:bg-slate-700 transition-all"
+                        title="Use my current location"
+                    >
+                        <Navigation size={14} />
+                    </button>
+                    <button
+                        onClick={() => geo && fetchWeather(geo.lat, geo.lon)}
+                        className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-blue-400 hover:bg-slate-700 transition-all"
                         title="Refresh weather"
                     >
                         <RefreshCw size={14} />
                     </button>
                 </div>
             </div>
+            {/* Search error */}
+            {searchError && (
+                <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
+                    <AlertTriangle size={12} />
+                    {searchError}
+                </div>
+            )}
 
             {/* ── FLIGHT SUGGESTION PANEL ──────────────────────────────── */}
             <div className={`rounded-2xl border p-4 ${flightBgMap[flightStatus]}`}>
@@ -835,7 +935,7 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Location Map</span>
                         <span className="ml-auto text-[10px] text-slate-600">{geo.lat.toFixed(4)}°, {geo.lon.toFixed(4)}°</span>
                     </div>
-                    <div ref={mapRef} style={{ height: 240 }} className="w-full" />
+                    <div ref={mapRef} style={{ height: '280px' }} className="w-full" />
                 </div>
             )}
 
@@ -1021,14 +1121,40 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ industry: industryR
                 </div>
             </div>
 
-            {/* ── 7-Day Daily Forecast ─────────────────────────────────── */}
+            {/* ── Forecast Range Toggle + Daily Forecast ─────────────────── */}
             <div>
-                <div className="flex items-center gap-2 mb-3">
-                    <div className={`w-1 h-5 rounded-full ${colours.tailwind.replace('text-', 'bg-')}`} />
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-400">7-Day Forecast</h3>
+                {/* Header + range toggle */}
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <div className={`w-1 h-5 rounded-full ${colours.tailwind.replace('text-', 'bg-')}`} />
+                        <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-400">
+                            {forecastRange}-Day Forecast
+
+                        </h3>
+                    </div>
+                    <div className="flex items-center gap-1 p-1 bg-slate-800/60 border border-slate-700/50 rounded-lg">
+                        {([7, 10, 16] as const).map(d => (
+                            <button
+                                key={d}
+                                onClick={() => setForecastRange(d)}
+                                className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all
+                                    ${forecastRange === d
+                                        ? `${colours.light} ${colours.tailwind}`
+                                        : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                {d}D
+                            </button>
+                        ))}
+                    </div>
                 </div>
-                <div className="grid grid-cols-7 gap-2">
-                    {daily.time.slice(0, 7).map((dateStr, idx) => {
+
+                {/* Day cards — adaptive columns */}
+                <div className={`grid gap-2 ${
+                    forecastRange === 7  ? 'grid-cols-7' :
+                    forecastRange === 10 ? 'grid-cols-5 sm:grid-cols-10' :
+                                          'grid-cols-4 sm:grid-cols-8'
+                }`}>
+                    {daily.time.slice(0, forecastRange).map((dateStr, idx) => {
                         const dInfo = getWeatherInfo(daily.weatherCode[idx]);
                         const isActive = activeDay === idx;
                         return (

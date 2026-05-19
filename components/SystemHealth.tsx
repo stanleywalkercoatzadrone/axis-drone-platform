@@ -8,7 +8,7 @@ import {
     Cpu,
     RefreshCw
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 const SystemHealth: React.FC = () => {
     const [health, setHealth] = useState<any>(null);

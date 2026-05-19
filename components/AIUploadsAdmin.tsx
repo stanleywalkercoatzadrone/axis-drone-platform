@@ -6,7 +6,7 @@ import {
   BrainCircuit, FileImage, Zap, Layers, FileText, BarChart3,
   CheckCircle2, AlertTriangle, Clock, RotateCw, ChevronDown,
   ChevronRight, RefreshCw, Image, Eye, Thermometer, Activity,
-  Printer, Trash2, CheckSquare, Square,
+  Printer, Trash2, CheckSquare, Square, Map, Box, Cpu, Waves,
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import { AIReportViewer } from './AIReportPage';
@@ -58,6 +58,95 @@ function fmt(dt: string) {
 
 function isImageUrl(url: string) {
   return /\.(jpe?g|png|gif|webp|tiff?|bmp)(\?|$)/i.test(url);
+}
+
+// ── Pipeline Stage Constants ───────────────────────────────────────────────
+const PIPELINE_STEPS = [
+  { key: 'uploading',  label: 'Uploading',   color: '#6366f1' },
+  { key: 'queued',     label: 'Queued',      color: '#a855f7' },
+  { key: 'processing', label: 'Processing',  color: '#f59e0b' },
+  { key: 'analyzing',  label: 'AI Analysis', color: '#3b82f6' },
+  { key: 'completed',  label: 'Complete',    color: '#22c55e' },
+  { key: 'failed',     label: 'Failed',      color: '#ef4444' },
+];
+
+const STEP_ORDER = ['uploading','queued','processing','analyzing','completed'];
+
+// ── Pipeline Progress Bar ────────────────────────────────────────────────────
+function PipelineProgressBar({ datasetId }: { datasetId: string }) {
+  const [pipeline, setPipeline] = useState<any>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const r = await apiClient.get(`/mission-uploads/pipeline/status/${datasetId}`);
+        if (alive) setPipeline(r.data?.data);
+      } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { alive = false; clearInterval(id); };
+  }, [datasetId]);
+
+  if (!pipeline) return null;
+
+  const status   = pipeline.pipeline_status || pipeline.job_status || 'uploading';
+  const progress = pipeline.pipeline_progress ?? pipeline.job_progress ?? 0;
+  const stepIdx  = STEP_ORDER.indexOf(status);
+  const isFailed = status === 'failed';
+  const isComplete = status === 'completed';
+  const stepDef  = PIPELINE_STEPS.find(s => s.key === status);
+
+  return (
+    <div className="mt-2 p-3 bg-slate-950/60 border border-slate-800 rounded-xl space-y-2">
+      {/* Stage pills */}
+      <div className="flex items-center gap-1 flex-wrap">
+        {STEP_ORDER.map((key, i) => {
+          const def = PIPELINE_STEPS.find(s => s.key === key)!;
+          const active = key === status;
+          const done   = !isFailed && i < stepIdx;
+          return (
+            <div key={key} className="flex items-center gap-1">
+              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border transition-all
+                ${active ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300 animate-pulse'
+                  : done ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                  : 'bg-slate-900 border-slate-800 text-slate-600'}`}>
+                {done ? '✓ ' : ''}{def.label}
+              </span>
+              {i < STEP_ORDER.length - 1 && <span className="text-slate-700 text-[9px]">›</span>}
+            </div>
+          );
+        })}
+        {isFailed && (
+          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full border bg-red-500/10 border-red-500/20 text-red-400">✗ Failed</span>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      <div className="relative h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{
+            width: `${progress}%`,
+            background: isFailed ? '#ef4444' : isComplete ? '#22c55e' : 'linear-gradient(90deg, #6366f1, #3b82f6)',
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-slate-500">{progress}% complete</span>
+        {pipeline.ai_result?.defects_detected != null && (
+          <span className="text-[9px] font-bold text-indigo-400">
+            🧠 {pipeline.ai_result.defects_detected} defects · {pipeline.ai_result.severity}
+          </span>
+        )}
+        {pipeline.error_message && (
+          <span className="text-[9px] text-red-400 truncate max-w-xs">{pipeline.error_message}</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── AI Result Panel ─────────────────────────────────────────────────────────
@@ -213,6 +302,8 @@ function JobRow({ job, onDelete, isSelected }: {
   const [showReport, setShowReport]   = useState(false);
   const Icon = TYPE_ICONS[job.upload_type] || FileImage;
   const aiResult = job.ai_result;
+  const [outputs, setOutputs]         = useState<any[]>([]);
+  const [outputsLoading, setOutputsLoading] = useState(false);
 
   const loadFiles = async () => {
     if (expanded) { setExpanded(false); return; }
@@ -222,6 +313,15 @@ function JobRow({ job, onDelete, isSelected }: {
     try {
       const r = await apiClient.get(`/pilot/upload-jobs/${job.id}/files`);
       setFiles(r.data?.data || []);
+
+      if (job.upload_type === 'orthomosaic') {
+        setOutputsLoading(true);
+        apiClient.get(`/orthomosaic/jobs/${job.id}/outputs`)
+          .then(r2 => setOutputs(r2.data?.data || []))
+          .catch(() => {})
+          .finally(() => setOutputsLoading(false));
+      }
+
     } catch (_) {} finally { setLoading(false); }
   };
 
@@ -286,6 +386,10 @@ function JobRow({ job, onDelete, isSelected }: {
             {job.analysis_type ? ` · ${job.analysis_type.replace(/_/g,' ')}` : ''}
             · {parseInt(job.file_count)||0} files · {fmt(job.created_at)}
           </p>
+          {/* Pipeline progress — shown for ingestion engine jobs */}
+          {(job.upload_type === 'orthomosaic' || job.analysis_type === 'mission_data') && job.mission_id && (
+            <PipelineProgressBar datasetId={job.id} />
+          )}
         </div>
 
         {/* Report buttons */}
@@ -339,6 +443,41 @@ function JobRow({ job, onDelete, isSelected }: {
               <RotateCw size={12} className="animate-spin" /> Loading images…
             </div>
           )}
+          {job.upload_type === 'orthomosaic' && (
+            <div className="px-4 pb-4">
+              <h4 className="text-[10px] font-black uppercase tracking-wider text-indigo-400 mb-2 flex items-center gap-2">
+                <Box size={10} /> Processed Deliverables
+              </h4>
+              {outputsLoading ? (
+                 <div className="text-[11px] text-slate-500 flex items-center gap-2"><RotateCw size={10} className="animate-spin" /> Fetching outputs...</div>
+              ) : outputs.length === 0 ? (
+                 <div className="text-[10px] text-slate-500">No outputs generated yet.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {outputs.map((out: any) => (
+                    <div key={out.id} className="flex items-center justify-between p-2 rounded-lg border border-slate-700/50 bg-slate-800/30">
+                      <div className="flex items-center gap-3 min-w-0 pr-2">
+                        <Map size={14} className="text-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold text-slate-200 truncate">{out.file_path ? out.file_path.split('/').pop() : out.output_type}</p>
+                          <p className="text-[9px] text-slate-500 uppercase font-bold">{out.output_type} {out.file_size_bytes ? `· ${Math.round(out.file_size_bytes/1024/1024)}MB` : ''}</p>
+                        </div>
+                      </div>
+                      <button onClick={async () => {
+                        try {
+                          const r = await apiClient.get(`/orthomosaic/jobs/${job.id}/outputs/${out.id}/download`);
+                          const url = r.data?.data?.downloadUrl;
+                          if (url) window.open(url, '_blank');
+                        } catch(e) { alert('Download failed'); }
+                      }} className="shrink-0 text-[9px] font-black uppercase tracking-wider bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 px-3 py-1.5 rounded-lg hover:bg-indigo-500/20 hover:text-indigo-200 transition-colors">
+                        Download
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -356,13 +495,13 @@ const AIUploadsAdmin: React.FC = () => {
   const [selected, setSelected]   = useState<Set<string>>(new Set());
   const [deleting, setDeleting]   = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setSelected(new Set());
     try {
       const r = await apiClient.get('/pilot/upload-jobs/admin/all');
       setJobs(r.data?.data || []);
-    } catch (_) {} finally { setLoading(false); }
+    } catch (_) {} finally { if (!silent) setLoading(false); }
   }, []);
 
   const deleteOne = async (jobId: string) => {
@@ -392,7 +531,12 @@ const AIUploadsAdmin: React.FC = () => {
   const toggleSelectAll = () =>
     setSelected(s => s.size === filtered.length ? new Set() : new Set(filtered.map(j => j.id)));
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Auto-refresh every 20 seconds to pick up new pilot uploads
+    const interval = setInterval(() => load(true), 20000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const filtered = jobs.filter(j => {
     if (filter !== 'all' && j.status !== filter) return false;
@@ -426,7 +570,7 @@ const AIUploadsAdmin: React.FC = () => {
           <h2 className="text-xl font-black text-white uppercase tracking-tight">AI Upload Monitor</h2>
           <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-widest font-bold">All Pilot Submissions · AI Reports · Images</p>
         </div>
-        <button onClick={load} disabled={loading}
+        <button onClick={() => load()} disabled={loading}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:border-slate-600 transition-colors font-bold disabled:opacity-50">
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -499,8 +643,15 @@ const AIUploadsAdmin: React.FC = () => {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <BrainCircuit size={32} className="text-slate-700 mb-3" />
-          <p className="text-sm text-slate-500 font-bold">No upload jobs found</p>
-          <p className="text-xs text-slate-600 mt-1">Pilots submit AI uploads from the AI Upload Center</p>
+          <p className="text-sm text-slate-500 font-bold">No upload jobs yet</p>
+          <p className="text-xs text-slate-600 mt-1 max-w-xs mx-auto">
+            Pilots submit jobs from <strong className="text-slate-400">Mission Uploads</strong> in their pilot portal.
+            This view auto-refreshes every 20 seconds — or hit Refresh above.
+          </p>
+          <div className="mt-4 flex items-center gap-2 text-[10px] text-emerald-500 font-bold uppercase tracking-widest">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            Listening for uploads
+          </div>
         </div>
       ) : (
         <div className="space-y-2">

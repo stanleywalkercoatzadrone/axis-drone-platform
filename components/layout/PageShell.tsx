@@ -93,7 +93,7 @@ export const PageShell: React.FC<PageShellProps> = ({ children, title, actions, 
                         />
                         <NavItem
                             icon={<Calendar />}
-                            label={`${tLabel('mission')} Terminal`}
+                            label="Mission Terminal"
                             active={activeTab === 'deployments'}
                             onClick={() => onNavigate?.('deployments')}
                         />

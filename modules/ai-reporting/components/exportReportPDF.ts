@@ -5,7 +5,7 @@ import { saveReport } from '../utils/reportStorage';
 
 // ─── PDF Engine ───────────────────────────────────────────────────────────────
 
-export const exportReportPDF = async (report: ClaimsReport): Promise<void> => {
+export const exportReportPDF = async (report: ClaimsReport): Promise<string | void> => {
     const container = document.createElement('div');
     container.style.cssText = [
         'position:fixed', 'top:-99999px', 'left:-99999px',
@@ -44,12 +44,14 @@ export const exportReportPDF = async (report: ClaimsReport): Promise<void> => {
         const filename = `claims-report-${slug}.pdf`;
 
         // Save to archive before downloading
+        let reportId = '';
         try {
             const buf = pdf.output('arraybuffer');
-            saveReport('insurance', report.title || `Claim ${report.claimNumber || ''}`, filename, buf);
+            reportId = saveReport('insurance', report.title || `Claim ${report.claimNumber || ''}`, filename, buf, report);
         } catch { /* non-fatal */ }
 
         pdf.save(filename);
+        return reportId;
     } finally {
         document.body.removeChild(container);
     }
@@ -95,7 +97,7 @@ const headerBar = (report: ClaimsReport, pageNum: number, totalPages: number) =>
     <div style="background:#1e1b4b;padding:10px 36px;display:flex;justify-content:space-between;align-items:center;">
         <div style="display:flex;align-items:center;gap:10px;">
             <div style="width:24px;height:24px;background:#f97316;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;font-size:13px;">A</div>
-            <span style="font-size:9px;font-weight:700;letter-spacing:2px;color:#f97316;text-transform:uppercase;">Prism Axis ${report.industry || 'Enterprise'} Solutions</span>
+            <span style="font-size:9px;font-weight:700;letter-spacing:2px;color:#f97316;text-transform:uppercase;">axis by coatzdrone</span>
         </div>
         <div style="display:flex;align-items:center;gap:24px;">
             <span style="font-size:9px;color:rgba(255,255,255,0.5);">${report.claimNumber ? `Claim #${report.claimNumber}` : ''}</span>
@@ -153,10 +155,10 @@ const buildFullReport = (report: ClaimsReport): string => {
             <!-- Header -->
             <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                 <div style="display:flex;align-items:center;gap:14px;">
-                    <div style="width:44px;height:44px;background:linear-gradient(135deg, #f97316, #dc2626);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:24px;box-shadow:0 10px 20px rgba(249,115,22,0.3);">A</div>
+                    <div style="width:44px;height:44px;background:linear-gradient(135deg, #2563eb, #3b82f6);border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:24px;box-shadow:0 10px 20px rgba(37,99,235,0.3);">A</div>
                     <div>
-                        <p style="font-size:14px;font-weight:900;letter-spacing:4px;color:#fff;margin:0;">PRISM AXIS</p>
-                        <p style="font-size:10px;color:#f97316;letter-spacing:1px;margin:0;font-weight:700;">ENTERPRISE CLAIMS AI</p>
+                        <p style="font-size:14px;font-weight:900;letter-spacing:4px;color:#fff;margin:0;">axis by coatzdrone</p>
+                        <p style="font-size:10px;color:#3b82f6;letter-spacing:1px;margin:0;font-weight:700;">ENTERPRISE CLAIMS AI</p>
                     </div>
                 </div>
                 <div style="text-align:right;">
@@ -171,7 +173,8 @@ const buildFullReport = (report: ClaimsReport): string => {
                     Neural Claims Report — Level ${riskLabel(score)}
                 </div>
                 <h1 style="font-size:42px;font-weight:900;color:#fff;margin:0 0 16px;line-height:1.1;letter-spacing:-1px;">${report.title || 'Property Damage Inspection'}</h1>
-                <p style="font-size:18px;color:#cbd5e1;font-weight:500;margin:0;">Location: <span style="color:#fff;font-weight:800;">${report.propertyAddress || 'TBD'}</span></p>
+                <p style="font-size:18px;color:#cbd5e1;font-weight:500;margin:0;">Company: <span style="color:#2563eb;font-weight:900;">${report.carrier || 'TBD'}</span></p>
+                <p style="font-size:14px;color:#94a3b8;margin-top:8px;">Location: <span style="color:#fff;font-weight:700;">${report.propertyAddress || 'TBD'}</span></p>
             </div>
 
             <!-- Dashboard Glass Panel -->
@@ -203,10 +206,12 @@ const buildFullReport = (report: ClaimsReport): string => {
                 </div>
             </div>
 
-            <!-- Footer Meta -->
             <div style="margin-top:24px;display:flex;justify-content:space-between;color:#64748b;font-size:10px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">
                 <p>CARRIER: ${report.carrier || 'N/A'}</p>
-                <p>ADJUSTER: ${report.adjusterName || 'N/A'}</p>
+                <div style="display:flex;gap:16px;">
+                    <p>PILOT: ${report.pilotName || 'N/A'}</p>
+                    <p>ADJUSTER: ${report.adjusterName || 'N/A'}</p>
+                </div>
                 <p>GENERATED: ${today()}</p>
             </div>
         </div>
@@ -379,6 +384,11 @@ const buildFullReport = (report: ClaimsReport): string => {
                         </div>
                     </div>
                     <div style="padding:16px 20px;">
+                        <!-- Analyzed Image Source -->
+                        <div style="width:100%; height:200px; background:#f1f5f9; border-radius:8px; overflow:hidden; margin-bottom:16px; display:flex; align-items:center; justify-content:center; border:1px solid #e2e8f0;">
+                            ${img.url ? `<img src="${img.url}" style="width:100%; height:100%; object-fit:cover;" />` : `<span style="color:#94a3b8; font-size:12px; font-weight:700;">IMAGE SOURCE NOT AVAILABLE</span>`}
+                        </div>
+                        
                         ${img.aiSummary ? `
                         <div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:12px;">
                             <p style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6366f1;margin:0 0 4px;">AI Analysis Summary</p>

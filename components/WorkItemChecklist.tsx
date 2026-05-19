@@ -4,7 +4,7 @@ import {
     MessageSquare, ChevronDown, ChevronUp, MapPin,
     Calendar, Tag, MoreHorizontal, User, Save
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { WorkItem } from '../types';
 
 interface WorkItemChecklistProps {

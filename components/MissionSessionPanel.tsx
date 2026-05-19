@@ -4,12 +4,13 @@
  * Supports inline editing of individual sessions.
  */
 import React, { useState, useEffect } from 'react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import {
     Play, Receipt, CloudSun, CheckCircle2,
     Clock, AlertTriangle, Edit3, Save, X,
-    ChevronDown, ChevronUp, Pencil
+    ChevronDown, ChevronUp, Pencil, FileText, History
 } from 'lucide-react';
+import AIReportArchive from '../modules/ai-reporting/components/AIReportArchive';
 
 interface Props {
     missionId: string;
@@ -67,6 +68,7 @@ export const MissionSessionPanel: React.FC<Props> = ({ missionId, missionTitle }
     const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
     const [editDraft, setEditDraft] = useState<SessionEdit | null>(null);
     const [sessionSaving, setSessionSaving] = useState(false);
+    const [activeTab, setActiveTab] = useState<'sessions' | 'reports'>('sessions');
 
     const fetchData = async () => {
         setLoading(true);
@@ -188,7 +190,40 @@ export const MissionSessionPanel: React.FC<Props> = ({ missionId, missionTitle }
     const unbilledCount = sessions.filter(s => s.billable && !s.invoice_id).length;
 
     return (
-        <div className="space-y-6 p-4">
+        <div className="flex flex-col h-full overflow-hidden">
+            {/* Tab Switcher */}
+            <div className="flex items-center gap-1 p-1 bg-slate-900/50 border border-slate-800 rounded-xl mb-6 mx-4 mt-2 self-start">
+                <button
+                    onClick={() => setActiveTab('sessions')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        activeTab === 'sessions' 
+                            ? 'bg-blue-600 text-white shadow-lg' 
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                >
+                    <History className="w-3.5 h-3.5" />
+                    Flight Sessions
+                </button>
+                <button
+                    onClick={() => setActiveTab('reports')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        activeTab === 'reports' 
+                            ? 'bg-indigo-600 text-white shadow-lg' 
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    }`}
+                >
+                    <FileText className="w-3.5 h-3.5" />
+                    AI Reports
+                </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 space-y-6">
+                {activeTab === 'reports' ? (
+                    <div className="h-full bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+                        <AIReportArchive missionId={missionId} />
+                    </div>
+                ) : (
+                    <>
 
             {/* Mission Status Bar */}
             {missionInfo && (
@@ -511,6 +546,9 @@ export const MissionSessionPanel: React.FC<Props> = ({ missionId, missionTitle }
                             );
                         })}
                     </div>
+                )}
+            </div>
+                    </>
                 )}
             </div>
         </div>

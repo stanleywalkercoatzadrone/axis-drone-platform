@@ -850,27 +850,28 @@ const MissionCard: React.FC<{
                         )}
                     </div>
                     {/* Assigned Work — Block Grid (replaces static LBD list) */}
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl overflow-hidden">
                         <div 
-                            className="flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+                            className="flex items-center justify-between p-3 bg-slate-800/60 cursor-pointer hover:bg-slate-700/60 transition-colors"
                             onClick={() => setIsGridCollapsed(!isGridCollapsed)}
                         >
                             <div className="flex items-center gap-2">
-                                <Grid3X3 className="w-4 h-4 text-orange-500" />
-                                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Block Grid</h4>
+                                <Grid3X3 className="w-4 h-4 text-orange-400" />
+                                <h4 className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Block Grid</h4>
                             </div>
-                            <button className="text-slate-400 hover:text-slate-600">
+                            <button className="text-[10px] uppercase font-bold tracking-widest text-slate-400 hover:text-slate-300">
                                 {isGridCollapsed ? 'Expand' : 'Collapse'}
                             </button>
                         </div>
                         {!isGridCollapsed && (
-                            <div className="p-4 border-t border-slate-100">
+                            <div className="p-4 border-t border-slate-700/60">
                                 <LBDDocumentGrid
                                     deploymentId={mission.id}
                                     userRole="pilot_technician"
                                 />
                             </div>
                         )}
+                    </div>
                     </div>
                     {/* Operational Protocols */}
                     <PilotProtocolsPanel missionId={mission.id} />
@@ -1167,7 +1168,6 @@ const SubmittedReportsModal: React.FC<{
         </div>
     );
 };
-
 const PilotDashboardV2: React.FC = () => {
     const { user } = useAuth();
     const [missions, setMissions] = useState<AssignedMission[]>([]);

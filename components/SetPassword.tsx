@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle2, AlertCircle, Eye, EyeOff, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { getRoleDisplayName } from '../utils/roleUtils';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 const SetPassword: React.FC = () => {
     const { token } = useParams<{ token: string }>();

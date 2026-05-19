@@ -77,9 +77,14 @@ interface HourlySlot {
     time: string; temp: number; wind: number; precip_prob: number; cloud: number; code: number;
 }
 
+interface DailySlot {
+    date: string; tempMax: number; tempMin: number;
+    precipProb: number; windMax: number; uvMax: number; code: number;
+}
+
 interface SourceRow { label: string; color: string; text: string; }
 
-async function fetchFull(lat: number, lon: number): Promise<{ weather: FullWeather; hourly: HourlySlot[] }> {
+async function fetchFull(lat: number, lon: number, forecastDays = 10): Promise<{ weather: FullWeather; hourly: HourlySlot[]; daily: DailySlot[] }> {
     const url = `https://api.open-meteo.com/v1/forecast?` +
         `latitude=${lat}&longitude=${lon}` +
         `&current=temperature_2m,apparent_temperature,relative_humidity_2m,` +
@@ -87,11 +92,13 @@ async function fetchFull(lat: number, lon: number): Promise<{ weather: FullWeath
         `precipitation,weather_code,cloud_cover,visibility,` +
         `uv_index,surface_pressure,dew_point_2m,shortwave_radiation` +
         `&hourly=temperature_2m,wind_speed_10m,precipitation_probability,cloud_cover,weather_code` +
-        `&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=6&timezone=auto`;
+        `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,uv_index_max,weather_code` +
+        `&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=6&forecast_days=${forecastDays}&timezone=auto`;
 
     const res = await fetch(url);
     const data = await res.json();
     const c = data.current || {};
+    const d = data.daily  || {};
 
     const windSpeed = Math.round(c.wind_speed_10m || 0);
     const gusts     = Math.round(c.wind_gusts_10m || 0);
@@ -122,6 +129,16 @@ async function fetchFull(lat: number, lon: number): Promise<{ weather: FullWeath
         code:        data.hourly.weather_code?.[i] || 0,
     }));
 
+    const daily: DailySlot[] = (d.time || []).map((dt: string, i: number) => ({
+        date:       dt,
+        tempMax:    Math.round(d.temperature_2m_max?.[i] || 0),
+        tempMin:    Math.round(d.temperature_2m_min?.[i] || 0),
+        precipProb: d.precipitation_probability_max?.[i] || 0,
+        windMax:    Math.round(d.wind_speed_10m_max?.[i] || 0),
+        uvMax:      Math.round((d.uv_index_max?.[i] || 0) * 10) / 10,
+        code:       d.weather_code?.[i] || 0,
+    }));
+
     return {
         weather: {
             temperature:    Math.round(c.temperature_2m || 0),
@@ -143,6 +160,7 @@ async function fetchFull(lat: number, lon: number): Promise<{ weather: FullWeath
             flight_reasons: reasons,
         },
         hourly,
+        daily,
     };
 }
 
@@ -186,12 +204,15 @@ const Tile: React.FC<{
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function PilotWeatherV2() {
-    const [coords,  setCoords]  = useState<{ lat: number; lon: number; town: string } | null>(null);
-    const [wx,      setWx]      = useState<FullWeather | null>(null);
-    const [hourly,  setHourly]  = useState<HourlySlot[]>([]);
-    const [wttrRow, setWttrRow] = useState<SourceRow | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [lastFetch, setLastFetch] = useState<Date | null>(null);
+    const [coords,       setCoords]       = useState<{ lat: number; lon: number; town: string } | null>(null);
+    const [wx,           setWx]           = useState<FullWeather | null>(null);
+    const [hourly,       setHourly]       = useState<HourlySlot[]>([]);
+    const [dailyForecast,setDailyForecast]= useState<DailySlot[]>([]);
+    const [forecastRange,setForecastRange]= useState<7 | 10>(7);
+    const [activeDay,    setActiveDay]    = useState<number | null>(null);
+    const [wttrRow,      setWttrRow]      = useState<SourceRow | null>(null);
+    const [loading,      setLoading]      = useState(true);
+    const [lastFetch,    setLastFetch]    = useState<Date | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -219,9 +240,10 @@ export default function PilotWeatherV2() {
         setCoords({ lat, lon, town });
 
         try {
-            const { weather, hourly: h } = await fetchFull(lat, lon);
+            const { weather, hourly: h, daily: dd } = await fetchFull(lat, lon, 10);
             setWx(weather);
             setHourly(h);
+            setDailyForecast(dd);
             setLastFetch(new Date());
         } catch (e) { console.error('[PilotWeatherV2]', e); }
 
@@ -417,6 +439,89 @@ export default function PilotWeatherV2() {
                     )}
                 </div>
             </div>
+
+            {/* ── Daily Forecast ──────────────────────────────────────── */}
+            {dailyForecast.length > 0 && (
+                <div className="bg-slate-900/80 border border-slate-700/60 rounded-2xl p-5">
+                    {/* Header + range toggle */}
+                    <div className="flex items-center justify-between mb-4">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                            📅 {forecastRange}-Day Forecast
+                        </p>
+                        <div className="flex items-center gap-1 p-0.5 bg-slate-800 border border-slate-700 rounded-lg">
+                            {([7, 10] as const).map(d => (
+                                <button key={d}
+                                    onClick={() => { setForecastRange(d); setActiveDay(null); }}
+                                    className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all
+                                        ${forecastRange === d ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                >
+                                    {d}D
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Day cards */}
+                    <div className={`grid gap-2 ${forecastRange === 7 ? 'grid-cols-7' : 'grid-cols-5 sm:grid-cols-10'}`}>
+                        {dailyForecast.slice(0, forecastRange).map((day, idx) => {
+                            const isToday  = idx === 0;
+                            const isActive = activeDay === idx;
+                            const flightOk = day.precipProb < 30 && day.windMax < 23 && ![95,96,99].includes(day.code);
+                            const label    = isToday ? 'Today' : new Date(day.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={() => setActiveDay(isActive ? null : idx)}
+                                    className={`rounded-xl p-2 flex flex-col items-center gap-1 border transition-all
+                                        ${isActive
+                                            ? 'bg-emerald-900/30 border-emerald-500/40'
+                                            : 'bg-slate-800/50 border-slate-700/40 hover:bg-slate-700/40'}`}
+                                >
+                                    <span className={`text-[9px] font-black uppercase ${isActive ? 'text-emerald-400' : 'text-slate-500'}`}>{label}</span>
+                                    <span className="text-lg">{wmoToEmoji(day.code)}</span>
+                                    <span className="text-xs font-black text-white">{day.tempMax}°</span>
+                                    <span className="text-[9px] text-slate-500">{day.tempMin}°</span>
+                                    {day.precipProb > 20 && <span className="text-[8px] text-sky-400 font-bold">{day.precipProb}%</span>}
+                                    <div className={`w-1.5 h-1.5 rounded-full ${flightOk ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Selected day detail */}
+                    {activeDay !== null && dailyForecast[activeDay] && (() => {
+                        const day = dailyForecast[activeDay];
+                        const flightOk = day.precipProb < 30 && day.windMax < 23;
+                        return (
+                            <div className={`mt-3 rounded-xl p-4 border grid grid-cols-2 sm:grid-cols-4 gap-3
+                                ${flightOk ? 'bg-emerald-950/20 border-emerald-700/30' : 'bg-red-950/20 border-red-700/30'}`}>
+                                <div>
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-0.5">Date</p>
+                                    <p className="text-sm font-black text-white">
+                                        {activeDay === 0 ? 'Today' : new Date(day.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-0.5">Conditions</p>
+                                    <p className="text-sm font-black text-white">{wmoToEmoji(day.code)} {wmoToLabel(day.code)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-0.5">Max Wind / UV</p>
+                                    <p className={`text-sm font-black font-mono ${day.windMax > 22 ? 'text-red-400' : 'text-cyan-400'}`}>
+                                        {day.windMax} mph · UV {day.uvMax}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-0.5">Flight Status</p>
+                                    <p className={`text-sm font-black ${flightOk ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {flightOk ? '✅ Likely GO' : '⚠️ Review'}
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                </div>
+            )}
 
             {/* ── FAA Reference ──────────────────────────────────────────── */}
             <div className="bg-slate-900/50 border border-slate-700/40 rounded-2xl p-5">

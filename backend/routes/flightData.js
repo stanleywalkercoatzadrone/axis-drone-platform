@@ -14,6 +14,9 @@ const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 
+// Strip null bytes and other PostgreSQL-illegal control chars
+const sanitizeStr = (s) => (typeof s === 'string' ? s.replace(/\0/g, '').replace(/[\x01-\x08\x0B\x0C\x0E-\x1F]/g, '') : s);
+
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -293,12 +296,12 @@ router.post('/ingest', protect, upload.fields([
             merged.flight_speed_ms,
             merged.overlap_percent,
             merged.gsd_cm,
-            merged.camera_model,
-            merged.drone_model,
+            merged.camera_model ? sanitizeStr(merged.camera_model) : null,
+            merged.drone_model  ? sanitizeStr(merged.drone_model)  : null,
             merged.mission_area_acres,
             merged.waypoint_count,
-            merged.kml_raw,
-            merged.params_raw ? JSON.stringify(merged.params_raw) : null,
+            merged.kml_raw ? sanitizeStr(merged.kml_raw) : null,
+            merged.params_raw ? sanitizeStr(JSON.stringify(merged.params_raw)) : null,
         ]);
 
         res.json({

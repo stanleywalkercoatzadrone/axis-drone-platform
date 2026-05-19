@@ -5,9 +5,9 @@ export const authService = {
         const response = await apiClient.post('/auth/register', data);
         const { user, token, refreshToken } = response.data.data;
 
-        localStorage.setItem('skylens_token', token);
-        localStorage.setItem('skylens_refresh_token', refreshToken);
-        localStorage.setItem('skylens_current_user', JSON.stringify(user));
+        sessionStorage.setItem('skylens_token', token);
+        sessionStorage.setItem('skylens_refresh_token', refreshToken);
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(user));
 
         return user;
     },
@@ -16,9 +16,9 @@ export const authService = {
         const response = await apiClient.post('/auth/login', { email, password });
         const { user, token, refreshToken } = response.data.data;
 
-        localStorage.setItem('skylens_token', token);
-        localStorage.setItem('skylens_refresh_token', refreshToken);
-        localStorage.setItem('skylens_current_user', JSON.stringify(user));
+        sessionStorage.setItem('skylens_token', token);
+        sessionStorage.setItem('skylens_refresh_token', refreshToken);
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(user));
 
         return user;
     },
@@ -27,25 +27,25 @@ export const authService = {
         try {
             await apiClient.post('/auth/logout');
         } finally {
-            localStorage.removeItem('skylens_token');
-            localStorage.removeItem('skylens_refresh_token');
-            localStorage.removeItem('skylens_current_user');
+            sessionStorage.removeItem('skylens_token');
+            sessionStorage.removeItem('skylens_refresh_token');
+            sessionStorage.removeItem('skylens_current_user');
         }
     },
 
     async getMe() {
         const response = await apiClient.get('/auth/me');
         const user = response.data.data;
-        localStorage.setItem('skylens_current_user', JSON.stringify(user));
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(user));
         return user;
     },
 
     getCurrentUser() {
-        const userStr = localStorage.getItem('skylens_current_user');
+        const userStr = sessionStorage.getItem('skylens_current_user');
         return userStr ? JSON.parse(userStr) : null;
     },
 
     isAuthenticated() {
-        return !!localStorage.getItem('skylens_token');
+        return !!sessionStorage.getItem('skylens_token');
     }
 };

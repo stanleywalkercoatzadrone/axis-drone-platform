@@ -7,7 +7,9 @@ import express from 'express';
 import analyzeRoutes from './analyze.js';
 import reportsRoutes from './reports.js';
 import onboardingRoutes from './onboarding.js';
+import missionRoutes from './missions.js';
 import regionRoutes from '../regionCountryRoutes.js';
+import trainingRoutes from './training.js';
 import { logger } from '../../services/logger.js';
 import { aiService } from '../../services/aiService.js';
 
@@ -41,7 +43,9 @@ router.get('/health', (req, res) => {
 router.use('/analyze', analyzeRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/onboarding', onboardingRoutes);
+router.use('/missions', missionRoutes);
 router.use('/regions', regionRoutes);
+router.use('/training', trainingRoutes);
 
 // 404 handler for unknown v1 endpoints
 router.use('*', (req, res) => {

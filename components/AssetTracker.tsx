@@ -18,7 +18,7 @@ import {
     Globe
 } from 'lucide-react';
 import { Asset, AssetCategory, Site } from '../types';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 const AssetTracker: React.FC = () => {
     const [sites, setSites] = useState<Site[]>([]);

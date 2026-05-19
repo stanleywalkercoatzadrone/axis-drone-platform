@@ -18,6 +18,7 @@ interface Personnel {
 
 interface RegionConfigProps {
     apiClient: any;
+    onRefreshContext?: () => void;
 }
 
 const REGION_ORDER: Record<string, number> = {
@@ -40,7 +41,7 @@ function roleBadge(role: string) {
     return 'bg-white/8 text-slate-300 border border-white/10';
 }
 
-const RegionConfig: React.FC<RegionConfigProps> = ({ apiClient }) => {
+const RegionConfig: React.FC<RegionConfigProps> = ({ apiClient, onRefreshContext }) => {
     const [regions, setRegions]   = useState<Region[]>([]);
     const [countries, setCountries] = useState<Country[]>([]);
     const [loading, setLoading]   = useState(true);
@@ -87,6 +88,8 @@ const RegionConfig: React.FC<RegionConfigProps> = ({ apiClient }) => {
         try {
             await apiClient.patch(`/regions/countries/${country.id}/status`, { status: newStatus });
             setCountries(prev => prev.map(c => (c as any).id === country.id ? { ...c, status: newStatus } : c));
+            // Notify the global CountryContext so the sidebar dropdown updates immediately
+            onRefreshContext?.();
         } catch {
             alert('Failed to update country status');
         } finally {
@@ -113,6 +116,8 @@ const RegionConfig: React.FC<RegionConfigProps> = ({ apiClient }) => {
                 if (matches && notUS) return { ...c, status: targetStatus };
                 return c;
             }));
+            // Notify the global CountryContext so the sidebar dropdown updates immediately
+            onRefreshContext?.();
         } catch {
             alert('Some countries could not be updated');
         } finally {

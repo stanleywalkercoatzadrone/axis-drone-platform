@@ -1,12 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Download, Box, FileText, Image, ExternalLink,
     Loader2, CheckCircle, Package, AlertCircle,
-    BrainCircuit, ShieldAlert, RefreshCw, Eye,
-    AlertTriangle, Flame,
 } from 'lucide-react';
 import apiClient from '../../../../src/services/apiClient';
-import { AIReportViewer, AIReportData } from '../../../../components/AIReportPage';
 
 interface Deliverable {
     id: string; project_id: string; project_name: string;
@@ -35,17 +32,10 @@ const MOCK: Deliverable[] = [
 ];
 
 const ASSET_TYPES = [
-    { key: 'orthomosaic_url' as const, label:'Orthomosaic', ext:'GeoTIFF', icon: Image,    accent:'border-sky-500/20',    iconColor:'text-sky-400',    bg:'bg-sky-500/10' },
-    { key: 'model_3d_url'   as const, label:'3D Model',    ext:'OBJ / LAS', icon: Box,      accent:'border-violet-500/20', iconColor:'text-violet-400', bg:'bg-violet-500/10' },
-    { key: 'report_url'     as const, label:'Report',      ext:'PDF',       icon: FileText,  accent:'border-amber-500/20',  iconColor:'text-amber-400',  bg:'bg-amber-500/10' },
+    { key: 'orthomosaic_url' as const, label:'Orthomosaic Map', ext:'GeoTIFF', icon: Image,    accent:'border-sky-500/20',    iconColor:'text-sky-400',    bg:'bg-sky-500/10' },
+    { key: 'model_3d_url'   as const, label:'3D Model',        ext:'OBJ / LAS', icon: Box,    accent:'border-violet-500/20', iconColor:'text-violet-400', bg:'bg-violet-500/10' },
+    { key: 'report_url'     as const, label:'Inspection Report', ext:'PDF',    icon: FileText, accent:'border-amber-500/20',  iconColor:'text-amber-400',  bg:'bg-amber-500/10' },
 ];
-
-const RISK_STYLES: Record<string, string> = {
-    low:      'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-    medium:   'bg-amber-500/10   border-amber-500/30   text-amber-400',
-    high:     'bg-orange-500/10  border-orange-500/30  text-orange-400',
-    critical: 'bg-red-500/10     border-red-500/30     text-red-400',
-};
 
 function fmt(dt: string) {
     try { return new Date(dt).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); }
@@ -137,44 +127,15 @@ function AIReportCard({ row, onView }: { row: AIReportRow; onView: (r: AIReportR
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 const ClientDeliverables: React.FC = () => {
-    const [deliverables, setDeliverables]   = useState<Deliverable[]>([]);
-    const [aiReports, setAIReports]         = useState<AIReportRow[]>([]);
-    const [loading, setLoading]             = useState(true);
-    const [aiLoading, setAILoading]         = useState(true);
-    const [viewReport, setViewReport]       = useState<AIReportRow | null>(null);
-    const [lastChecked, setLastChecked]     = useState(Date.now());
-
-    const loadAIReports = useCallback(async () => {
-        try {
-            const r = await apiClient.get('/client/ai-reports');
-            setAIReports(r.data?.data ?? []);
-        } catch { /* silently ignore — endpoint might not return data yet */ }
-        finally { setAILoading(false); }
-    }, []);
+    const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         apiClient.get('/client/deliverables')
             .then(r  => setDeliverables(r.data.data ?? []))
             .catch(() => setDeliverables(MOCK))
             .finally(() => setLoading(false));
-        loadAIReports();
-
-        // Poll every 30s for new reports (real-time delivery)
-        const interval = setInterval(() => {
-            loadAIReports();
-            setLastChecked(Date.now());
-        }, 30_000);
-        return () => clearInterval(interval);
-    }, [loadAIReports]);
-
-    if (viewReport) {
-        return (
-            <AIReportViewer
-                report={viewReport.report_data}
-                onBack={() => setViewReport(null)}
-            />
-        );
-    }
+    }, []);
 
     if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="text-emerald-400 animate-spin" size={32} /></div>;
 
@@ -184,60 +145,32 @@ const ClientDeliverables: React.FC = () => {
     return (
         <div className="p-6 md:p-8 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-8">
 
-            {/* ── AI Inspection Reports (new section) ───────────────────────── */}
+            {/* Page header */}
             <div>
-                <div className="flex items-center justify-between mb-4">
-                    <div>
-                        <h2 className="text-xl font-black text-white tracking-tighter uppercase flex items-center gap-2">
-                            <BrainCircuit size={18} className="text-indigo-400" /> AI Inspection Reports
-                        </h2>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mt-0.5">Auto-generated · Updated in real time</p>
-                    </div>
-                    <button onClick={loadAIReports}
-                        className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-white transition-colors font-bold">
-                        <RefreshCw size={10} className={aiLoading ? 'animate-spin' : ''} /> Refresh
-                    </button>
-                </div>
-
-                {aiLoading ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                        {[...Array(3)].map((_,i) => (
-                            <div key={i} className="h-48 bg-slate-800/30 border border-slate-700/30 rounded-2xl animate-pulse" />
-                        ))}
-                    </div>
-                ) : aiReports.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                        {aiReports.map(r => (
-                            <AIReportCard key={r.id} row={r} onView={setViewReport} />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="py-10 text-center border border-slate-800/50 rounded-2xl bg-slate-900/20">
-                        <BrainCircuit size={24} className="text-slate-700 mx-auto mb-2" />
-                        <p className="text-sm text-slate-600 font-bold">No AI reports yet</p>
-                        <p className="text-xs text-slate-700 mt-1">Reports appear here automatically after drone data is processed</p>
-                    </div>
-                )}
+                <h1 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-3">
+                    <Package size={24} className="text-violet-400" /> Deliverables
+                </h1>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">
+                    Download your project outputs — reports, maps, and data files
+                </p>
             </div>
 
-            {/* ── Deliverables section ──────────────────────────────────────── */}
-            <div>
-                <div className="flex items-start justify-between flex-wrap gap-4 mb-4">
-                    <div>
-                        <h2 className="text-xl font-black text-white tracking-tighter uppercase flex items-center gap-3">
-                            <Package size={18} className="text-violet-400" /> Deliverables
-                        </h2>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">Download your project outputs</p>
+            {/* Assets ready summary */}
+            {deliverables.length > 0 && (
+                <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500">
+                        {deliverables.length} project{deliverables.length !== 1 ? 's' : ''} with deliverables
+                    </p>
+                    <div className="bg-slate-800/40 border border-slate-700/40 rounded-xl px-4 py-2 text-right">
+                        <span className="text-lg font-black text-white tabular-nums">{totalAssets}</span>
+                        <span className="text-slate-600">/{maxAssets}</span>
+                        <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest ml-2">assets ready</span>
                     </div>
-                    {deliverables.length > 0 && (
-                        <div className="bg-slate-800/40 border border-slate-700/40 rounded-2xl px-5 py-3 text-right">
-                            <div className="text-2xl font-black text-white tabular-nums">{totalAssets}<span className="text-slate-600 text-base">/{maxAssets}</span></div>
-                            <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-0.5">Assets Ready</div>
-                        </div>
-                    )}
                 </div>
+            )}
 
-                <div className="space-y-6">
+            {/* Project deliverables */}
+            <div className="space-y-6">
                     {deliverables.map(d => {
                         const readyCount = ASSET_TYPES.filter(a => d[a.key]).length;
                         const allReady   = readyCount === ASSET_TYPES.length;
@@ -272,10 +205,11 @@ const ClientDeliverables: React.FC = () => {
                         );
                     })}
                     {deliverables.length === 0 && (
-                        <div className="py-24 text-center text-slate-600 text-sm">No deliverables available yet.</div>
+                        <div className="py-24 text-center text-slate-600 text-sm border border-slate-800 rounded-2xl">
+                            No deliverables available yet. Your team will upload these after processing.
+                        </div>
                     )}
                 </div>
-            </div>
         </div>
     );
 };

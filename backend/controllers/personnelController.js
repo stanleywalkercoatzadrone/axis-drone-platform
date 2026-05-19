@@ -3,6 +3,7 @@ import axios from 'axios';
 import fs from 'fs';
 import { logAudit } from '../utils/auditLogger.js';
 import { uploadFile } from '../services/storageService.js';
+import { validateFileMagicBytes, ALLOWED_DOC_TYPES, ALLOWED_IMAGE_TYPES } from '../utils/fileUpload.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import crypto from 'crypto';
 import { generateInvitationToken } from '../services/tokenService.js';
@@ -53,7 +54,16 @@ const mapPersonnelRow = (row) => {
         tierLevel: row.tier_level || 'Bronze',
         reliabilityFlag: row.reliability_flag,
         createdAt: row.created_at,
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at,
+        // ── Pilot Network Application fields ──────────────────────────────
+        bio: row.bio || null,
+        years_exp: row.years_exp != null ? parseInt(row.years_exp) : null,
+        specializations: row.specializations || [],
+        drone_equipment: row.drone_equipment || [],
+        portfolio_url: row.portfolio_url || null,
+        terrestrial_thermal: row.terrestrial_thermal || false,
+        travel_distance_km: row.travel_distance_km != null ? parseInt(row.travel_distance_km) : null,
+        source: row.source || null,
     };
 };
 
@@ -297,7 +307,9 @@ export const updatePersonnel = async (req, res) => {
             fullName, role, phone, certificationLevel, dailyPayRate, maxTravelDistance, status, homeAddress,
             bankName, routingNumber, accountNumber, accountType, companyName, swiftCode, photoUrl,
             secondaryPhone, emergencyContactName, emergencyContactPhone, taxClassification,
-            city, state, zipCode, country, countryId
+            city, state, zipCode, country, countryId,
+            // Pilot Network fields
+            bio, years_exp, specializations, drone_equipment, portfolio_url, terrestrial_thermal, travel_distance_km
         } = req.body;
 
         const cleanRouting = routingNumber ? String(routingNumber).replace(/\D/g, '') : undefined;
@@ -379,6 +391,13 @@ export const updatePersonnel = async (req, res) => {
             country = COALESCE($24, country),
             account_type = COALESCE($25, account_type),
             country_id = COALESCE($28, country_id),
+            bio = COALESCE($29, bio),
+            years_exp = COALESCE($30, years_exp),
+            specializations = COALESCE($31, specializations),
+            drone_equipment = COALESCE($32, drone_equipment),
+            portfolio_url = COALESCE($33, portfolio_url),
+            terrestrial_thermal = COALESCE($34, terrestrial_thermal),
+            travel_distance_km = COALESCE($35, travel_distance_km),
             updated_at = CURRENT_TIMESTAMP
             WHERE id = $26 AND (tenant_id::text = $27::text OR tenant_id IS NULL)
             RETURNING * `,
@@ -390,17 +409,25 @@ export const updatePersonnel = async (req, res) => {
                 city || null, state || null, zipCode || null, country || null,
                 accountType || null,
                 id, req.user.tenantId,
-                countryId || null
+                countryId || null,
+                bio != null ? String(bio) : null,
+                (years_exp != null && !isNaN(parseInt(years_exp))) ? parseInt(years_exp) : null,
+                Array.isArray(specializations) ? specializations : (specializations != null ? [specializations] : null),
+                Array.isArray(drone_equipment) ? drone_equipment : (drone_equipment != null ? [drone_equipment] : null),
+                portfolio_url != null ? String(portfolio_url) : null,
+                terrestrial_thermal != null ? Boolean(terrestrial_thermal) : null,
+                (travel_distance_km != null && !isNaN(parseInt(travel_distance_km))) ? parseInt(travel_distance_km) : null,
             ]
         );
 
+        console.log(`[personnel/update] ${id} → ok`);
         res.json({
             success: true,
             data: mapPersonnelRow(result.rows[0]),
             message: 'Personnel updated successfully'
         });
     } catch (error) {
-        console.error('Error updating personnel:', error);
+        console.error('[personnel/update] FAILED:', error.message, '| code:', error.code, '| detail:', error.detail);
 
         if (error.code === '23505') {
             return res.status(409).json({
@@ -576,6 +603,8 @@ export const getPersonnelBanking = async (req, res) => {
                 message: 'Not authorized to view banking information'
             });
         }
+
+        await logAudit(req.user.id, 'BANKING_INFO_ACCESSED', 'PERSONNEL', id, { ip: req.ip }, req.user.tenantId);
 
         const result = await db.query(
             `SELECT * FROM pilot_banking_info WHERE pilot_id = $1`,
@@ -794,23 +823,21 @@ export const uploadPersonnelDocument = async (req, res) => {
 
         if (!file) {
             console.error('❌ Upload Failed: No file in request');
-            console.log('Headers:', JSON.stringify(req.headers, null, 2));
-            console.log('Body:', req.body);
-
             return res.status(400).json({
                 success: false,
-                message: 'No file uploaded. Debug Info: ' + JSON.stringify({
+                message: 'No file uploaded.',
+                debug: {
                     contentType: req.headers['content-type'],
-                    contentLength: req.headers['content-length'],
                     bodyKeys: Object.keys(req.body || {}),
-                    isMultipart: (req.headers['content-type'] || '').includes('multipart/form-data')
-                })
+                }
             });
         }
 
-        // Check Access
-        if (req.user.role !== 'ADMIN' && req.user.role !== 'FINANCE' && req.user.id !== id) {
-            return res.status(403).json({ success: false, message: 'Not authorized to upload documents for this user' });
+        // SECURITY: Validate file magic bytes before upload (H-6)
+        try {
+            await validateFileMagicBytes(file, ALLOWED_DOC_TYPES);
+        } catch (typeErr) {
+            return res.status(400).json({ success: false, message: typeErr.message });
         }
 
         // 1. Upload to Storage (Unified)
@@ -945,7 +972,8 @@ export const uploadPersonnelDocument = async (req, res) => {
                 // Profile Update (Name, Phone, Email)
                 if (extractedData.name || extractedData.phone || extractedData.email) {
                     // Only update fields that exist to avoid blowing away existing correct data
-                    const currentProfile = await db.query('SELECT full_name, phone, secondary_phone, email FROM personnel WHERE id = $1', [id]);
+                    // SECURITY: Scope to tenant to prevent IDOR cross-tenant profile read
+                    const currentProfile = await db.query('SELECT full_name, phone, secondary_phone, email FROM personnel WHERE id = $1 AND (tenant_id::text = $2::text OR tenant_id IS NULL)', [id, req.user.tenantId]);
                     const current = currentProfile.rows[0] || {};
 
                     let newName = extractedData.name || current.full_name;
@@ -1007,7 +1035,8 @@ export const uploadPersonnelDocument = async (req, res) => {
         }
 
         // 5. Fetch Final State to return to FE
-        const updatedPersonnel = await db.query('SELECT * FROM personnel WHERE id = $1', [id]);
+        // SECURITY: Scope to tenant to prevent IDOR cross-tenant personnel read
+        const updatedPersonnel = await db.query('SELECT * FROM personnel WHERE id = $1 AND (tenant_id::text = $2::text OR tenant_id IS NULL)', [id, req.user.tenantId]);
         const updatedBanking = await db.query('SELECT * FROM pilot_banking_info WHERE pilot_id = $1', [id]);
 
         res.status(200).json({
@@ -1077,7 +1106,8 @@ export const viewPersonnelDocument = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Not authorized' });
         }
 
-        let result = await db.query(`SELECT url, file_url FROM pilot_documents WHERE id = $1`, [docId]);
+        // SECURITY: Require personnel_id match to prevent IDOR document access
+        let result = await db.query(`SELECT url, file_url FROM pilot_documents WHERE id = $1 AND personnel_id = $2`, [docId, id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Document not found' });
         }
@@ -1116,6 +1146,13 @@ export const uploadPersonnelPhoto = async (req, res) => {
 
         if (!file) {
             return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        // SECURITY: Validate photo magic bytes — only real images accepted
+        try {
+            await validateFileMagicBytes(file, ALLOWED_IMAGE_TYPES);
+        } catch (typeErr) {
+            return res.status(400).json({ success: false, message: typeErr.message });
         }
 
         let webViewLink = null;

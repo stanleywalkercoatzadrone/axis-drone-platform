@@ -3,13 +3,13 @@
  * Admin invoice management dashboard — lists all invoices across all missions.
  * Uses Stitch design system.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../stitch/components/Card';
 import { Badge } from '../../stitch/components/Badge';
 import { Button } from '../../stitch/components/Button';
 import { Heading, Text } from '../../stitch/components/Typography';
 import apiClient from '../../services/apiClient';
-import { FileText, ExternalLink, RefreshCw, Filter, DollarSign, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { FileText, ExternalLink, RefreshCw, Filter, DollarSign, Clock, CheckCircle, AlertCircle, Search, X } from 'lucide-react';
 
 type InvoiceStatus = 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE';
 
@@ -47,13 +47,16 @@ export const InvoicesDashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState<string>('');
+    const [search, setSearch] = useState('');
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const load = useCallback(async (statusFilter = filter) => {
+    const load = useCallback(async (statusFilter = filter, searchTerm = search) => {
         setLoading(true);
         setError(null);
         try {
             const params: any = { limit: 200 };
             if (statusFilter) params.status = statusFilter;
+            if (searchTerm.trim()) params.search = searchTerm.trim();
             const r = await apiClient.get('/invoices/all', { params });
             if (r.data.success) {
                 setInvoices(r.data.data);
@@ -64,9 +67,16 @@ export const InvoicesDashboard: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, [filter]);
+    }, [filter, search]);
 
     useEffect(() => { load(); }, []);
+
+    // Debounced search
+    const handleSearchChange = (val: string) => {
+        setSearch(val);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => load(filter, val), 350);
+    };
 
     const totalPaid = invoices.filter(i => i.status === 'PAID').reduce((s, i) => s + Number(i.amount), 0);
     const totalPending = invoices.filter(i => i.status !== 'PAID').reduce((s, i) => s + Number(i.amount), 0);
@@ -103,15 +113,36 @@ export const InvoicesDashboard: React.FC = () => {
                 ))}
             </div>
 
-            {/* Filter Row */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {/* Search + Filter Row */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Search input */}
+                <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 380 }}>
+                    <Search style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: '#64748b', pointerEvents: 'none' }} />
+                    <input
+                        value={search}
+                        onChange={e => handleSearchChange(e.target.value)}
+                        placeholder="Search by invoice #, pilot, mission…"
+                        style={{
+                            width: '100%', paddingLeft: 32, paddingRight: search ? 32 : 12,
+                            paddingTop: 7, paddingBottom: 7, borderRadius: 8, fontSize: 12,
+                            background: '#1e293b', border: '1px solid #334155',
+                            color: '#e2e8f0', outline: 'none', boxSizing: 'border-box',
+                        }}
+                    />
+                    {search && (
+                        <button onClick={() => handleSearchChange('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center' }}>
+                            <X style={{ width: 13, height: 13 }} />
+                        </button>
+                    )}
+                </div>
+                {/* Status filter pills */}
                 {['', 'SENT', 'VIEWED', 'PAID'].map(s => (
-                    <button key={s} onClick={() => { setFilter(s); load(s); }}
+                    <button key={s} onClick={() => { setFilter(s); load(s, search); }}
                         style={{
                             padding: '6px 16px', borderRadius: 8, fontSize: 11, fontWeight: 700,
                             textTransform: 'uppercase', letterSpacing: '0.07em', border: 'none', cursor: 'pointer',
                             background: filter === s ? '#1e40af' : '#1e293b',
-                            color: filter === s ? '#fff' : '#94a3b8', transition: 'all 0.15s',
+                            color: filter === s ? '#fff' : '#94a3b8', transition: 'all 0.15s', whiteSpace: 'nowrap',
                         }}>
                         {s || 'All'}
                     </button>

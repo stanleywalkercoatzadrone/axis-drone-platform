@@ -17,63 +17,80 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// sessionStorage is cleared automatically when the browser window/tab is closed,
+// requiring a new login on every fresh window open.
+const getStoredUser = (): UserAccount | null => {
+    try {
+        const raw = sessionStorage.getItem('skylens_current_user');
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+};
+const getStoredToken = (): string | null => sessionStorage.getItem('skylens_token');
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<UserAccount | null>(null);
-    const [token, setToken] = useState<string | null>(null);
+    // Synchronous init — user and token are read from sessionStorage BEFORE first render
+    const [user, setUser] = useState<UserAccount | null>(getStoredUser);
+    const [token, setToken] = useState<string | null>(getStoredToken);
+    // Start as true so the app waits for session validation before rendering protected routes
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const initAuth = async () => {
-            const storedToken = localStorage.getItem('skylens_token');
-            const storedUser = localStorage.getItem('skylens_current_user');
-
-            if (storedToken && storedUser) {
-                setToken(storedToken);
-                setUser(JSON.parse(storedUser));
-
-                // Valid and sync with backend
-                try {
-                    const response = await apiClient.get('/auth/me');
-                    if (response.data.success) {
-                        const userData = response.data.data;
-                        setUser(userData);
-                        localStorage.setItem('skylens_current_user', JSON.stringify(userData));
-                    }
-                } catch (error) {
-                    console.error('Session validation failed:', error);
-                    // Don't auto-logout here to handle offline scenarios gracefully
-                }
-            }
+        const storedToken = sessionStorage.getItem('skylens_token');
+        if (!storedToken) {
+            // No token in sessionStorage — not logged in, show login immediately
             setIsLoading(false);
+            return;
+        }
+
+        // Token exists — silently validate it against the server (refreshes user data)
+        const validateSession = async () => {
+            try {
+                const response = await apiClient.get('/auth/me');
+                if (response.data.success) {
+                    const userData = response.data.data;
+                    setUser(userData);
+                    sessionStorage.setItem('skylens_current_user', JSON.stringify(userData));
+                }
+            } catch (error: any) {
+                // Only wipe session on a definitive 401 — don't log out on network glitches
+                const status = error?.response?.status;
+                if (status === 401) {
+                    sessionStorage.removeItem('skylens_token');
+                    sessionStorage.removeItem('skylens_refresh_token');
+                    sessionStorage.removeItem('skylens_current_user');
+                    setToken(null);
+                    setUser(null);
+                }
+            } finally {
+                setIsLoading(false);
+            }
         };
 
-        initAuth();
+        validateSession();
     }, []);
 
     const login = (userData: UserAccount, newToken: string, newRefreshToken: string) => {
-        localStorage.setItem('skylens_token', newToken);
-        localStorage.setItem('skylens_refresh_token', newRefreshToken);
-        localStorage.setItem('skylens_current_user', JSON.stringify(userData));
-
+        sessionStorage.setItem('skylens_token', newToken);
+        sessionStorage.setItem('skylens_refresh_token', newRefreshToken);
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(userData));
         setToken(newToken);
         setUser(userData);
     };
 
     const logout = () => {
-        localStorage.removeItem('skylens_token');
-        localStorage.removeItem('skylens_refresh_token');
-        localStorage.removeItem('skylens_current_user');
-
+        apiClient.post('/auth/logout').catch(() => { });
+        sessionStorage.removeItem('skylens_token');
+        sessionStorage.removeItem('skylens_refresh_token');
+        sessionStorage.removeItem('skylens_current_user');
         setToken(null);
         setUser(null);
-        apiClient.post('/auth/logout').catch(() => { }); // Fire and forget
-        window.location.href = '/';
+        window.location.href = '/login';
     };
 
     const updateUser = (userData: UserAccount) => {
-        localStorage.setItem('skylens_current_user', JSON.stringify(userData));
+        sessionStorage.setItem('skylens_current_user', JSON.stringify(userData));
         setUser(userData);
-    }
+    };
 
     const syncProfile = async () => {
         try {
@@ -105,7 +122,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             user,
             token,
             isLoading,
-            isAuthenticated: !!user && !!token,
+            // isAuthenticated is true when user is set — the HttpOnly cookie is the
+            // real credential (JS cannot read it). Token in state is a fallback sync
+            // indicator but must NOT gate access after a page refresh/new tab.
+            isAuthenticated: !!user,
             login,
             logout,
             updateUser,

@@ -14,12 +14,12 @@ import React, { useState, useEffect } from 'react';
 import {
     Camera, Mountain, Upload, CheckCircle2, AlertCircle,
     FileText, Layers, RotateCw, X, Plus, FolderOpen,
-    ChevronDown, Rocket
+    ChevronDown, Rocket, BrainCircuit, Cpu, Activity, HardHat
 } from 'lucide-react';
 import apiClient from '../../../services/apiClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Portal = 'aerial' | 'ground';
+type Portal = 'aerial' | 'ground' | 'construction';
 
 interface UploadTypeConfig {
     key: string;
@@ -56,6 +56,103 @@ const GROUND_TYPES: UploadTypeConfig[] = [
     { key: 'sensor_log',  label: 'Sensor Logs',  accept: '.csv,.log,.txt,.bin,.dat',           description: 'Raw sensor and telemetry logs' },
     { key: 'spreadsheet', label: 'Field Data',   accept: '.xlsx,.xls,.csv,.xlsm',              description: 'Field survey spreadsheets' },
 ];
+
+const CONSTRUCTION_TYPES: UploadTypeConfig[] = [
+    { key: 'site_photos', label: 'Site Photos',  accept: 'image/*,.mp4', description: 'Daily progress and field evidence photos' },
+    { key: 'documents',   label: 'Documents',    accept: '.pdf,.doc,.docx,.xlsx,.csv', description: 'Inspection logs and action item details' }
+];
+
+// ── Pipeline Status display (post-upload) ─────────────────────────────────
+const PIPELINE_STAGES = [
+    { key: 'queued',     label: 'Processing Queued',  icon: '⏳', color: 'text-purple-400',  bg: 'bg-purple-500/10 border-purple-500/20' },
+    { key: 'processing', label: 'Processing Started', icon: '⚙️',  color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20' },
+    { key: 'analyzing',  label: 'AI Analyzing',       icon: '🧠', color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/20' },
+    { key: 'completed',  label: 'Mission Complete',   icon: '✅', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+    { key: 'failed',     label: 'Processing Failed',  icon: '❌', color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/20' },
+];
+
+function PipelineStatusPanel({ datasetId }: { datasetId: string }) {
+    const [status, setStatus] = React.useState<any>(null);
+
+    React.useEffect(() => {
+        if (!datasetId) return;
+        let alive = true;
+        const poll = async () => {
+            try {
+                const r = await apiClient.get(`/mission-uploads/pipeline/status/${datasetId}`);
+                if (alive) setStatus(r.data?.data);
+            } catch {}
+        };
+        poll();
+        const interval = setInterval(poll, 4000);
+        return () => { alive = false; clearInterval(interval); };
+    }, [datasetId]);
+
+    if (!status) return (
+        <div className="flex items-center gap-2 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+            <RotateCw size={12} className="text-indigo-400 animate-spin" />
+            <span className="text-[11px] text-indigo-300 font-bold">Queuing pipeline…</span>
+        </div>
+    );
+
+    const currentKey = status.pipeline_status || status.job_status || 'queued';
+    const progress   = status.pipeline_progress ?? status.job_progress ?? 5;
+    const stage      = PIPELINE_STAGES.find(s => s.key === currentKey) || PIPELINE_STAGES[0];
+    const isComplete = currentKey === 'completed';
+    const isFailed   = currentKey === 'failed';
+    const stageOrder = ['queued','processing','analyzing','completed'];
+    const currentIdx = stageOrder.indexOf(currentKey);
+
+    return (
+        <div className={`p-4 rounded-xl border space-y-3 ${stage.bg}`}>
+            <div className="flex items-center gap-3">
+                <span className="text-xl">{stage.icon}</span>
+                <div className="flex-1">
+                    <p className={`text-sm font-black ${stage.color}`}>{stage.label}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                        {isComplete ? 'Your orthomosaic is ready in the admin dashboard' :
+                         isFailed   ? (status.error_message || 'Contact support') :
+                         'Processing automatically — you can leave this page'}
+                    </p>
+                </div>
+                {!isComplete && !isFailed && <RotateCw size={14} className={`${stage.color} animate-spin`} />}
+            </div>
+
+            {!isFailed && (
+                <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${progress}%`, background: isComplete ? '#22c55e' : 'linear-gradient(90deg,#6366f1,#3b82f6)' }} />
+                </div>
+            )}
+
+            <div className="flex gap-1.5 flex-wrap">
+                {stageOrder.map((key, i) => {
+                    const def  = PIPELINE_STAGES.find(s => s.key === key)!;
+                    const done = !isFailed && i < currentIdx;
+                    const act  = key === currentKey;
+                    return (
+                        <span key={key}
+                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border
+                                ${act  ? `${def.bg} ${def.color} animate-pulse`
+                                : done ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                                : 'bg-slate-900 border-slate-800 text-slate-600'}`}>
+                            {done ? '✓ ' : ''}{def.label}
+                        </span>
+                    );
+                })}
+            </div>
+
+            {status.ai_result?.severity && (
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/50">
+                    <BrainCircuit size={11} className="text-indigo-400" />
+                    <span className="text-[10px] text-indigo-300 font-bold">
+                        AI: {status.ai_result.defects_detected ?? 0} defects · {status.ai_result.severity}
+                    </span>
+                </div>
+            )}
+        </div>
+    );
+}
 
 // ── Recursive folder traversal helper ────────────────────────────────────────
 async function traverseEntry(entry: FileSystemEntry, pathPrefix = ''): Promise<{ file: File; relativePath: string }[]> {
@@ -252,6 +349,7 @@ function UploadPane({
     const [error, setError] = useState<string | null>(null);
     const [lbdBlock, setLbdBlock] = useState('');
     const [missionFolder, setMissionFolder] = useState('');
+    const [datasetId, setDatasetId] = useState<string | null>(null);
     const cancelRef = React.useRef(false);
 
     const currentType = types.find(t => t.key === activeType)!;
@@ -283,6 +381,34 @@ function UploadPane({
         setError(null);
 
         try {
+            if (storage === 'Construction Evidence') {
+                for (let i = 0; i < queue.length; i++) {
+                    if (cancelRef.current) {
+                        setQueue(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'error', error: 'Cancelled' } : f));
+                        break;
+                    }
+                    if (queue[i].status !== 'pending') continue;
+                    setQueue(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'uploading' } : f));
+                    try {
+                        const fd = new FormData();
+                        fd.append('evidence', queue[i].file, queue[i].file.name);
+                        await apiClient.post(`/construction/projects/${missionId}/evidence`, fd, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                        });
+                        setQueue(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'done' } : f));
+                    } catch (err: any) {
+                        if (cancelRef.current) {
+                            setQueue(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'error', error: 'Cancelled' } : f));
+                            break;
+                        }
+                        const msg = err.response?.data?.message || err.message || 'Upload failed';
+                        setQueue(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'error', error: msg } : f));
+                    }
+                }
+                if (!cancelRef.current) setDone(true);
+                return;
+            }
+
             // 1. Create upload job
             const jobRes = await apiClient.post('/pilot/upload-jobs', {
                 missionId,
@@ -305,7 +431,9 @@ function UploadPane({
                 try {
                     const fd = new FormData();
                     fd.append('image', queue[i].file, queue[i].file.name);
-                    await apiClient.post(`/pilot/upload-jobs/${jobId}/files`, fd);
+                    await apiClient.post(`/pilot/upload-jobs/${jobId}/files`, fd, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
                     setQueue(prev => prev.map((f, idx) => idx === i ? { ...f, status: 'done' } : f));
                 } catch (err: any) {
                     if (cancelRef.current) {
@@ -321,6 +449,12 @@ function UploadPane({
             if (!cancelRef.current) {
                 await apiClient.patch(`/pilot/upload-jobs/${jobId}/complete`).catch(() => {});
                 setDone(true);
+
+                // Trigger pipeline via Mission Ingestion Engine if dataset ID is available
+                if (datasetId) {
+                    apiClient.post('/mission-uploads/dataset/complete', { dataset_id: datasetId })
+                        .catch(() => {});
+                }
             }
         } catch (err: any) {
             const msg = err.response?.data?.message || err.message || 'Upload failed';
@@ -493,14 +627,20 @@ function UploadPane({
                 </div>
             )}
 
-            {/* Success banner */}
+            {/* Success banner + Pipeline status */}
             {done && (
-                <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-                    <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-                    <div>
-                        <p className="text-sm font-bold text-emerald-300">Transfer Complete</p>
-                        <p className="text-[11px] text-emerald-500/70">{completed} file{completed !== 1 ? 's' : ''} → {storage}</p>
+                <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                        <div>
+                            <p className="text-sm font-bold text-emerald-300">Transfer Complete</p>
+                            <p className="text-[11px] text-emerald-500/70">{completed} file{completed !== 1 ? 's' : ''} → {storage}</p>
+                        </div>
                     </div>
+                    {/* Pipeline status tracker */}
+                    {datasetId && (
+                        <PipelineStatusPanel datasetId={datasetId} />
+                    )}
                 </div>
             )}
         </div>
@@ -525,16 +665,21 @@ export default function PilotUploadV2() {
             <MissionPicker value={missionId} onChange={setMissionId} />
 
             {/* Portal tabs */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 border border-slate-800 rounded-xl">
+            <div className="grid grid-cols-3 gap-1 sm:gap-2 p-1 bg-slate-900 border border-slate-800 rounded-xl">
                 <button onClick={() => setPortal('aerial')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-bold transition-all
+                    className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 px-1 sm:px-3 rounded-lg text-[10px] sm:text-sm font-bold transition-all
                         ${portal === 'aerial' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}>
-                    <Camera size={15} /> Aerial Imagery
+                    <Camera size={14} className="sm:w-[15px] sm:h-[15px]" /> <span className="hidden min-[360px]:inline">Aerial</span>
                 </button>
                 <button onClick={() => setPortal('ground')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-bold transition-all
+                    className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 px-1 sm:px-3 rounded-lg text-[10px] sm:text-sm font-bold transition-all
                         ${portal === 'ground' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}>
-                    <Mountain size={15} /> Ground / LBD
+                    <Mountain size={14} className="sm:w-[15px] sm:h-[15px]" /> <span className="hidden min-[360px]:inline">Ground</span>
+                </button>
+                <button onClick={() => setPortal('construction')}
+                    className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 px-1 sm:px-3 rounded-lg text-[10px] sm:text-sm font-bold transition-all
+                        ${portal === 'construction' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}>
+                    <HardHat size={14} className="sm:w-[15px] sm:h-[15px]" /> <span className="hidden min-[360px]:inline">Build</span>
                 </button>
             </div>
 
@@ -552,8 +697,10 @@ export default function PilotUploadV2() {
             {/* Portal */}
             {portal === 'aerial' ? (
                 <UploadPane key="aerial" types={AERIAL_TYPES} missionId={missionId} accentColor="blue" storage="AWS S3" />
-            ) : (
+            ) : portal === 'ground' ? (
                 <UploadPane key="ground" types={GROUND_TYPES} missionId={missionId} accentColor="emerald" storage="Google Cloud" />
+            ) : (
+                <UploadPane key="construction" types={CONSTRUCTION_TYPES} missionId={missionId} accentColor="cyan" storage="Construction Evidence" />
             )}
         </div>
         </div>

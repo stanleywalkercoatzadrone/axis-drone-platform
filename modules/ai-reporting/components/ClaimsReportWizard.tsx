@@ -5,13 +5,16 @@ import {
     X, ZoomIn, MessageSquare, Send, ThumbsUp, ThumbsDown,
     Sparkles, Download, Shield, DollarSign, BarChart3,
     Camera, MapPin, User, Phone, Mail, Hash, Zap,
-    RefreshCw, Eye, Edit3, Save, Check, Clock, Info
+    RefreshCw, Eye, Edit3, Save, Check, Clock, Info,
+    FolderUp
 } from 'lucide-react';
 import { exportReportPDF } from './exportReportPDF';
 import apiClient from '../../../src/services/apiClient';
 import { ClaimsReport, ClaimsImage, ClaimsAnnotation } from '../EnterpriseAIReporting';
 import { useAuth } from '../../../src/context/AuthContext';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../src/stitch/components/Card';
+import { saveReport, ReportMeta, downloadReport, saveReportToMission } from '../utils/reportStorage';
+import { PDFViewer } from './AIReportArchive';
 import { Button } from '../../../src/stitch/components/Button';
 import { Input } from '../../../src/stitch/components/Input';
 import { Badge } from '../../../src/stitch/components/Badge';
@@ -62,13 +65,20 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
         carrier: initialReport?.carrier || '',
         adjusterName: initialReport?.adjusterName || '',
         adjusterEmail: initialReport?.adjusterEmail || '',
+        pilotName: initialReport?.pilotName || '',
     });
+
+    const [missions, setMissions] = useState<any[]>([]);
+    const [selectedMissionId, setSelectedMissionId] = useState('');
+    const [pilots, setPilots] = useState<string[]>([]);
+    const [allPilots, setAllPilots] = useState<string[]>([]);
 
     // Images state
     const [images, setImages] = useState<ClaimsImage[]>(initialReport?.images || []);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const folderInputRef = useRef<HTMLInputElement>(null);
 
     // Analysis state
     const [analyzing, setAnalyzing] = useState(false);
@@ -97,6 +107,11 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
     const [newComment, setNewComment] = useState('');
     const [addingComment, setAddingComment] = useState(false);
     const [exportingPDF, setExportingPDF] = useState(false);
+    const [generatedReport, setGeneratedReport] = useState<ReportMeta | null>(null);
+    const [isViewingFull, setIsViewingFull] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [savingToMission, setSavingToMission] = useState(false);
+    const [savedToMissionId, setSavedToMissionId] = useState<string | null>(null);
 
     // Sync images from report
     useEffect(() => {
@@ -109,7 +124,56 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
         if (initialReport?.id) {
             loadPricingData(initialReport.id);
         }
+
+        // Load standardized missions and pilots
+        apiClient.get('/deployments')
+            .then(res => setMissions(res.data?.data || res.data?.missions || []))
+            .catch(() => {});
+        
+        apiClient.get('/personnel?role=pilot_technician')
+            .then(res => {
+                const list = res.data?.data || [];
+                const names = list.map((p: any) => p.fullName || p.full_name || p.name || p.email).filter(Boolean);
+                if (names.length > 0) {
+                    setAllPilots(names);
+                }
+            })
+            .catch(() => {});
     }, [initialReport]);
+
+    const handleMissionSelect = async (missionId: string) => {
+        if (!missionId) {
+            setSelectedMissionId('');
+            setPilots([]);
+            return;
+        }
+        setSelectedMissionId(missionId);
+        try {
+            const res = await apiClient.get(`/v1/missions/${missionId}/intelligence`);
+            const intel = res.data?.data;
+            if (!intel) return;
+
+            setForm(prev => ({
+                ...prev,
+                title: intel.title || intel.siteName || prev.title,
+                propertyAddress: intel.location || prev.propertyAddress,
+                carrier: intel.clientName || prev.carrier
+            }));
+
+            const personnel: any[] = intel.assignedPersonnel || [];
+            const names = personnel
+                .map((p: any) => p.fullName || p.name || p.email)
+                .filter((n: string) => n && n.trim().length > 0);
+            
+            // Strictly show only assigned personnel for the selected mission
+            setPilots(names);
+            
+            if (names.length === 1) setForm(prev => ({ ...prev, pilotName: names[0] }));
+            else if (names.length === 0) setForm(prev => ({ ...prev, pilotName: '' }));
+        } catch (err) {
+            console.error('handleMissionSelect failed', err);
+        }
+    };
 
     const loadPricingData = async (reportId: string, search?: string, categoryCode?: string) => {
         setLoadingPricing(true);
@@ -347,11 +411,38 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                 riskScore: narrative.riskScore,
                 images,
             };
-            await exportReportPDF(exportData);
+            const id = await exportReportPDF(exportData);
+            if (id) {
+                const slug = (report.claimNumber || report.id || 'report')
+                    .replace(/[^a-z0-9]/gi, '-').toLowerCase();
+                setGeneratedReport({
+                    id: id as string,
+                    industry: 'insurance',
+                    title: form.title || `Claim ${id}`,
+                    filename: `claims-report-${slug}.pdf`,
+                    sizeBytes: 0,
+                    createdAt: new Date().toISOString()
+                });
+            }
         } catch (err) {
             console.error('PDF export failed:', err);
             setError('PDF export failed. Please try again.');
         } finally { setExportingPDF(false); }
+    };
+
+    const handleSaveToMission = async () => {
+        if (!generatedReport || !selectedMissionId) return;
+        setSavingToMission(true);
+        try {
+            const res = await saveReportToMission(selectedMissionId, generatedReport);
+            if (res.success) {
+                setSavedToMissionId(res.reportId);
+            }
+        } catch (err) {
+            console.error('Save to mission failed', err);
+        } finally {
+            setSavingToMission(false);
+        }
     };
 
     // ─── COMMENTS ────────────────────────────────────────────────────────────
@@ -432,6 +523,31 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                                 </div>
                             </CardHeader>
                             <CardContent>
+                                {/* Mission Selector Overlay */}
+                                <div className="mb-6 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5">
+                                    <label className="block text-[10px] font-black text-orange-400 uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
+                                        <Zap className="w-3 h-3 text-orange-500" /> Link Drone Mission Data
+                                    </label>
+                                    <select
+                                        value={selectedMissionId}
+                                        onChange={e => handleMissionSelect(e.target.value)}
+                                        className={inputCls}
+                                        style={inputStyle}
+                                    >
+                                        <option value="">Select mission to auto-populate claim details...</option>
+                                        {missions.map((m: any) => (
+                                            <option key={m.id} value={m.id}>
+                                                {m.mission_name || m.siteName || m.site_name || m.title || 'Mission'} {m.date || m.scheduledDate ? `· ${(m.date || m.scheduledDate).slice(0, 10)}` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {selectedMissionId && pilots.length > 0 && (
+                                        <p className="text-[10px] text-emerald-400 font-bold mt-2 flex items-center gap-1.5 uppercase tracking-wider">
+                                            <CheckCircle2 className="w-3 h-3" /> {pilots.length} Mission Pilot{pilots.length > 1 ? 's' : ''} Synced
+                                        </p>
+                                    )}
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="col-span-2">
                                         <label className="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Report Title *</label>
@@ -512,6 +628,18 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                                         <label className="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Adjuster Email</label>
                                         <Input type="email" value={form.adjusterEmail} onChange={e => setForm(f => ({ ...f, adjusterEmail: e.target.value }))} placeholder="adjuster@carrier.com" />
                                     </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Pilot / Technician</label>
+                                        <select
+                                            value={form.pilotName}
+                                            onChange={e => setForm(f => ({ ...f, pilotName: e.target.value }))}
+                                            className={inputCls}
+                                            style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}
+                                        >
+                                            <option value="">{pilots.length > 0 ? 'Select Assigned Pilot...' : 'No pilots assigned to mission'}</option>
+                                            {pilots.map(p => <option key={p} value={p}>{p}</option>)}
+                                        </select>
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>
@@ -537,18 +665,37 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                         <div
                             onDrop={handleDrop}
                             onDragOver={e => e.preventDefault()}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="border-2 border-dashed border-slate-700 hover:border-orange-500/50 rounded-2xl p-12 text-center cursor-pointer transition-all bg-slate-900/40 hover:bg-orange-500/5 group"
+                            className="border-2 border-dashed border-slate-700 hover:border-orange-500/50 rounded-2xl p-12 text-center transition-all bg-slate-900/40 hover:bg-orange-500/5 group"
                         >
                             <div className="w-16 h-16 rounded-2xl bg-slate-800 group-hover:bg-orange-500/10 flex items-center justify-center mx-auto mb-4 transition-all">
                                 {uploading ? <Loader2 className="w-8 h-8 text-orange-400 animate-spin" /> : <Camera className="w-8 h-8 text-slate-500 group-hover:text-orange-400 transition-colors" />}
                             </div>
                             <p className="text-base font-bold text-slate-300 mb-1">
-                                {uploading ? 'Uploading...' : 'Drop inspection imagery here'}
+                                {uploading ? 'Uploading...' : 'Drop images or folders here'}
                             </p>
-                            <p className="text-sm text-slate-500">Drone photos, ground images, thermal scans, orthomosaics</p>
-                            <p className="text-xs text-slate-600 mt-2">JPG, PNG, TIFF, WEBP — up to 50MB each</p>
+                            <p className="text-sm text-slate-500 mb-6">Drone photos, ground images, thermal scans, orthomosaics</p>
+                            
+                            <div className="flex items-center justify-center gap-4">
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 border border-slate-700/50"
+                                >
+                                    <FileText className="w-4 h-4 text-blue-400" />
+                                    Choose Files
+                                </button>
+                                <span className="text-slate-600 font-black uppercase text-[10px] tracking-widest">or</span>
+                                <button
+                                    onClick={() => folderInputRef.current?.click()}
+                                    className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-xl transition-all flex items-center gap-2 border border-slate-700/50"
+                                >
+                                    <FolderUp className="w-4 h-4 text-emerald-400" />
+                                    Choose Folder
+                                </button>
+                            </div>
+
                             <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden"
+                                onChange={e => { const f = Array.from(e.target.files || []); if (f.length) handleFileUpload(f); e.target.value = ''; }} />
+                            <input ref={folderInputRef} type="file" webkitdirectory="" directory="" className="hidden"
                                 onChange={e => { const f = Array.from(e.target.files || []); if (f.length) handleFileUpload(f); e.target.value = ''; }} />
                         </div>
 
@@ -1020,129 +1167,329 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                 {/* ── STEP: REVIEW ── */}
                 {step === 'review' && (
                     <div className="space-y-6">
-                        {/* Report Header Preview */}
-                        <div className="rounded-2xl bg-gradient-to-br from-slate-800/80 to-slate-900/80 border border-slate-700/60 p-6">
-                            <div className="flex items-start justify-between mb-6">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <Shield className="w-5 h-5 text-orange-400" />
-                                        <span className="text-xs font-black text-orange-400 uppercase tracking-widest">Prism Axis Claims Solutions</span>
-                                    </div>
-                                    <h2 className="text-xl font-black text-white">{form.title}</h2>
-                                    <p className="text-sm text-slate-400 mt-1">{form.propertyAddress}</p>
+                        {/* Dashboard Header */}
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h1 className="text-2xl font-black text-white tracking-tight">Claim Intelligence Synthesis</h1>
+                                <p className="text-slate-500 text-sm">Reviewing AI-detected anomalies and financial exposure for {form.claimNumber || 'New Claim'}</p>
+                            </div>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setIsEditing(!isEditing)}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border ${
+                                        isEditing 
+                                            ? 'bg-orange-500 text-white border-orange-600 shadow-lg shadow-orange-500/20' 
+                                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {isEditing ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                                    {isEditing ? 'Finish Editing' : 'Edit Findings'}
+                                </button>
+                                {generatedReport && (
+                                    <button
+                                        onClick={() => setIsViewingFull(true)}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold uppercase tracking-wider border border-slate-700 hover:bg-slate-700 transition-all"
+                                    >
+                                        <Eye className="w-3.5 h-3.5" /> View Live Dashboard
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Top KPI Row */}
+                        <div className="grid grid-cols-4 gap-4">
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+                                    <DollarSign className="w-8 h-8 text-emerald-400" />
                                 </div>
-                                <div className="text-right">
-                                    <p className="text-xs text-slate-500">Claim #</p>
-                                    <p className="text-sm font-bold text-white font-mono">{form.claimNumber || '—'}</p>
-                                    <p className="text-xs text-slate-500 mt-2">Policy #</p>
-                                    <p className="text-sm font-bold text-white font-mono">{form.policyNumber || '—'}</p>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Est. Exposure</p>
+                                <p className="text-2xl font-black text-white">
+                                    {reportLineItems.length > 0
+                                        ? `$${reportLineItems.reduce((sum, item) => sum + Number(item.totalCost), 0).toLocaleString()}`
+                                        : `$${totalCostMin.toLocaleString()}`
+                                    }
+                                </p>
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 uppercase">Market Rate</span>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-4 gap-4 pt-4 border-t border-slate-700/60">
-                                <div>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Carrier</p>
-                                    <p className="text-sm font-bold text-white">{form.carrier || '—'}</p>
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+                                    <Zap className="w-8 h-8 text-orange-400" />
                                 </div>
-                                <div>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Type</p>
-                                    <p className="text-sm font-bold text-white">{form.inspectionType}</p>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Prism Risk Score</p>
+                                <p className={`text-2xl font-black ${narrative.riskScore >= 75 ? 'text-red-400' : narrative.riskScore >= 50 ? 'text-orange-400' : 'text-emerald-400'}`}>
+                                    {narrative.riskScore} / 100
+                                </p>
+                                <div className="mt-2">
+                                    <div className="h-1 bg-slate-800 rounded-full overflow-hidden w-24">
+                                        <div 
+                                            className={`h-full transition-all duration-1000 ${narrative.riskScore >= 75 ? 'bg-red-400' : narrative.riskScore >= 50 ? 'bg-orange-400' : 'bg-emerald-400'}`} 
+                                            style={{ width: `${narrative.riskScore}%` }}
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Images</p>
-                                    <p className="text-sm font-bold text-white">{images.length}</p>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+                                    <Brain className="w-8 h-8 text-blue-400" />
                                 </div>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Anomalies Found</p>
+                                <p className="text-2xl font-black text-white">{allAnnotations.length}</p>
+                                <p className="text-[9px] text-slate-500 mt-2 flex items-center gap-1 font-bold">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Neural Scan Verified
+                                </p>
+                            </div>
+
+                            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity">
+                                    <Shield className="w-8 h-8 text-purple-400" />
+                                </div>
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Carrier Status</p>
+                                <p className="text-2xl font-black text-white">{form.carrier || 'Unspecified'}</p>
+                                <p className="text-[9px] font-bold text-slate-400 mt-2 uppercase tracking-tighter">Policy: {form.policyNumber || '—'}</p>
+                            </div>
+                        </div>
+
+                        {/* Main Summary Panel */}
+                        <div className="bg-[#0f172a] border border-slate-800 rounded-3xl p-8 relative overflow-hidden">
+                             <div className="absolute top-0 right-0 p-4 flex items-center gap-2">
+                                <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">AI Intelligence Synthesis</span>
+                             </div>
+
+                             {isEditing ? (
+                                <textarea
+                                    value={narrative.executiveSummary}
+                                    onChange={e => setNarrative(n => ({ ...n, executiveSummary: e.target.value }))}
+                                    className="w-full bg-slate-950/60 border border-slate-800 rounded-2xl p-5 text-sm text-slate-300 leading-relaxed min-h-[160px] focus:ring-1 focus:ring-orange-500/30 transition-all resize-none"
+                                />
+                             ) : (
+                                <p className="text-base text-slate-300 leading-relaxed font-inter">
+                                    {narrative.executiveSummary || "Analysis complete. Awaiting tactical synthesis from the neural engine..."}
+                                </p>
+                             )}
+                        </div>
+
+                        {/* Property & Claim Metadata */}
+                        <div className="bg-slate-900/40 border border-slate-800/60 rounded-2xl p-6">
+                            <div className="grid grid-cols-3 gap-8">
                                 <div>
-                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Risk Score</p>
-                                    <p className={`text-sm font-black ${narrative.riskScore >= 75 ? 'text-red-400' : narrative.riskScore >= 50 ? 'text-orange-400' : 'text-emerald-400'}`}>
-                                        {narrative.riskScore} / 100
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                        <MapPin className="w-3 h-3" /> Property Details
                                     </p>
+                                    <p className="text-sm font-bold text-white">{form.propertyAddress || '—'}</p>
+                                    <p className="text-[11px] text-slate-500 mt-1">{form.propertyType} Infrastructure</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                        <User className="w-3 h-3" /> Lead Adjuster
+                                    </p>
+                                    <p className="text-sm font-bold text-white">{form.adjusterName || user?.full_name || 'System Auto-Agent'}</p>
+                                    <p className="text-[11px] text-slate-500 mt-1">{form.adjusterEmail || user?.email}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                        <Clock className="w-3 h-3" /> Mission Context
+                                    </p>
+                                    <p className="text-sm font-bold text-white">{form.inspectionType}</p>
+                                    <p className="text-[11px] text-slate-500 mt-1">Inspection Timestamp: {new Date().toLocaleDateString()}</p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Executive Summary Preview */}
-                        {narrative.executiveSummary && (
-                            <SectionCard title="Executive Summary" icon={<FileText className="w-4 h-4" />}>
-                                <p className="text-sm text-slate-300 leading-relaxed">{narrative.executiveSummary}</p>
-                            </SectionCard>
-                        )}
+                        {/* Registry of Findings */}
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between px-2">
+                                <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest">Anomalies Detected ({allAnnotations.length})</h3>
+                                {isEditing && (
+                                    <button 
+                                        className="text-[10px] font-black text-orange-400 uppercase tracking-widest hover:text-orange-300"
+                                        onClick={() => {
+                                            // Redirecting to analysis for deeper edits could be an option, 
+                                            // but for now we'll just show the static findings.
+                                            setStep('analysis');
+                                        }}
+                                    >
+                                        + Modify Anomaly Registry
+                                    </button>
+                                )}
+                            </div>
 
-                        {/* Findings Summary */}
-                        {allAnnotations.length > 0 && (
-                            <SectionCard title={`AI Findings (${allAnnotations.length})`} icon={<Brain className="w-4 h-4" />}>
-                                <div className="space-y-2 max-h-64 overflow-y-auto">
-                                    {allAnnotations.map((a, i) => (
-                                        <div key={a.id || i} className="flex items-center gap-3 py-2 border-b border-slate-800/60 last:border-0">
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border shrink-0 ${SEVERITY_COLORS[a.severity]}`}>
+                            <div className="grid grid-cols-2 gap-4">
+                                {allAnnotations.length === 0 ? (
+                                    <div className="col-span-2 py-10 bg-slate-900/30 border border-slate-800 border-dashed rounded-3xl text-center">
+                                        <p className="text-slate-600 text-sm">No critical anomalies identified across dataset</p>
+                                    </div>
+                                ) : allAnnotations.map((a, i) => (
+                                    <div key={a.id || i} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 group hover:border-slate-700 transition-all">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-black text-slate-600 font-mono">#{String(i+1).padStart(2, '0')}</span>
+                                                <h4 className="text-sm font-bold text-white">{a.label}</h4>
+                                            </div>
+                                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase tracking-wider ${SEVERITY_COLORS[a.severity]}`}>
                                                 {a.severity}
                                             </span>
-                                            <span className="text-sm text-slate-300 flex-1">{a.label}</span>
-                                            {(a.estimatedCostMin || 0) > 0 && (
-                                                <span className="text-xs text-slate-400 font-mono shrink-0">
-                                                    ${a.estimatedCostMin?.toLocaleString()} – ${a.estimatedCostMax?.toLocaleString()}
+                                        </div>
+                                        <p className="text-xs text-slate-500 leading-relaxed mb-3 line-clamp-2">{a.description}</p>
+                                        <div className="flex items-center justify-between pt-3 border-t border-slate-800/50">
+                                            <div className="flex items-center gap-1.5 text-orange-400/80">
+                                                <DollarSign className="w-3 h-3" />
+                                                <span className="text-[11px] font-black font-mono">
+                                                    {a.estimatedCostMin ? `$${a.estimatedCostMin.toLocaleString()}` : 'No Estimate'}
                                                 </span>
-                                            )}
+                                            </div>
+                                            <div className="flex items-center gap-1 text-[10px] text-slate-500 font-bold">
+                                                <MapPin className="w-2.5 h-2.5" /> {a.location || 'POI'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Tactical Recommendations */}
+                        <div className="rounded-3xl bg-slate-900 border border-slate-800 p-8">
+                             <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-6 flex items-center gap-2">
+                                <Zap className="w-3.5 h-3.5 text-orange-400" /> Adjuster Action Recommendations
+                             </h3>
+                             
+                             {isEditing ? (
+                                <div className="space-y-3 mb-6">
+                                    {narrative.recommendations.map((r, i) => (
+                                        <div key={i} className="flex gap-2">
+                                            <input 
+                                                value={r} 
+                                                onChange={e => {
+                                                    const newRecs = [...narrative.recommendations];
+                                                    newRecs[i] = e.target.value;
+                                                    setNarrative(n => ({ ...n, recommendations: newRecs }));
+                                                }}
+                                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-300"
+                                            />
+                                            <button 
+                                                onClick={() => setNarrative(n => ({ ...n, recommendations: n.recommendations.filter((_, idx) => idx !== i) }))}
+                                                className="p-2 text-slate-500 hover:text-red-400"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <div className="flex gap-2">
+                                        <input 
+                                            value={newRec} 
+                                            onChange={e => setNewRec(e.target.value)}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter' && newRec.trim()) {
+                                                    setNarrative(n => ({ ...n, recommendations: [...n.recommendations, newRec.trim()] }));
+                                                    setNewRec('');
+                                                }
+                                            }}
+                                            placeholder="Add custom recommendation..."
+                                            className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-300"
+                                        />
+                                        <button 
+                                            onClick={() => {
+                                                if (newRec.trim()) {
+                                                    setNarrative(n => ({ ...n, recommendations: [...n.recommendations, newRec.trim()] }));
+                                                    setNewRec('');
+                                                }
+                                            }}
+                                            className="px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs uppercase"
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+                                </div>
+                             ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {narrative.recommendations.length === 0 ? (
+                                        <p className="text-sm text-slate-600 italic">No specific recommendations formulated yet.</p>
+                                    ) : narrative.recommendations.map((r, i) => (
+                                        <div key={i} className="flex items-start gap-3 p-4 bg-slate-950/40 rounded-2xl border border-slate-800/40">
+                                            <span className="w-5 h-5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 flex items-center justify-center shrink-0 text-[10px] font-black mt-0.5">{i+1}</span>
+                                            <p className="text-sm text-slate-400 font-medium leading-relaxed">{r}</p>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="mt-4 pt-4 border-t border-slate-800/60 flex justify-between text-sm">
-                                    <span className="text-slate-400">Total Estimated Damage</span>
-                                    <span className="font-black text-white">
-                                        {reportLineItems.length > 0
-                                            ? `$${reportLineItems.reduce((sum, item) => sum + Number(item.totalCost), 0).toLocaleString()}`
-                                            : `$${totalCostMin.toLocaleString()} – $${totalCostMax.toLocaleString()}`
-                                        }
-                                    </span>
-                                </div>
-                            </SectionCard>
-                        )}
+                             )}
+                        </div>
 
-                        {/* Recommendations */}
-                        {narrative.recommendations.length > 0 && (
-                            <SectionCard title="Recommendations" icon={<Zap className="w-4 h-4" />}>
-                                <ol className="space-y-2">
-                                    {narrative.recommendations.map((r, i) => (
-                                        <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
-                                            <span className="w-5 h-5 rounded-full bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0 text-[10px] font-black text-orange-400 mt-0.5">{i + 1}</span>
-                                            {r}
-                                        </li>
-                                    ))}
-                                </ol>
-                            </SectionCard>
-                        )}
-
-                        {/* Finalize */}
-                        <div className="flex justify-between items-center pt-2">
-                            <button onClick={() => setStep('narrative')} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold hover:bg-slate-700 transition-all">
-                                <ChevronLeft className="w-4 h-4" /> Back
+                        {/* Submission Bar */}
+                        <div className="flex justify-between items-center pt-8 border-t border-slate-800 pb-16">
+                            <button 
+                                onClick={() => setStep('narrative')} 
+                                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 font-bold hover:bg-slate-800 transition-all"
+                            >
+                                <ChevronLeft className="w-4 h-4" /> Back to Build
                             </button>
-                            <div className="flex gap-3">
+                            <div className="flex gap-4">
                                 <button
-                                    onClick={() => setStep('intake')}
-                                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold hover:bg-slate-700 transition-all"
+                                    onClick={() => {
+                                        const mockMeta = {
+                                            id: `PREVIEW-${Date.now()}`,
+                                            industry: 'insurance',
+                                            title: report?.title || 'Draft Claim Report',
+                                            filename: 'preview.pdf',
+                                            createdAt: new Date().toISOString(),
+                                            data: { form: { ...form, ...narrative }, images, allAnnotations }
+                                        };
+                                        setGeneratedReport(mockMeta as any);
+                                        setIsViewingFull(true);
+                                    }}
+                                    className="flex items-center gap-3 px-8 py-4 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 rounded-2xl text-indigo-400 font-black text-sm uppercase tracking-widest transition-all"
                                 >
-                                    <Edit3 className="w-4 h-4" /> Edit
+                                    <Eye size={20} />
+                                    View Full Report
                                 </button>
+
                                 <button
                                     onClick={handleExportPDF}
                                     disabled={exportingPDF || !report}
-                                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-bold uppercase tracking-wider disabled:opacity-50 transition-all border border-slate-600"
+                                    className="flex items-center gap-3 px-8 py-4 bg-slate-900 border border-slate-700 hover:border-slate-500 rounded-2xl text-slate-300 font-black text-sm uppercase tracking-widest transition-all disabled:opacity-50"
                                 >
-                                    {exportingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                                    {exportingPDF ? 'Generating...' : 'Export PDF'}
+                                    {exportingPDF ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+                                    {exportingPDF ? 'Generating...' : 'Export Intelligence'}
                                 </button>
+
+                                {selectedMissionId && (
+                                    <button
+                                        onClick={handleSaveToMission}
+                                        disabled={savingToMission || !!savedToMissionId || !generatedReport}
+                                        className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all border ${
+                                            savedToMissionId 
+                                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 cursor-default' 
+                                                : 'bg-indigo-600 hover:bg-indigo-500 text-white border-transparent shadow-xl shadow-indigo-500/20'
+                                        }`}
+                                    >
+                                        {savingToMission ? <Loader2 className="w-5 h-5 animate-spin" /> : savedToMissionId ? <CheckCircle2 className="w-5 h-5" /> : <Save className="w-5 h-5" />}
+                                        {savedToMissionId ? 'Saved to Mission' : 'Save to Mission'}
+                                    </button>
+                                )}
+                                
                                 <button
                                     onClick={handleFinalize}
                                     disabled={saving || report?.status === 'FINALIZED'}
-                                    className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black text-sm uppercase tracking-wider disabled:opacity-50 transition-all shadow-lg shadow-emerald-500/20"
+                                    className="flex items-center gap-3 px-10 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 shadow-xl shadow-emerald-500/20 text-white font-black text-sm uppercase tracking-widest rounded-2xl transition-all hover:-translate-y-0.5 disabled:opacity-50"
                                 >
-                                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                                    {report?.status === 'FINALIZED' ? 'Finalized ✓' : 'Finalize & Submit'}
+                                    {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                                    {report?.status === 'FINALIZED' ? 'Submission Complete' : 'Submit Final Report'}
                                 </button>
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* Final Report Viewer Overlay */}
+                {isViewingFull && generatedReport && (
+                    <PDFViewer 
+                        meta={generatedReport} 
+                        onClose={() => setIsViewingFull(false)} 
+                        onDownload={() => downloadReport(generatedReport)}
+                    />
                 )}
             </div>
 

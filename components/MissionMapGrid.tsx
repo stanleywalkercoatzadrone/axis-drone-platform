@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Map, Image, BrainCircuit, RotateCw, Eye, Maximize2,
-  FileText, AlertTriangle, Grid, X,
+  FileText, AlertTriangle, Grid, X, Layers
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 import { AIReportViewer, AIReportData } from './AIReportPage';
@@ -26,6 +26,7 @@ interface MapGridProps {
   lat?: number | null;
   lng?: number | null;
   files?: Array<{ id: string; storage_url: string; file_name: string; mime_type?: string }>;
+  defects?: Array<{ lat: number; lng: number; type: string; confidence: number }>;
   onClose?: () => void;
 }
 
@@ -33,7 +34,7 @@ const isImageUrl = (url: string) =>
   /\.(jpe?g|png|gif|webp|tiff?|bmp)(\?|$)/i.test(url || '');
 
 // ── Leaflet Map (lazy-loaded via CDN script tag) ───────────────────────────────
-function SiteMap({ lat, lng, siteName }: { lat: number; lng: number; siteName?: string }) {
+function SiteMap({ lat, lng, siteName, defects, showHeatmap }: { lat: number; lng: number; siteName?: string; defects?: any[]; showHeatmap?: boolean }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
 
@@ -59,9 +60,9 @@ function SiteMap({ lat, lng, siteName }: { lat: number; lng: number; siteName?: 
       const map = L.map(mapRef.current).setView([lat, lng], 15);
       mapInstanceRef.current = map;
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap',
-        maxZoom: 21,
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© <a href="https://carto.com">CARTO</a>',
+        subdomains: 'abcd', maxZoom: 21,
       }).addTo(map);
 
       // Grid overlay — show approx drone coverage radius
@@ -69,6 +70,14 @@ function SiteMap({ lat, lng, siteName }: { lat: number; lng: number; siteName?: 
 
       const marker = L.marker([lat, lng]).addTo(map);
       marker.bindPopup(`<b>${siteName || 'Mission Site'}</b><br>${lat.toFixed(5)}, ${lng.toFixed(5)}`).openPopup();
+
+      if (showHeatmap && defects) {
+          defects.forEach(d => {
+              const color = d.confidence >= 90 ? '#10b981' : d.confidence >= 70 ? '#f59e0b' : '#f43f5e';
+              L.circle([d.lat, d.lng], { color, fillColor: color, fillOpacity: 0.6, radius: 8, weight: 1 }).addTo(map)
+                .bindPopup(`<b>${d.type}</b><br>Confidence: ${d.confidence}%`);
+          });
+      }
     }
 
     return () => {
@@ -77,20 +86,21 @@ function SiteMap({ lat, lng, siteName }: { lat: number; lng: number; siteName?: 
         mapInstanceRef.current = null;
       }
     };
-  }, [lat, lng, siteName]);
+  }, [lat, lng, siteName, showHeatmap, defects]);
 
   return <div ref={mapRef} className="w-full h-56 rounded-xl overflow-hidden z-0" />;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 const MissionMapGrid: React.FC<MapGridProps> = ({
-  missionId, siteName, missionTitle, lat, lng, files = [], onClose,
+  missionId, siteName, missionTitle, lat, lng, files = [], defects = [], onClose,
 }) => {
   const [masterReport, setMasterReport]     = useState<AIReportData | null>(null);
   const [masterLoading, setMasterLoading]   = useState(false);
   const [showReport, setShowReport]         = useState(false);
   const [selectedImage, setSelectedImage]   = useState<string | null>(null);
   const [view, setView]                     = useState<'grid' | 'map'>('grid');
+  const [showHeatmap, setShowHeatmap]       = useState(false);
 
   const imageFiles = files.filter(f => isImageUrl(f.storage_url) || /image/i.test(f.mime_type || ''));
 
@@ -138,6 +148,13 @@ const MissionMapGrid: React.FC<MapGridProps> = ({
               <Map size={9} /> Map
             </button>
           )}
+          {view === 'map' && defects.length > 0 && (
+            <button onClick={() => setShowHeatmap(!showHeatmap)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-black uppercase transition-colors
+                ${showHeatmap ? 'bg-rose-500/20 border border-rose-500/30 text-rose-300' : 'text-slate-500 hover:text-white'}`}>
+              <Layers size={9} /> Heatmap
+            </button>
+          )}
           {/* Master Report */}
           <button onClick={generateMaster} disabled={masterLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[9px] font-black uppercase hover:opacity-90 transition-opacity disabled:opacity-50">
@@ -157,7 +174,7 @@ const MissionMapGrid: React.FC<MapGridProps> = ({
       {/* Map view */}
       {view === 'map' && lat && lng && (
         <div className="p-3">
-          <SiteMap lat={lat} lng={lng} siteName={siteName} />
+          <SiteMap lat={lat} lng={lng} siteName={siteName} defects={defects} showHeatmap={showHeatmap} />
           {imageFiles.length > 0 && (
             <p className="text-[9px] text-slate-500 mt-2 text-center">
               {imageFiles.length} images captured at this site · click thumbnails below to view

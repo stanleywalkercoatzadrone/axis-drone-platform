@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Building2, MapPin, LayoutGrid, AlertCircle } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 
 interface ProjectFormProps {
     clientId: string;

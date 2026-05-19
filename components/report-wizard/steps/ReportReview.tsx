@@ -3,10 +3,12 @@ import { useReport } from '../ReportContext';
 import {
     FileCheck, Loader2, AlertCircle, CheckCircle, ArrowLeft,
     Sparkles, Edit3, Plus, Trash2, Eye, ZoomIn, X,
-    ChevronDown, ChevronUp, Save
+    ChevronDown, ChevronUp, Save, Download
 } from 'lucide-react';
 import { Severity } from '../../../types';
 import { Button } from '../../../src/stitch/components/Button';
+import { exportReportPDF } from '../../../modules/ai-reporting/components/exportReportPDF';
+import { exportSolarReportPDF } from '../../../modules/ai-reporting/components/exportSolarReportPDF';
 
 interface ReportReviewProps {
     onBack: () => void;
@@ -29,6 +31,7 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
     const [isFinalizing, setIsFinalizing] = useState(false);
     const [isSavingDraft, setIsSavingDraft] = useState(false);
     const [isGeneratingNarrative, setIsGeneratingNarrative] = useState(false);
+    const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lightboxImg, setLightboxImg] = useState<string | null>(null);
@@ -40,11 +43,69 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
     const criticals = images.reduce((acc, img) => acc + img.annotations.filter(a => a.severity === Severity.CRITICAL).length, 0);
     const highs = images.reduce((acc, img) => acc + img.annotations.filter(a => a.severity === Severity.HIGH).length, 0);
 
+    const generateModularPDF = async () => {
+        const totalCost = images.flatMap(img => img.annotations).reduce((sum, ann) => sum + (ann.estimatedCostMin || 0), 0);
+        
+        if (industry === 'SOLAR') {
+            const solarFindings = images.flatMap(img => img.annotations.map((a, i) => ({
+                id: a.id,
+                type: a.label,
+                severity: a.severity as any,
+                location: a.location || 'Unknown',
+                description: a.description || '',
+                recommendation: a.recommendedAction || '',
+                estimatedCostMin: a.estimatedCostMin,
+                estimatedCostMax: a.estimatedCostMax,
+                imageIndex: images.indexOf(img)
+            })));
+            
+            await exportSolarReportPDF({
+                form: {
+                    siteName: title || 'Solar Inspection',
+                    siteId: reportId || 'Unknown',
+                    clientName: client || 'Client',
+                    installedKw: 'N/A',
+                    panelCount: 'N/A',
+                    panelMake: 'N/A',
+                    inspectionDate: new Date().toLocaleDateString(),
+                    pilotName: 'Pilot',
+                    flightAltitude: 'N/A',
+                    weatherConditions: 'N/A',
+                    notes: summary
+                },
+                findings: solarFindings,
+                aiSummary: summary,
+                section: { title: 'Solar PV Inspection', badge: 'SOLAR', accentHex: '#f59e0b' },
+                images: images.map(img => img.url)
+            });
+        } else {
+            await exportReportPDF({
+                id: reportId || undefined,
+                title: title || 'Inspection Report',
+                carrier: client || 'Client',
+                executiveSummary: summary,
+                recommendations: recommendations,
+                images: images as any[],
+                totalDamageEstimate: totalCost,
+                riskScore: Math.min(100, Math.round((criticals * 25) + (highs * 10))),
+            });
+        }
+    };
+
     const handleFinalize = async () => {
         setIsFinalizing(true);
         setError(null);
         try {
             await finalizeReport();
+            
+            // --- Zero-Touch PDF Generation ---
+            try {
+                await generateModularPDF();
+            } catch (pdfErr) {
+                console.error("Auto-PDF generation failed", pdfErr);
+            }
+            // ---------------------------------
+            
             setIsSuccess(true);
         } catch (err: any) {
             setError(err.message || 'Failed to finalize report');
@@ -70,6 +131,17 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
             await generateReportNarrative();
         } finally {
             setIsGeneratingNarrative(false);
+        }
+    };
+
+    const handleDownloadPDF = async () => {
+        setIsGeneratingPDF(true);
+        try {
+            await generateModularPDF();
+        } catch (err: any) {
+            setError(err.message || 'Failed to generate PDF');
+        } finally {
+            setIsGeneratingPDF(false);
         }
     };
 
@@ -107,25 +179,38 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
                         <h3 className="font-bold text-emerald-900">Report Finalized</h3>
                         <p className="text-sm text-emerald-700">This report has been committed and is read-only.</p>
                     </div>
-                    <Button size="sm" onClick={onBack} className="ml-auto gap-2">
-                        <ArrowLeft className="w-4 h-4" /> Back to Reports
-                    </Button>
+                    <div className="ml-auto flex items-center gap-2">
+                        <Button size="sm" onClick={handleDownloadPDF} disabled={isGeneratingPDF} className="gap-2 bg-slate-800 hover:bg-slate-700 text-white">
+                            {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            {isGeneratingPDF ? 'Generating...' : 'Download PDF'}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={onBack} className="gap-2">
+                            <ArrowLeft className="w-4 h-4" /> Back to Reports
+                        </Button>
+                    </div>
                 </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {[
-                        { label: 'Images', value: images.length, color: 'text-slate-900' },
-                        { label: 'Total Findings', value: totalAnomalies, color: 'text-slate-900' },
-                        { label: 'Critical', value: criticals, color: criticals > 0 ? 'text-red-600' : 'text-slate-900' },
-                        { label: 'High', value: highs, color: highs > 0 ? 'text-orange-600' : 'text-slate-900' },
-                    ].map(s => (
-                        <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
-                            <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
-                            <div className="text-xs text-slate-400 mt-1">{s.label}</div>
-                        </div>
-                    ))}
-                </div>
+                <div id="report-pdf-content" className="space-y-6">
+                    {/* Header for PDF only */}
+                    <div className="hidden print:block mb-8 border-b pb-4">
+                        <h1 className="text-3xl font-black text-slate-900">{title}</h1>
+                        <p className="text-sm text-slate-500 mt-2">Prepared for {client} • {industry}</p>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        {[
+                            { label: 'Images', value: images.length, color: 'text-slate-900' },
+                            { label: 'Total Findings', value: totalAnomalies, color: 'text-slate-900' },
+                            { label: 'Critical', value: criticals, color: criticals > 0 ? 'text-red-600' : 'text-slate-900' },
+                            { label: 'High', value: highs, color: highs > 0 ? 'text-orange-600' : 'text-slate-900' },
+                        ].map(s => (
+                            <div key={s.label} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
+                                <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+                                <div className="text-xs text-slate-400 mt-1">{s.label}</div>
+                            </div>
+                        ))}
+                    </div>
 
                 {/* Summary */}
                 {summary && (
@@ -150,28 +235,29 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
                     </div>
                 )}
 
-                {/* Image Gallery */}
-                {images.length > 0 && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Images ({images.length})</h3>
-                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                            {images.map((img, idx) => (
-                                <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden bg-slate-100 border border-slate-200 cursor-pointer" onClick={() => setLightboxImg(img.url)}>
-                                    <img src={img.url} className="w-full h-full object-cover" alt="" />
-                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
-                                        <ZoomIn className="w-4 h-4 text-white opacity-0 group-hover:opacity-100" />
-                                    </div>
-                                    {img.annotations.length > 0 && (
-                                        <div className="absolute top-1 right-1 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[9px] font-bold">
-                                            {img.annotations.length}
+                    {/* Image Gallery */}
+                    {images.length > 0 && (
+                        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Images ({images.length})</h3>
+                            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                                {images.map((img, idx) => (
+                                    <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden bg-slate-100 border border-slate-200 cursor-pointer" onClick={() => setLightboxImg(img.url)}>
+                                        <img src={img.url} className="w-full h-full object-cover" alt="" crossOrigin="anonymous" />
+                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                                            <ZoomIn className="w-4 h-4 text-white opacity-0 group-hover:opacity-100" />
                                         </div>
-                                    )}
-                                    <div className="absolute bottom-1 left-1 text-[9px] font-bold text-white bg-black/50 rounded px-1">{idx + 1}</div>
-                                </div>
-                            ))}
+                                        {img.annotations.length > 0 && (
+                                            <div className="absolute top-1 right-1 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-[9px] font-bold">
+                                                {img.annotations.length}
+                                            </div>
+                                        )}
+                                        <div className="absolute bottom-1 left-1 text-[9px] font-bold text-white bg-black/50 rounded px-1">{idx + 1}</div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         );
     }

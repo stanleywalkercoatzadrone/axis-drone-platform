@@ -4,7 +4,7 @@ import {
     ArrowRight, Save, Trash2, List, Filter,
     Upload, FileText, CheckCircle, AlertCircle
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { Workbook, WorkItem } from '../types';
 
 const WorkItemsDashboard: React.FC = () => {

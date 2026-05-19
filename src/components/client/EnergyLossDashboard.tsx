@@ -46,6 +46,7 @@ interface Trend {
     changePercent: number;
     trendMessage: string;
     weekly: TrendWeek[];
+    weeksAnalyzed?: number;
 }
 
 interface EnergyLossDashboardProps {

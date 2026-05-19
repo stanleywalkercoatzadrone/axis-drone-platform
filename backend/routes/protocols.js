@@ -8,6 +8,91 @@ import { protect, authorize } from '../middleware/auth.js';
 import { query } from '../config/database.js';
 
 const router = express.Router();
+
+// TEMPORARY: Unauthenticated Seed protocols endpoint
+router.get('/seed', async (req, res) => {
+    try {
+        const { query } = await import('../config/database.js');
+        const countRes = await query('SELECT count(*) FROM protocols');
+        if (parseInt(countRes.rows[0].count) > 0 && req.query.force !== 'true') {
+            return res.json({ success: true, message: 'Protocols already seeded', count: countRes.rows[0].count });
+        }
+
+        if (req.query.force === 'true') {
+            await query("DELETE FROM protocols WHERE title IN ('Pre-Flight Safety Checklist', 'Post-Flight Data Securement', 'Marketing Media Collection', 'On-Site Data Quality Assurance (QA)')");
+        }
+
+        const standardProtocols = [
+            {
+                title: 'Pre-Flight Safety Checklist',
+                description: 'Mandatory FAA Part 107 safety checks before drone takeoff. Complete all required steps to unlock mission execution.',
+                category: 'pre_flight',
+                mission_type: 'all',
+                is_required: true,
+                steps: [
+                    { id: 's1', order: 1, type: 'check', title: 'Check airspace authorization (LAANC)', description: 'Verify airspace class in B4UFLY/Aloft and ensure LAANC authorization is active if in controlled airspace.', required: true },
+                    { id: 's2', order: 2, type: 'check', title: 'Inspect props for cracks or chips', description: 'Run fingers along the leading edge of all propellers. Replace immediately if any micro-fractures are felt.', required: true },
+                    { id: 's3', order: 3, type: 'check', title: 'Verify batteries are 100% and not swelling', description: 'Visually inspect battery casing for bulging. Ensure voltage is balanced across all cells.', required: true },
+                    { id: 's4', order: 4, type: 'input', title: 'Format SD card and verify storage', description: 'Format the SD card within the drone interface to ensure compatibility. Confirm at least 64GB available.', required: false },
+                    { id: 's5', order: 5, type: 'check', title: 'Calibrate compass and IMU (if needed)', description: 'Check telemetry for magnetic interference warnings. Calibrate away from vehicles or metal structures.', required: true },
+                    { id: 's6', order: 6, type: 'photo', title: 'Take photo of launch site', description: 'Capture a wide angle photo of the takeoff zone showing a clear 10ft perimeter.', required: false }
+                ]
+            },
+            {
+                title: 'Post-Flight Data Securement',
+                description: 'Standard procedure for shutting down, securing mission data, and hardware maintenance.',
+                category: 'post_flight',
+                mission_type: 'all',
+                is_required: true,
+                steps: [
+                    { id: 's1', order: 1, type: 'check', title: 'Power down aircraft before removing SD card', description: 'Never remove the SD card while the drone is powered on to prevent fatal data corruption.', required: true },
+                    { id: 's2', order: 2, type: 'check', title: 'Inspect drone for post-flight damage', description: 'Check gimbal mounts, motor housing, and landing gear for stress fractures or debris.', required: false },
+                    { id: 's3', order: 3, type: 'input', title: 'Log flight time and battery usage', description: 'Record total flight duration and ending battery voltage for fleet maintenance records.', required: false }
+                ]
+            },
+            {
+                title: 'Marketing Media Collection',
+                description: 'Collect cinematic and marketing assets for the client. Required for premium tier clients.',
+                category: 'mission',
+                mission_type: 'all',
+                is_required: false,
+                steps: [
+                    { id: 's1', order: 1, type: 'photo', title: 'Capture 3 wide establishing shots', description: 'Ensure the sun is behind the drone. Frame the entire site with the horizon line on the upper third.', required: false },
+                    { id: 's2', order: 2, type: 'check', title: 'Record 30 seconds of cinematic orbit video', description: 'Execute a slow, smooth Point of Interest orbit around the primary structure at 4k 60fps.', required: false }
+                ]
+            },
+            {
+                title: 'On-Site Data Quality Assurance (QA)',
+                description: 'Mandatory quality checks to prevent blurry data and avoid costly re-flights.',
+                category: 'post_flight',
+                mission_type: 'all',
+                is_required: true,
+                steps: [
+                    { id: 's1', order: 1, type: 'check', title: 'Zoom to 100% on 5 images to verify focus', description: 'Randomly sample 5 images from the mission. Zoom in to pixel level to confirm crisp edges.', required: true },
+                    { id: 's2', order: 2, type: 'input', title: 'Verify shutter speed prevented motion blur', description: 'Check EXIF data. Shutter speed must be at least 1/500s for mapping missions.', required: true },
+                    { id: 's3', order: 3, type: 'check', title: 'Check images for overexposure or sun glare', description: 'Review the histogram on the controller. Ensure highlights are not clipping.', required: true },
+                    { id: 's4', order: 4, type: 'sign', title: 'Sign off on data integrity', description: 'Pilot signature required to certify the data is usable before leaving the site.', required: true }
+                ]
+            }
+        ];
+
+        let seededCount = 0;
+        for (const p of standardProtocols) {
+            await query(
+                `INSERT INTO protocols (title, description, category, mission_type, is_required, steps, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6::jsonb, null)`,
+                [p.title, p.description, p.category, p.mission_type, p.is_required, JSON.stringify(p.steps)]
+            );
+            seededCount++;
+        }
+
+        res.json({ success: true, message: `Successfully seeded ${seededCount} protocols` });
+    } catch (e) {
+        console.error('Seed error:', e);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 router.use(protect);
 
 const isAdminOrPilot = (req, res, next) => {
@@ -15,6 +100,7 @@ const isAdminOrPilot = (req, res, next) => {
     if (['ADMIN', 'SUPERADMIN', 'FIELD_OPERATOR', 'PILOT_TECHNICIAN', 'INSPECTOR', 'SENIOR_INSPECTOR'].some(role => r.includes(role))) return next();
     return res.status(403).json({ success: false, message: 'Access denied' });
 };
+
 const adminOnly = (req, res, next) => {
     const r = (req.user?.role || '').toUpperCase();
     if (r.includes('ADMIN') || r.includes('SUPERADMIN')) return next();

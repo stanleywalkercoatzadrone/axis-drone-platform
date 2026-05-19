@@ -246,9 +246,30 @@ export interface ReportConfig {
   showAuditTrail: boolean;
 }
 
+export interface Fault {
+  id: string;
+  type: string;
+  severity: Severity;
+  description: string;
+  imageId: string;
+  coordinates?: {
+    lat: number;
+    lng: number;
+  };
+  remediation?: string;
+}
+
+export interface TableOfContentsEntry {
+  id: string;
+  label: string;
+  level: number;
+}
+
 export interface InspectionReport {
   id: string;
   rootId: string;
+  missionId?: string;
+  technicianId?: string;
   version: number;
   history: HistoryEntry[];
   title: string;
@@ -259,8 +280,17 @@ export interface InspectionReport {
   branding: Branding;
   config: ReportConfig;
   images: InspectionImage[];
+  faults?: Fault[];
+  toc?: TableOfContentsEntry[];
   summary: string;
   recommendations: string[];
+  weather?: {
+    temperature: number | null;
+    windSpeed: number | null;
+    cloudCover: number | null;
+    condition: string | null;
+  };
+  altitude?: number | null;
   siteContext?: SiteContext;
   strategicAssessment?: StrategicAssessment;
   metadata?: Record<string, string>;
@@ -359,6 +389,16 @@ export interface Personnel {
   town?: string;
   certifications?: string;
   equipment?: string;
+  // Pilot Network Application fields
+  bio?: string;
+  years_exp?: number;
+  certifications_list?: string[];   // array form alongside legacy string
+  specializations?: string[];
+  drone_equipment?: string[];
+  portfolio_url?: string;
+  terrestrial_thermal?: boolean;
+  travel_distance_km?: number;
+  source?: string;                  // e.g. 'network_application'
 }
 
 export enum DeploymentStatus {
@@ -513,4 +553,63 @@ export interface BankingInfo {
   iban?: string;
   dailyRate?: number | null;
   updatedAt?: string;
+}
+
+export interface GridAsset {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  location?: string;
+  tenant_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
+  assetKey?: string;
+  assetType?: string;
+  description?: string;
+  industry?: string;
+  assignedToName?: string;
+  assignedToAvatar?: string;
+  plannedCount?: number;
+  completedCount?: number;
+  version?: number;
+}
+
+export interface GridAssetEvent {
+  id: string;
+  asset_id: string;
+  event_type?: string;
+  eventType?: string;
+  description?: string;
+  message?: string;
+  occurred_at?: string;
+  createdAt?: string;
+  created_by?: string;
+  userName?: string;
+  beforeState?: Record<string, unknown>;
+  afterState?: Record<string, unknown>;
+}
+
+export interface ClientSettings {
+  id?: string;
+  tenant_id?: string;
+  industry?: string;
+  region_name?: string;
+  units_of_measurement?: string;
+  default_language?: string;
+  status?: string;
+  notifications_enabled?: boolean;
+  report_format?: string;
+  workStructure?: string;
+  defaultSlaHours?: number;
+  deliverableFormats?: string[];
+  preferredContactMethod?: string;
+  notificationPreferences?: Record<string, unknown>;
+  qaRequired?: boolean;
+  dataDestinationType?: string;
+  billingCountry?: string;
+  poRequired?: boolean;
+  invoiceDeliveryMethod?: string;
 }

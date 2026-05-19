@@ -69,9 +69,40 @@ export const sendEmail = async (to, subject, html) => {
  * @param {number} amount 
  * @param {string} cc - Optional CC recipient
  */
-export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null, note = null) => {
-    const subject = `Invoice Ready: ${deployment.title}`;
-    const html = `
+export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, cc = null, note = null, customSubject = null, customBody = null) => {
+    const subject = customSubject || `Invoice Ready: ${deployment.title}`;
+
+    let html;
+    if (customBody) {
+        // Substitute tokens and wrap in a clean container
+        const bodyText = customBody
+            .replace(/\{PILOT_NAME\}/g, pilot.name)
+            .replace(/\{AMOUNT\}/g, `$${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`)
+            .replace(/\{INVOICE_LINK\}/g, invoiceLink);
+
+        // Convert plain text to simple HTML paragraphs
+        const bodyHtml = bodyText.split('\n').map(line =>
+            line.trim() === '' ? '<br>' : `<p style="margin:4px 0;line-height:1.6;">${line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`
+        ).join('\n');
+
+        html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            ${bodyHtml}
+            ${note ? `
+            <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 14px 16px; margin: 16px 0; border-radius: 4px;">
+                <p style="margin: 0; font-size: 14px; color: #0c4a6e; font-weight: 600;">Note from Operations:</p>
+                <p style="margin: 6px 0 0; font-size: 14px; color: #1e293b; white-space: pre-wrap;">${note}</p>
+            </div>` : ''}
+            <p style="margin-top:20px;">
+                <a href="${invoiceLink}" style="background-color: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Invoice</a>
+            </p>
+            <p style="font-size: 12px; color: #666; margin-top: 20px;">
+                If the button doesn't work, copy this link:<br>${invoiceLink}
+            </p>
+        </div>`;
+    } else {
+        // Default template
+        html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Invoice Ready for Submission</h2>
             <p>Hi ${pilot.name},</p>
@@ -79,7 +110,7 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, c
             <ul>
                 <li><strong>Mission:</strong> ${deployment.title}</li>
                 <li><strong>Site:</strong> ${deployment.siteName}</li>
-                <li><strong>Total Amount:</strong> $${amount.toLocaleString()}</li>
+                <li><strong>Total Amount:</strong> $${Number(amount).toLocaleString()}</li>
             </ul>
             <p>Please click the link below to view and acknowledge your invoice:</p>
             ${note ? `
@@ -95,7 +126,7 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, c
                 ${invoiceLink}
             </p>
         </div>
-    `;
+    `}
 
     try {
         const info = await transporter.sendMail({
@@ -112,6 +143,7 @@ export const sendInvoiceEmail = async (pilot, deployment, invoiceLink, amount, c
         throw error;
     }
 };
+
 
 /**
  * Send Summary Email to Admin
@@ -518,4 +550,366 @@ export const sendPreOnboardingEmail = async ({ to, documents }) => {
         console.error('Error sending pre-onboarding documents:', error);
         throw error;
     }
+};/**
+ * Send pilot application status notification emails.
+ * Called after admin updates a pilot network application status.
+ *
+ * @param {object} params
+ * @param {string} params.to          - Applicant email
+ * @param {string} params.firstName   - Applicant first name
+ * @param {string} params.status      - 'approved' | 'rejected' | 'waitlisted'
+ * @param {string} [params.adminNotes] - Optional admin notes to include
+ */
+export const sendPilotApplicationStatusEmail = async ({ to, firstName, status, adminNotes }) => {
+    const portalUrl = process.env.FRONTEND_URL || 'https://axisplatform.app';
+    const year = new Date().getFullYear();
+
+    const configs = {
+        approved: {
+            subject: '🎉 You\'ve Been Accepted — Axis Pilot Network',
+            accent: '#10b981',       // emerald
+            accentLight: '#d1fae5',
+            icon: '✅',
+            headline: 'Application Approved',
+            intro: `Congratulations, <strong>${firstName}</strong>! We're excited to welcome you to the Axis Pilot Network.`,
+            body: `
+                <p>Your application has been reviewed and <strong>approved</strong>. You are now an active member of our certified drone pilot network.</p>
+                <p>Here's what to expect next:</p>
+                <ul style="padding-left:20px; color:#374151;">
+                    <li style="margin-bottom:8px;">Your pilot profile has been created in our system</li>
+                    <li style="margin-bottom:8px;">Our operations team will be in touch with mission assignments</li>
+                    <li style="margin-bottom:8px;">You may be asked to complete onboarding documentation</li>
+                </ul>
+            `,
+            cta: 'Visit Axis Platform',
+            ctaUrl: portalUrl,
+            ctaColor: '#10b981',
+        },
+        rejected: {
+            subject: 'Axis Pilot Network — Application Update',
+            accent: '#ef4444',       // red
+            accentLight: '#fee2e2',
+            icon: '📋',
+            headline: 'Application Status Update',
+            intro: `Hi <strong>${firstName}</strong>, thank you for applying to the Axis Pilot Network.`,
+            body: `
+                <p>After careful review of your application, we are unable to move forward at this time.</p>
+                <p>This decision may be based on current operational needs, certification requirements, or coverage area availability. We encourage you to reapply in the future as our network continues to expand.</p>
+                <p>If you believe this decision was made in error or would like feedback, please reach out to our team directly.</p>
+            `,
+            cta: 'Contact Our Team',
+            ctaUrl: `mailto:${process.env.SMTP_FROM_ADDRESS || 'operations@coatzadroneusa.com'}`,
+            ctaColor: '#6b7280',
+        },
+        waitlisted: {
+            subject: 'Axis Pilot Network — You\'re on the Waitlist',
+            accent: '#f59e0b',       // amber
+            accentLight: '#fef3c7',
+            icon: '⏳',
+            headline: 'Added to Waitlist',
+            intro: `Hi <strong>${firstName}</strong>, thank you for your interest in the Axis Pilot Network.`,
+            body: `
+                <p>Your application has been reviewed and you've been placed on our <strong>priority waitlist</strong>.</p>
+                <p>This means your application meets our standards, but we don't have an immediate opening in your area or specialty at this time.</p>
+                <p>What happens next:</p>
+                <ul style="padding-left:20px; color:#374151;">
+                    <li style="margin-bottom:8px;">We'll keep your application on file</li>
+                    <li style="margin-bottom:8px;">You'll be contacted as soon as a position becomes available</li>
+                    <li style="margin-bottom:8px;">No action is required from you at this time</li>
+                </ul>
+            `,
+            cta: 'Learn More About Axis',
+            ctaUrl: portalUrl,
+            ctaColor: '#f59e0b',
+        },
+    };
+
+    const cfg = configs[status];
+    if (!cfg) {
+        console.warn(`[emailService] Unknown pilot application status: ${status}`);
+        return;
+    }
+
+    const notesBlock = adminNotes ? `
+        <div style="background:#f8fafc; border-left:4px solid ${cfg.accent}; padding:14px 16px; margin:20px 0; border-radius:4px;">
+            <p style="margin:0 0 4px; font-size:12px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em;">Note from Operations</p>
+            <p style="margin:0; font-size:14px; color:#374151; white-space:pre-wrap;">${adminNotes}</p>
+        </div>
+    ` : '';
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </head>
+        <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;">
+            <div style="max-width:600px;margin:40px auto;padding:0 20px;">
+
+                <!-- Header -->
+                <div style="background:#0f172a;border-radius:16px 16px 0 0;padding:32px;text-align:center;">
+                    <div style="font-size:28px;font-weight:900;color:#38bdf8;letter-spacing:-0.05em;margin-bottom:4px;">AXIS</div>
+                    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.2em;text-transform:uppercase;">by CoatzaDrone</div>
+                </div>
+
+                <!-- Status Banner -->
+                <div style="background:${cfg.accentLight};border-left:none;border-bottom:3px solid ${cfg.accent};padding:20px 32px;text-align:center;">
+                    <div style="font-size:28px;margin-bottom:6px;">${cfg.icon}</div>
+                    <div style="font-size:18px;font-weight:800;color:${cfg.accent};">${cfg.headline}</div>
+                </div>
+
+                <!-- Body -->
+                <div style="background:#ffffff;padding:36px 32px;border:1px solid #e2e8f0;border-top:none;">
+                    <p style="font-size:16px;line-height:1.6;margin-bottom:16px;">${cfg.intro}</p>
+                    <div style="font-size:15px;line-height:1.7;color:#374151;">
+                        ${cfg.body}
+                    </div>
+
+                    ${notesBlock}
+
+                    <div style="text-align:center;margin:32px 0;">
+                        <a href="${cfg.ctaUrl}"
+                           style="display:inline-block;background:${cfg.ctaColor};color:#ffffff;padding:13px 28px;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">
+                            ${cfg.cta}
+                        </a>
+                    </div>
+
+                    <p style="font-size:13px;color:#64748b;line-height:1.6;">
+                        If you have any questions, please contact us at
+                        <a href="mailto:${process.env.SMTP_FROM_ADDRESS || 'operations@coatzadroneusa.com'}"
+                           style="color:#38bdf8;text-decoration:none;">
+                            ${process.env.SMTP_FROM_ADDRESS || 'operations@coatzadroneusa.com'}
+                        </a>
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div style="background:#0f172a;border-radius:0 0 16px 16px;padding:20px;text-align:center;">
+                    <p style="font-size:11px;color:#475569;margin:0;">
+                        &copy; ${year} CoatzaDrone. All rights reserved.<br>
+                        This is an automated notification — please do not reply to this email.
+                    </p>
+                </div>
+
+            </div>
+        </body>
+        </html>
+    `;
+
+    return sendEmail(to, cfg.subject, html);
+};
+
+/**
+ * Send a mission interest inquiry to a pilot.
+ * @param {object} pilot  { name, email }
+ * @param {object} mission { title, siteName, date, location, type, notes, dailyPayRate, estimatedDurationDays, industry }
+ * @param {string} customMessage - Optional extra message from admin
+ */
+export const sendMissionInterestEmail = async (pilot, mission, customMessage = '') => {
+    const year = new Date().getFullYear();
+    const replyTo = process.env.SMTP_FROM_ADDRESS || process.env.SMTP_USER || 'operations@coatzadroneusa.com';
+
+    // Use AI-generated subject if provided, else fall back to static
+    const subject = mission.aiGeneratedSubject || `Mission Opportunity — ${mission.title}`;
+
+    const detailRows = [
+        { label: 'Mission', value: mission.title },
+        mission.siteName  && { label: 'Site',          value: mission.siteName },
+        mission.date      && { label: 'Date',           value: mission.date },
+        mission.location  && { label: 'Location',       value: mission.location },
+        mission.type      && { label: 'Type',            value: mission.type },
+        mission.industry  && { label: 'Industry',       value: mission.industry },
+        mission.estimatedDurationDays && { label: 'Est. Duration', value: `${mission.estimatedDurationDays} day${mission.estimatedDurationDays > 1 ? 's' : ''}` },
+    ].filter(Boolean);
+
+    const detailsHtml = detailRows.map(r => `
+        <tr>
+            <td style="padding:10px 12px;font-size:13px;font-weight:700;color:#64748b;border-bottom:1px solid #f1f5f9;white-space:nowrap;width:130px;">${r.label}</td>
+            <td style="padding:10px 12px;font-size:13px;color:#0f172a;border-bottom:1px solid #f1f5f9;">${r.value}</td>
+        </tr>`).join('');
+
+    // Prominent pay banner — shown above detail card
+    // Only show the green banner if we actually have a real pay rate (> 0)
+    const rate = parseFloat(mission.dailyPayRate) || 0;
+    const days = parseInt(mission.estimatedDurationDays) || 1;
+    const totalEstimated = rate * days;
+
+    const payBannerHtml = rate > 0 ? `
+        <div style="background:linear-gradient(135deg,#064e3b,#065f46);border-radius:10px;padding:16px 20px;margin:20px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+            <div>
+                <p style="margin:0 0 2px;font-size:10px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:0.12em;">Your Daily Rate</p>
+                <p style="margin:0;font-size:28px;font-weight:900;color:#ffffff;letter-spacing:-0.02em;">$${rate.toLocaleString()}<span style="font-size:14px;font-weight:500;color:#a7f3d0;margin-left:4px;">/day</span></p>
+            </div>
+            <div style="background:rgba(255,255,255,0.12);border-radius:8px;padding:10px 16px;text-align:center;min-width:120px;">
+                <p style="margin:0 0 2px;font-size:10px;color:#a7f3d0;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;">Est. Total (${days} day${days !== 1 ? 's' : ''})</p>
+                <p style="margin:0;font-size:20px;font-weight:900;color:#ffffff;">$${totalEstimated.toLocaleString()}</p>
+            </div>
+        </div>` : `
+        <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:10px;padding:14px 20px;margin:20px 0;text-align:center;">
+            <p style="margin:0;font-size:13px;color:#64748b;">Compensation will be confirmed by the operations team based on scope and availability.</p>
+        </div>`;
+
+    const customBlock = customMessage ? `
+        <div style="background:#f0f9ff;border-left:4px solid #38bdf8;padding:14px 16px;margin:24px 0;border-radius:6px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Message from Operations</p>
+            <p style="margin:0;font-size:14px;color:#1e293b;line-height:1.6;white-space:pre-wrap;">${customMessage}</p>
+        </div>` : '';
+
+    const notesBlock = mission.notes ? `
+        <div style="background:#fafafa;border:1px solid #e2e8f0;border-radius:6px;padding:14px 16px;margin-top:16px;">
+            <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Mission Notes</p>
+            <p style="margin:0;font-size:13px;color:#475569;line-height:1.6;">${mission.notes}</p>
+        </div>` : '';
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /></head>
+        <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;">
+            <div style="max-width:600px;margin:40px auto;padding:0 20px;">
+
+                <!-- Header -->
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px 16px 0 0;padding:32px;text-align:center;">
+                    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">Axis Enterprise Platform</div>
+                    <div style="font-size:28px;font-weight:900;color:#38bdf8;letter-spacing:-0.05em;">Mission Opportunity</div>
+                    <div style="width:48px;height:3px;background:linear-gradient(90deg,#38bdf8,#818cf8);border-radius:999px;margin:12px auto 0;"></div>
+                </div>
+
+                <!-- Body -->
+                <div style="background:#ffffff;padding:36px 32px;border:1px solid #e2e8f0;border-top:none;">
+                    ${mission.aiGeneratedBody ? `
+                    <!-- AI-written narrative body — pilot name personalized from [Name] placeholder -->
+                    <div style="font-size:14px;color:#374151;line-height:1.8;white-space:pre-wrap;">${
+                        mission.aiGeneratedBody.replace(/Hi \[Name\],?/i, `Hi <strong>${pilot.name}</strong>,`)
+                    }</div>
+                    ${customMessage ? `
+                    <div style="background:#f0f9ff;border-left:4px solid #38bdf8;padding:14px 16px;margin:24px 0;border-radius:6px;">
+                        <p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Additional Note from Operations</p>
+                        <p style="margin:0;font-size:14px;color:#1e293b;line-height:1.6;white-space:pre-wrap;">${customMessage}</p>
+                    </div>` : ''}
+                    ` : `
+                    <p style="font-size:16px;line-height:1.6;margin-bottom:4px;">Hi <strong>${pilot.name}</strong>,</p>
+                    <p style="font-size:14px;color:#475569;line-height:1.6;margin-top:0;">Our operations team has an upcoming mission and would like to know if you're available and interested. Details are below:</p>
+                    ${customBlock}
+                    `}
+
+                    <!-- Pay Banner — prominent, shown above detail card -->
+                    ${payBannerHtml}
+
+                    <!-- Mission Detail Card — always shown as a structured reference -->
+                    <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin:24px 0;">
+                        <div style="background:#f8fafc;padding:12px 16px;border-bottom:1px solid #e2e8f0;">
+                            <p style="margin:0;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">Mission Details</p>
+                        </div>
+                        <table style="width:100%;border-collapse:collapse;">
+                            <tbody>${detailsHtml}</tbody>
+                        </table>
+                    </div>
+
+                    ${notesBlock}
+
+                    <p style="font-size:14px;color:#475569;line-height:1.6;margin-top:24px;">
+                        Please let us know if you're available and interested by clicking one of the buttons below — our operations team will follow up right away.
+                    </p>
+
+                    <!-- Two-button response CTA -->
+                    <div style="text-align:center;margin:28px 0 16px;">
+                        <a href="${mission.interestedUrl || `mailto:${replyTo}?subject=Interested: ${encodeURIComponent(mission.title)}`}"
+                           style="display:inline-block;background:linear-gradient(135deg,#059669,#047857);color:#ffffff;padding:14px 28px;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;letter-spacing:0.01em;margin:0 6px 8px;">
+                            ✅ &nbsp; I'm Interested
+                        </a>
+                        <a href="${mission.unavailableUrl || `mailto:${replyTo}?subject=Not Available: ${encodeURIComponent(mission.title)}`}"
+                           style="display:inline-block;background:#1e293b;border:1px solid #334155;color:#94a3b8;padding:14px 28px;text-decoration:none;border-radius:10px;font-weight:700;font-size:15px;letter-spacing:0.01em;margin:0 6px 8px;">
+                            ❌ &nbsp; Not Available
+                        </a>
+                    </div>
+
+                    <p style="font-size:12px;color:#94a3b8;line-height:1.6;text-align:center;">
+                        Or simply reply to this email to reach the operations team directly.
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div style="background:#0f172a;border-radius:0 0 16px 16px;padding:20px;text-align:center;">
+                    <p style="font-size:11px;color:#475569;margin:0;">
+                        &copy; ${year} CoatzaDrone / Axis Platform. All rights reserved.<br>
+                        This inquiry was sent by the Axis operations team. To stop receiving these, contact your operations manager.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    return sendEmail(pilot.email, subject, html);
+};
+
+/**
+ * Send "Not Selected" notification to a pilot/technician
+ * @param {object} pilot - { name, email }
+ * @param {object} mission - { title, siteName, date, location }
+ */
+export const sendMissionNotSelectedEmail = async (pilot, mission) => {
+    const subject = `Mission Update: ${mission.title}`;
+    const year = new Date().getFullYear();
+    const siteDisplay = mission.siteName || mission.title;
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /></head>
+        <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;">
+            <div style="max-width:600px;margin:40px auto;padding:0 20px;">
+                <!-- Header -->
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px 16px 0 0;padding:32px;text-align:center;">
+                    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">Axis Enterprise Platform</div>
+                    <div style="font-size:26px;font-weight:900;color:#f8fafc;letter-spacing:-0.05em;">Mission Update</div>
+                    <div style="width:48px;height:3px;background:linear-gradient(90deg,#64748b,#94a3b8);border-radius:999px;margin:12px auto 0;"></div>
+                </div>
+
+                <!-- Body -->
+                <div style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 16px 16px;padding:32px;">
+                    <p style="font-size:16px;color:#1e293b;margin:0 0 16px;">Hi <strong>${pilot.name}</strong>,</p>
+
+                    <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 20px;">
+                        Thank you for your interest and availability for the <strong>${mission.title}</strong> mission${mission.siteName ? ` at <strong>${mission.siteName}</strong>` : ''}.
+                        We truly appreciate your responsiveness and professionalism.
+                    </p>
+
+                    <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">
+                        After careful review, we have filled all required positions for this mission with other personnel. 
+                        <strong>You have not been selected for this particular assignment.</strong>
+                    </p>
+
+                    <!-- Mission card -->
+                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin:0 0 24px;">
+                        <p style="margin:0 0 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.12em;">Mission Details</p>
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <tr><td style="padding:5px 0;color:#64748b;font-weight:700;width:80px;">Mission</td><td style="padding:5px 0;color:#1e293b;">${mission.title}</td></tr>
+                            ${mission.siteName ? `<tr><td style="padding:5px 0;color:#64748b;font-weight:700;">Site</td><td style="padding:5px 0;color:#1e293b;">${mission.siteName}</td></tr>` : ''}
+                            ${mission.date     ? `<tr><td style="padding:5px 0;color:#64748b;font-weight:700;">Date</td><td style="padding:5px 0;color:#1e293b;">${mission.date}</td></tr>` : ''}
+                            ${mission.location ? `<tr><td style="padding:5px 0;color:#64748b;font-weight:700;">Location</td><td style="padding:5px 0;color:#1e293b;">${mission.location}</td></tr>` : ''}
+                        </table>
+                    </div>
+
+                    <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 8px;">
+                        This does <strong>not</strong> reflect your standing in our network. We have additional missions coming up and will be reaching out when your skills and availability are a match.
+                    </p>
+
+                    <p style="font-size:14px;color:#475569;line-height:1.7;margin:0;">
+                        Thank you again for your time and commitment to the Coatza Drone team.
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div style="background:#0f172a;border-radius:0 0 16px 16px;padding:20px;text-align:center;margin-top:-16px;">
+                    <p style="font-size:11px;color:#475569;margin:0;">
+                        &copy; ${year} CoatzaDrone / Axis Platform. All rights reserved.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+    return sendEmail(pilot.email, subject, html);
 };

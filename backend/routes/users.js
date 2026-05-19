@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUsers, createUser, batchCreateUsers, updateUser, deleteUser, resetUserPassword } from '../controllers/userController.js';
+import { getUsers, createUser, batchCreateUsers, updateUser, deleteUser, resetUserPassword, resendUserInvite } from '../controllers/userController.js';
 import { protect, authorize, authorizePerm } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -12,5 +12,6 @@ router.post('/batch', authorize('ADMIN'), authorizePerm('MANAGE_USERS'), batchCr
 router.put('/:id', authorize('ADMIN'), authorizePerm('MANAGE_USERS'), updateUser);
 router.post('/:id/reset-password', authorize('ADMIN'), authorizePerm('MANAGE_USERS'), resetUserPassword);
 router.delete('/:id', authorize('ADMIN'), authorizePerm('MANAGE_USERS'), deleteUser);
+router.post('/:id/resend-invite', authorize('ADMIN'), authorizePerm('MANAGE_USERS'), resendUserInvite);
 
 export default router;

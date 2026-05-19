@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGlobalContext } from '../src/context/GlobalContext';
 import { ChevronDown, Building2 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
-import { useIndustry } from '../src/context/IndustryContext';
+import apiClient from '../services/apiClient';
+import { useIndustry } from '../context/IndustryContext';
 
 const PortfolioSelector: React.FC = () => {
     const { selectedClientId, setClient } = useGlobalContext();

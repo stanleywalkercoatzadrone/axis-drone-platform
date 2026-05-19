@@ -114,13 +114,44 @@ export const createUser = async (req, res, next) => {
                 ]
             );
         } catch (dbError) {
-            if (dbError.code === '23505') { // Unique violation
-                throw new AppError('A user with this email already exists', 400);
-            }
-            if (dbError.code === '23514') { // Check constraint violation (role)
+            if (dbError.code === '23505') { // Unique violation (email already exists)
+                // Attempt to fetch the existing user
+                const existingUserRes = await query('SELECT id, email, tenant_id FROM users WHERE email = $1', [email]);
+                
+                if (existingUserRes.rows.length > 0) {
+                    const existingUser = existingUserRes.rows[0];
+                    
+                    // If they are already in the current tenant
+                    if (existingUser.tenant_id === req.user.tenantId) {
+                        throw new AppError('A user with this email is already on your team.', 400);
+                    }
+                    
+                    // Otherwise, absorb them into the new tenant!
+                    const updatedUserRes = await query(
+                        `UPDATE users 
+                         SET tenant_id = $1, role = $2, company_name = $3, title = COALESCE($4, title), permissions = $5
+                         WHERE id = $6
+                         RETURNING id, email, full_name, company_name, title, role, permissions, created_at, invitation_token_hash`,
+                        [
+                            req.user.tenantId, 
+                            role ? normalizeRoleForDb(role) : 'USER', 
+                            companyName || null, 
+                            title || null,
+                            JSON.stringify(permissions || ['CREATE_REPORT']),
+                            existingUser.id
+                        ]
+                    );
+                    
+                    result = updatedUserRes;
+                } else {
+                    // Fallback just in case
+                    throw new AppError('A user with this email is already registered in the Axis platform.', 400);
+                }
+            } else if (dbError.code === '23514') { // Check constraint violation (role)
                 throw new AppError(`Invalid role provided: ${role}. Database constraint mismatch.`, 400);
+            } else {
+                throw dbError;
             }
-            throw dbError;
         }
 
         const newUser = result.rows[0];
@@ -331,10 +362,10 @@ export const deleteUser = async (req, res, next) => {
     try {
         const { id } = req.params;
 
-        const result = await query('DELETE FROM users WHERE id = $1 AND tenant_id = $2 RETURNING id', [id, req.user.tenantId]);
+        const result = await query('DELETE FROM users WHERE id = $1 AND (tenant_id = $2 OR tenant_id IS NULL OR $2 IS NULL) RETURNING id', [id, req.user.tenantId]);
 
         if (result.rows.length === 0) {
-            throw new AppError('User not found', 404);
+            throw new AppError('User not found or you do not have permission to delete them', 404);
         }
 
         await clearCachePattern(`user:${id}`);
@@ -350,7 +381,11 @@ export const deleteUser = async (req, res, next) => {
             message: 'User deleted successfully'
         });
     } catch (error) {
-        next(error);
+        if (error.code === '23503') { // Foreign key constraint violation
+            next(new AppError('Cannot delete user: This user is linked to existing records (e.g. audit logs, reports) and cannot be deleted directly.', 409));
+        } else {
+            next(error);
+        }
     }
 };
 
@@ -385,6 +420,55 @@ export const resetUserPassword = async (req, res, next) => {
         res.json({
             success: true,
             message: 'User password reset successfully'
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const resendUserInvite = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        // Fetch user to make sure they belong to current admin's tenant
+        const userRes = await query(
+            'SELECT id, email, full_name, role FROM users WHERE id = $1 AND tenant_id = $2',
+            [id, req.user.tenantId]
+        );
+
+        if (userRes.rows.length === 0) {
+            throw new AppError('User not found or unauthorized to manage this user.', 404);
+        }
+
+        const user = userRes.rows[0];
+
+        // Generate new invitation token
+        const rawToken = await generateInvitationToken();
+        const crypto = await import('crypto');
+        const invitationTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        
+        const invitationExpires = new Date();
+        invitationExpires.setDate(invitationExpires.getDate() + 7);
+
+        await query(
+            'UPDATE users SET invitation_token_hash = $1, invitation_expires_at = $2 WHERE id = $3',
+            [invitationTokenHash, invitationExpires, id]
+        );
+
+        // Send email
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const invitationUrl = `${frontendUrl}/set-password/${rawToken}`;
+
+        await sendUserInvitationEmail({
+            to: user.email,
+            fullName: user.full_name,
+            invitationUrl: invitationUrl,
+            role: user.role
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Invitation email resent successfully.'
         });
     } catch (error) {
         next(error);

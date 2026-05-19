@@ -14,10 +14,10 @@ import rateLimit from 'express-rate-limit';
 export const forecastRateLimiter = rateLimit({
     windowMs: 60 * 1000,   // 1 minute
     max: 5,                 // max 5 per window per key
-    keyGenerator: (req) => {
-        // Key per authenticated user (falls back to IP)
-        return req.user?.id || req.ip;
-    },
+    // Key per authenticated user only — avoids raw req.ip IPv6 validation issue
+    // express-rate-limit v8 throws ValidationError if keyGenerator uses req.ip without helper
+    keyGenerator: (req) => req.user?.id ?? 'anonymous',
+    validate: { xForwardedForHeader: false },   // suppress IP-related validations
     handler: (req, res) => {
         res.status(429).json({
             success: false,

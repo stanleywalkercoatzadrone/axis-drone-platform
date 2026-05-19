@@ -13,15 +13,20 @@
 export function normalizeRole(roleString) {
     if (!roleString) return null;
 
-    // Convert to lowercase and replace slashes/spaces with underscores
+    // Convert to lowercase and replace slashes/spaces/hyphens with underscores
     const normalized = roleString.toLowerCase().replace(/[\/\s-]/g, '_');
 
     // Map variants to standard roles
-    if (['admin', 'administrator'].includes(normalized)) {
+    if (['admin', 'administrator', 'super_admin', 'superuser'].includes(normalized)) {
         return 'admin';
     }
 
-    if (['pilot_technician', 'pilot', 'technician'].includes(normalized)) {
+    // Field operators and inspectors are pilot-tier — provisionPilotAccount assigns FIELD_OPERATOR
+    if ([
+        'pilot_technician', 'pilot', 'technician',
+        'field_operator', 'field_tech', 'fieldoperator',
+        'senior_inspector', 'inspector', 'drone_operator'
+    ].includes(normalized)) {
         return 'pilot_technician';
     }
 

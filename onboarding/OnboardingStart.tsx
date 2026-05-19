@@ -1,7 +1,7 @@
 import React from 'react';
 import { Star, Zap, Building2, Shield, HardHat, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import apiClient from '../../src/services/apiClient';
+import apiClient from '../src/services/apiClient';
 
 const TEMPLATES = [
     {

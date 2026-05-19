@@ -4,7 +4,7 @@ import {
     Map, Navigation, Layers, Gauge, Camera, Wind,
     RotateCcw, Info, Ruler, ChevronDown, ChevronRight
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface FlightParams {
     flightAltitudeM: number | null;
@@ -288,7 +288,7 @@ export const FlightDataUpload: React.FC<FlightDataUploadProps> = ({
                             <div className="text-center">
                                 <Map className="w-7 h-7 text-slate-600 mx-auto mb-1.5" />
                                 <p className="text-sm text-slate-400">Drop <strong className="text-slate-300">.kml</strong> files here or click to browse</p>
-                                <p className="text-[11px] text-slate-600 mt-0.5">Multiple files supported — DJI GS Pro, Litchi, Pix4D, DroneDeploy</p>
+                                <p className="text-[11px] text-slate-600 mt-0.5">Multiple files supported — DJI GS Pro, Litchi, DroneDeploy</p>
                             </div>
                         )}
                     </div>

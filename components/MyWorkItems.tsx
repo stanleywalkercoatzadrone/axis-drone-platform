@@ -3,7 +3,7 @@ import {
     CheckSquare, Clock, AlertCircle, CheckCircle2,
     MessageSquare, Paperclip, Upload, X, Search, Filter
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { WorkItem } from '../types';
 
 const MyWorkItems: React.FC = () => {

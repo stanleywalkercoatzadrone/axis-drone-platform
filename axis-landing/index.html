@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Axis by CoatzaDrone — Enterprise Operations Management</title>
+  <meta name="description" content="Axis is an enterprise operations management platform with embedded data collection and AI-powered analysis for aerial and ground operations at scale." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:    #07090f;
+      --dark:    #0d1117;
+      --card:    #111827;
+      --border:  rgba(255,255,255,0.08);
+      --blue:    #3b82f6;
+      --cyan:    #22d3ee;
+      --white:   #f8fafc;
+      --muted:   #64748b;
+      --text:    #cbd5e1;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--navy);
+      color: var(--white);
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 5%;
+      height: 68px;
+      background: rgba(7,9,15,0.80);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-brand {
+      font-size: 1rem; font-weight: 700; letter-spacing: -0.02em;
+      color: var(--white);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .nav-brand .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--cyan));
+      box-shadow: 0 0 10px var(--cyan);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .5; transform: scale(1.4); }
+    }
+    .nav-links {
+      display: flex; gap: 2rem; list-style: none;
+    }
+    .nav-links a {
+      color: var(--muted); font-size: .875rem; font-weight: 500;
+      text-decoration: none; transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--white); }
+    .nav-cta {
+      display: flex; gap: .75rem; align-items: center;
+    }
+    .btn-ghost {
+      padding: .5rem 1.25rem; font-size: .875rem; font-weight: 500;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; cursor: pointer;
+      text-decoration: none; transition: all .2s;
+    }
+    .btn-ghost:hover { border-color: rgba(255,255,255,0.25); color: var(--white); }
+    .btn-primary {
+      padding: .5rem 1.25rem; font-size: .875rem; font-weight: 600;
+      background: linear-gradient(135deg, var(--blue), #6366f1);
+      border: none; color: #fff; border-radius: 8px; cursor: pointer;
+      text-decoration: none; transition: all .2s; white-space: nowrap;
+      box-shadow: 0 0 20px rgba(59,130,246,0.3);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 0 30px rgba(59,130,246,0.5); }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 8rem 5% 5rem;
+      position: relative; overflow: hidden;
+    }
+    /* grid pattern */
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+    /* radial glow */
+    .hero::after {
+      content: '';
+      position: absolute; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(59,130,246,0.12) 0%, transparent 70%);
+    }
+    .hero-badge {
+      position: relative; z-index: 1;
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid rgba(59,130,246,0.3);
+      padding: .35rem 1rem; border-radius: 99px;
+      font-size: .75rem; font-weight: 600; letter-spacing: .08em;
+      color: var(--cyan); text-transform: uppercase; margin-bottom: 2rem;
+    }
+    .hero h1 {
+      position: relative; z-index: 1;
+      font-size: clamp(3rem, 8vw, 6rem);
+      font-weight: 900; letter-spacing: -.04em; line-height: 1.0;
+      margin-bottom: 1.5rem;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #fff 0%, var(--cyan) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-sub {
+      position: relative; z-index: 1;
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: var(--text); max-width: 640px;
+      line-height: 1.7; margin-bottom: 2.5rem;
+    }
+    .hero-actions {
+      position: relative; z-index: 1;
+      display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;
+    }
+    .btn-hero {
+      padding: .875rem 2rem; font-size: 1rem; font-weight: 600;
+      background: linear-gradient(135deg, var(--blue), #6366f1);
+      border: none; color: #fff; border-radius: 10px; cursor: pointer;
+      text-decoration: none; transition: all .25s;
+      box-shadow: 0 0 30px rgba(59,130,246,0.4);
+    }
+    .btn-hero:hover { transform: translateY(-2px); box-shadow: 0 0 50px rgba(59,130,246,0.6); }
+    .btn-demo {
+      padding: .875rem 2rem; font-size: 1rem; font-weight: 600;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--white); border-radius: 10px; cursor: pointer;
+      text-decoration: none; transition: all .25s; backdrop-filter: blur(6px);
+    }
+    .btn-demo:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+
+    /* ── STATS ── */
+    .stats {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+      padding: 2rem 5%;
+      display: flex; justify-content: center; gap: 0;
+    }
+    .stat {
+      flex: 1; max-width: 260px; text-align: center;
+      padding: 0 2rem;
+      border-right: 1px solid var(--border);
+    }
+    .stat:last-child { border-right: none; }
+    .stat-value {
+      font-size: 2.25rem; font-weight: 800; letter-spacing: -.03em;
+      background: linear-gradient(135deg, var(--white), var(--cyan));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .stat-label { font-size: .8rem; color: var(--muted); margin-top: .25rem; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; }
+
+    /* ── SECTIONS ── */
+    section { padding: 6rem 5%; }
+    .section-tag {
+      display: inline-block;
+      font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .12em;
+      color: var(--cyan); margin-bottom: 1rem;
+    }
+    .section-title {
+      font-size: clamp(1.75rem, 4vw, 2.75rem);
+      font-weight: 800; letter-spacing: -.03em; line-height: 1.15;
+      margin-bottom: 1rem;
+    }
+    .section-desc {
+      color: var(--text); font-size: 1.05rem;
+      max-width: 560px; line-height: 1.7; margin-bottom: 3rem;
+    }
+    .section-center { text-align: center; }
+    .section-center .section-desc { margin-left: auto; margin-right: auto; }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      transition: all .3s;
+      position: relative; overflow: hidden;
+    }
+    .feature-card::before {
+      content: '';
+      position: absolute; inset: 0; border-radius: 16px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.06), transparent);
+      opacity: 0; transition: opacity .3s;
+    }
+    .feature-card:hover { border-color: rgba(59,130,246,0.4); transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(34,211,238,0.1));
+      border: 1px solid rgba(59,130,246,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; margin-bottom: 1.25rem;
+    }
+    .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+    .feature-card p { font-size: .875rem; color: var(--text); line-height: 1.65; }
+
+    /* ── HOW ── */
+    .how-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center;
+    }
+    .how-steps { display: flex; flex-direction: column; gap: 1.5rem; }
+    .how-step {
+      display: flex; gap: 1.25rem; align-items: flex-start;
+      padding: 1.5rem; border-radius: 12px;
+      border: 1px solid transparent; transition: all .3s; cursor: default;
+    }
+    .how-step:hover { background: rgba(255,255,255,0.03); border-color: var(--border); }
+    .step-num {
+      width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--blue), #6366f1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .8rem; font-weight: 800; color: #fff;
+    }
+    .step-content h4 { font-size: .9rem; font-weight: 700; margin-bottom: .25rem; }
+    .step-content p  { font-size: .825rem; color: var(--text); line-height: 1.6; }
+    .how-visual {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 20px; padding: 2rem; position: relative; overflow: hidden;
+    }
+    .how-visual::before {
+      content: ''; position: absolute; top: -50%; left: -50%;
+      width: 100%; height: 100%;
+      background: radial-gradient(ellipse at center, rgba(59,130,246,0.08), transparent 70%);
+    }
+    .mock-header { display: flex; align-items: center; gap: .5rem; margin-bottom: 1.5rem; }
+    .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .mock-bar {
+      height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.06); margin-bottom: .75rem;
+    }
+    .mock-bar.wide { width: 100%; }
+    .mock-bar.med  { width: 72%; }
+    .mock-bar.short{ width: 48%; }
+    .mock-row { display: flex; gap: .75rem; margin-bottom: .75rem; }
+    .mock-card {
+      flex: 1; height: 60px; border-radius: 8px;
+      background: rgba(59,130,246,0.06);
+      border: 1px solid rgba(59,130,246,0.12);
+    }
+    .mock-stat-row { display: flex; gap: 1rem; margin-top: 1.5rem; }
+    .mock-stat {
+      flex: 1; padding: .75rem; border-radius: 8px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      text-align: center;
+    }
+    .mock-stat-val { font-size: 1.1rem; font-weight: 700; color: var(--cyan); }
+    .mock-stat-lbl { font-size: .65rem; color: var(--muted); margin-top: .15rem; }
+
+    /* ── PRICING ── */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.25rem; align-items: start;
+    }
+    @media (max-width: 1024px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 600px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+    .pricing-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px; padding: 2rem;
+      position: relative; transition: all .3s;
+    }
+    .pricing-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+    .pricing-card.featured {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 1px var(--blue), 0 0 40px rgba(59,130,246,0.2);
+    }
+    .plan-badge {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--blue), #6366f1);
+      color: #fff; font-size: .65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em;
+      padding: .3rem .9rem; border-radius: 99px; white-space: nowrap;
+    }
+    .plan-tier {
+      font-size: .7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--muted); margin-bottom: .5rem;
+    }
+    .plan-name { font-size: 1.25rem; font-weight: 800; margin-bottom: 1rem; }
+    .plan-price {
+      display: flex; align-items: baseline; gap: .25rem;
+      margin-bottom: 1.5rem;
+    }
+    .price-amount {
+      font-size: 2.5rem; font-weight: 900; letter-spacing: -.04em;
+      background: linear-gradient(135deg, var(--white), var(--cyan));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .price-period { font-size: .8rem; color: var(--muted); }
+    .plan-features { list-style: none; margin-bottom: 2rem; display: flex; flex-direction: column; gap: .6rem; }
+    .plan-features li {
+      font-size: .8rem; color: var(--text);
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .plan-features li::before {
+      content: '✓'; display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(34,211,238,0.15); color: var(--cyan);
+      font-size: .65rem; font-weight: 700; flex-shrink: 0;
+    }
+    .plan-features li.muted { color: var(--muted); }
+    .plan-features li.muted::before { background: rgba(100,116,139,0.15); color: var(--muted); content: '✕'; }
+    .btn-plan {
+      display: block; width: 100%; text-align: center;
+      padding: .75rem; border-radius: 10px; font-size: .875rem; font-weight: 600;
+      cursor: pointer; text-decoration: none; transition: all .2s;
+      border: 1px solid var(--border); color: var(--white);
+      background: rgba(255,255,255,0.04);
+    }
+    .btn-plan:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+    .btn-plan.primary {
+      background: linear-gradient(135deg, var(--blue), #6366f1);
+      border-color: transparent; box-shadow: 0 0 20px rgba(59,130,246,0.3);
+    }
+    .btn-plan.primary:hover { box-shadow: 0 0 35px rgba(59,130,246,0.5); transform: translateY(-1px); }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 5%;
+      display: flex; flex-wrap: wrap; justify-content: space-between;
+      align-items: center; gap: 1.5rem;
+    }
+    .footer-brand {
+      font-size: .95rem; font-weight: 700;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .footer-links { display: flex; gap: 2rem; flex-wrap: wrap; }
+    .footer-links a { font-size: .8rem; color: var(--muted); text-decoration: none; transition: color .2s; }
+    .footer-links a:hover { color: var(--white); }
+    .footer-copy { font-size: .75rem; color: var(--muted); }
+
+    /* ── DIVIDER ── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .stats { flex-direction: column; align-items: center; gap: 1.5rem; }
+      .stat { border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }
+      .stat:last-child { border-bottom: none; }
+      .how-grid { grid-template-columns: 1fr; }
+      .how-visual { display: none; }
+      footer { flex-direction: column; text-align: center; }
+      .footer-links { justify-content: center; }
+    }
+  </style>
+  <script>
+    const APP = 'https://axisplatform.app';
+    function openSignup(plan) {
+      var url = APP + '/signup' + (plan ? '?plan=' + plan : '');
+      window.location.href = url;
+      return false;
+    }
+  </script>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav>
+  <div class="nav-brand">
+    <div class="dot"></div>
+    Axis by CoatzaDrone
+  </div>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a href="#contact">Contact</a></li>
+  </ul>
+  <div class="nav-cta">
+    <a href="https://axisplatform.app/login" class="btn-ghost">Log in</a>
+    <a href="https://axisplatform.app/signup" class="btn-primary">Get Started</a>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<section class="hero" id="home">
+  <div class="hero-badge">
+    <span>⬡</span> Enterprise Operations Platform
+  </div>
+  <h1>
+    Operations intelligence.<br/>
+    <span>Built to scale.</span>
+  </h1>
+  <p class="hero-sub">
+    Axis by CoatzaDrone is an enterprise management platform with embedded data collection and AI-powered analysis tools — designed for aerial and ground operations at any scale.
+  </p>
+  <div class="hero-actions">
+    <a href="https://axisplatform.app/signup" onclick="return openSignup()" class="btn-hero">Start Free</a>
+    <a href="#how" class="btn-demo">See How It Works</a>
+  </div>
+</section>
+
+<!-- ── STATS ── -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">500+</div>
+    <div class="stat-label">Active Missions</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">40+</div>
+    <div class="stat-label">Countries</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">99.9%</div>
+    <div class="stat-label">Platform Uptime</div>
+  </div>
+</div>
+
+<hr class="divider" />
+
+<!-- ── FEATURES ── -->
+<section id="features">
+  <div class="section-center" style="margin-bottom:3rem;">
+    <div class="section-tag">Platform Capabilities</div>
+    <h2 class="section-title">Everything your operations team needs</h2>
+    <p class="section-desc">One platform to plan, deploy, collect, analyze, and report — across any region, at any scale.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🗺️</div>
+      <h3>Mission Management</h3>
+      <p>Plan, assign, and track field operations across regions from a single unified dashboard. Real-time sync and automated pre-mission checks included.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <h3>AI Data Analysis</h3>
+      <p>Embedded AI analysis surfaces anomalies, generates structured reports, and delivers actionable insights from both aerial and ground-level data sources.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">👥</div>
+      <h3>Field Team Management</h3>
+      <p>Manage your team's certifications, assignments, and performance in one place. Full role-based access control and compliance tracking built in.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🌍</div>
+      <h3>Regional Operations</h3>
+      <p>Scale operations across multiple regions with localized compliance rules, data residency controls, and per-region reporting.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>Data Collection</h3>
+      <p>Ingest data from aerial assets, ground sensors, and manual uploads in a single pipeline. Supports images, video, CSV, and structured telemetry.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔗</div>
+      <h3>Client Portal</h3>
+      <p>Share reports, deliverables, and project status with clients in a branded, white-labeled portal — no external tools required.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- ── HOW ── -->
+<section id="how">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center;" class="how-grid">
+    <div>
+      <div class="section-tag">How It Works</div>
+      <h2 class="section-title">From data collection to insight — in one platform</h2>
+      <p class="section-desc" style="margin-bottom:2rem;">
+        Axis handles the entire operations lifecycle, so your team spends time on decisions, not tooling.
+      </p>
+      <div class="how-steps">
+        <div class="how-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Set up your organization</h4>
+            <p>Onboard in minutes. Add your team, define regions, and assign roles — no IT required.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Deploy and collect</h4>
+            <p>Launch missions with aerial or ground assets. Data flows directly into your Axis workspace.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Analyze with AI</h4>
+            <p>Our embedded analysis engine processes your data and generates structured, shareable reports automatically.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Share with clients</h4>
+            <p>Deliver reports through a branded client portal. Keep stakeholders informed without leaving the platform.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="how-visual">
+      <div class="mock-header">
+        <div class="mock-dot" style="background:#ef4444;"></div>
+        <div class="mock-dot" style="background:#eab308;"></div>
+        <div class="mock-dot" style="background:#22c55e;"></div>
+        <span style="font-size:.7rem;color:var(--muted);margin-left:.5rem;">Axis Workspace</span>
+      </div>
+      <div class="mock-bar wide"></div>
+      <div class="mock-bar med"></div>
+      <div class="mock-row">
+        <div class="mock-card"></div>
+        <div class="mock-card"></div>
+        <div class="mock-card"></div>
+      </div>
+      <div class="mock-bar wide" style="margin-top:.75rem;"></div>
+      <div class="mock-bar short"></div>
+      <div class="mock-row" style="margin-top:.75rem;">
+        <div class="mock-card" style="height:80px;background:rgba(34,211,238,0.06);border-color:rgba(34,211,238,0.15);"></div>
+        <div class="mock-card" style="height:80px;"></div>
+      </div>
+      <div class="mock-stat-row">
+        <div class="mock-stat">
+          <div class="mock-stat-val">24</div>
+          <div class="mock-stat-lbl">Active</div>
+        </div>
+        <div class="mock-stat">
+          <div class="mock-stat-val">98%</div>
+          <div class="mock-stat-lbl">Accuracy</div>
+        </div>
+        <div class="mock-stat">
+          <div class="mock-stat-val">3.2k</div>
+          <div class="mock-stat-lbl">Records</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- ── PRICING ── -->
+<section id="pricing">
+  <div class="section-center" style="margin-bottom:3rem;">
+    <div class="section-tag">Pricing</div>
+    <h2 class="section-title">Scale your operations</h2>
+    <p class="section-desc">Precision-tuned plans for individual teams to global enterprises.</p>
+  </div>
+  <div class="pricing-grid">
+
+    <div class="pricing-card">
+      <div class="plan-tier">Basic</div>
+      <div class="plan-name">Free</div>
+      <div class="plan-price">
+        <div class="price-amount">$0</div>
+        <div class="price-period">/ forever</div>
+      </div>
+      <ul class="plan-features">
+        <li>1 pilot</li>
+        <li>5 missions</li>
+        <li>Basic data viewer</li>
+        <li class="muted">No AI analysis</li>
+        <li class="muted">No white-label</li>
+      </ul>
+      <a href="https://axisplatform.app/signup?plan=free" onclick="return openSignup('free')" class="btn-plan">Get Started</a>
+    </div>
+
+    <div class="pricing-card">
+      <div class="plan-tier">Starter</div>
+      <div class="plan-name">Growth</div>
+      <div class="plan-price">
+        <div class="price-amount">$149</div>
+        <div class="price-period">/ month</div>
+      </div>
+      <ul class="plan-features">
+        <li>3 pilots</li>
+        <li>10 missions / month</li>
+        <li>100GB data storage</li>
+        <li>Export reports (PDF)</li>
+        <li class="muted">No AI analysis</li>
+      </ul>
+      <a href="https://axisplatform.app/signup?plan=growth" onclick="return openSignup('growth')" class="btn-plan">Get Started</a>
+    </div>
+
+    <div class="pricing-card featured">
+      <div class="plan-badge">Most Popular</div>
+      <div class="plan-tier">Pro</div>
+      <div class="plan-name">Professional</div>
+      <div class="plan-price">
+        <div class="price-amount">$399</div>
+        <div class="price-period">/ month</div>
+      </div>
+      <ul class="plan-features">
+        <li>15 pilots</li>
+        <li>Unlimited missions</li>
+        <li>1TB cloud storage</li>
+        <li>AI analysis included</li>
+        <li>Priority support</li>
+      </ul>
+      <a href="https://axisplatform.app/signup?plan=pro" onclick="return openSignup('pro')" class="btn-plan primary">Get Started</a>
+    </div>
+
+    <div class="pricing-card">
+      <div class="plan-tier">Elite</div>
+      <div class="plan-name">Enterprise</div>
+      <div class="plan-price">
+        <div class="price-amount" style="font-size:2rem;">Custom</div>
+      </div>
+      <ul class="plan-features">
+        <li>Unlimited pilots</li>
+        <li>Unlimited missions</li>
+        <li>Multi-region nodes</li>
+        <li>White-label portal</li>
+        <li>Dedicated account manager</li>
+      </ul>
+      <a href="mailto:sales@coatzadrone.com" class="btn-plan">Contact Sales</a>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- ── FOOTER ── -->
+<footer id="contact">
+  <div class="footer-brand">
+    <div class="dot" style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22d3ee);"></div>
+    Axis by CoatzaDrone
+  </div>
+  <div class="footer-links">
+    <a href="#features">Features</a>
+    <a href="#pricing">Pricing</a>
+    <a href="mailto:sales@coatzadrone.com">Sales</a>
+    <a href="mailto:support@coatzadrone.com">Support</a>
+    <a href="privacy.html">Privacy</a>
+    <a href="terms.html">Terms</a>
+  </div>
+  <div class="footer-copy">© 2025 CoatzaDrone. All rights reserved.</div>
+</footer>
+
+</body>
+</html>

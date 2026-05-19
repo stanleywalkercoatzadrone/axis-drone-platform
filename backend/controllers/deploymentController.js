@@ -1,6 +1,5 @@
 import db from '../config/database.js';
 import { sendMissionAssignmentEmail, isMockTransporter } from '../services/emailService.js';
-import { eventBus, EVENT_TYPES } from '../events/eventBus.js';
 
 /**
  * Geocode a city/location string using Open-Meteo geocoding API.
@@ -78,6 +77,22 @@ export const getAllDeployments = async (req, res) => {
             query += ` AND (d.tenant_id = $${params.length} OR d.tenant_id IS NULL)`;
         }
 
+        // Email-based regional isolation for Admins (The Stanley Protocol)
+        // Ensures Alvaro Ruiz and Stanley Walker don't mix up US vs Mexico missions
+        const userRole = req.user.role ? req.user.role.toUpperCase() : '';
+        const isInternalAdmin = userRole === 'ADMIN' || (req.user.effectiveRoles && req.user.effectiveRoles.includes('internal_admin'));
+        
+        if (isInternalAdmin && req.user.email) {
+            const email = req.user.email.toLowerCase();
+            if (email.endsWith('.mx')) {
+                // Restrict to Mexico missions
+                query += ` AND d.country_id = (SELECT id FROM countries WHERE iso_code = 'MX' LIMIT 1)`;
+            } else if (email.endsWith('usa.com') || email.endsWith('.com')) {
+                // Restrict to US missions (or legacy null country missions)
+                query += ` AND (d.country_id = (SELECT id FROM countries WHERE iso_code = 'US' LIMIT 1) OR d.country_id IS NULL)`;
+            }
+        }
+
         // Pilots: filter to their assigned missions (only when personnel record exists)
         if (isPilot && pilotPersonnelId) {
             params.push(pilotPersonnelId);
@@ -142,6 +157,7 @@ export const getAllDeployments = async (req, res) => {
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            pilotsNeeded: row.pilots_needed || null,
             latitude: row.latitude != null ? parseFloat(row.latitude) : null,
             longitude: row.longitude != null ? parseFloat(row.longitude) : null,
             city: row.city || null,
@@ -281,6 +297,7 @@ export const createDeployment = async (req, res) => {
             location,
             notes,
             daysOnSite,
+            pilotsNeeded,
             industryKey,
             latitude,
             longitude
@@ -313,27 +330,62 @@ export const createDeployment = async (req, res) => {
             }
         }
 
-        const result = await db.query(
-            `INSERT INTO deployments
-    (title, type, status, site_name, site_id, date, location, notes, days_on_site, industry_key, tenant_id, latitude, longitude)
-VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING *`,
-            [
-                title,
-                type,
-                status || 'Scheduled',
-                siteName,
-                siteId || null,
-                date,
-                location || null,
-                notes || null,
-                daysOnSite || 1,
-                industryKey || null,
-                req.user.tenantId,
-                lat,
-                lon
-            ]
-        );
+        let result;
+        try {
+            result = await db.query(
+                `INSERT INTO deployments
+        (title, type, status, site_name, site_id, date, location, notes, days_on_site, pilots_needed, industry_key, tenant_id, latitude, longitude, client_id, country_id)
+    VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    RETURNING *`,
+                [
+                    title,
+                    type,
+                    status || 'Scheduled',
+                    siteName,
+                    siteId || null,
+                    date,
+                    location || null,
+                    notes || null,
+                    daysOnSite || 1,
+                    pilotsNeeded || null,
+                    industryKey || null,
+                    req.user.tenantId,
+                    lat,
+                    lon,
+                    req.body.clientId || null,
+                    req.body.countryId || null
+                ]
+            );
+        } catch (dbErr) {
+            if (dbErr.code === '42703' && dbErr.message.includes('pilots_needed')) {
+                result = await db.query(
+                    `INSERT INTO deployments
+            (title, type, status, site_name, site_id, date, location, notes, days_on_site, industry_key, tenant_id, latitude, longitude, client_id, country_id)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        RETURNING *`,
+                    [
+                        title,
+                        type,
+                        status || 'Scheduled',
+                        siteName,
+                        siteId || null,
+                        date,
+                        location || null,
+                        notes || null,
+                        daysOnSite || 1,
+                        industryKey || null,
+                        req.user.tenantId,
+                        lat,
+                        lon,
+                        req.body.clientId || null,
+                        req.body.countryId || null
+                    ]
+                );
+            } else {
+                throw dbErr;
+            }
+        }
+
 
         const row = result.rows[0];
         const deployment = {
@@ -347,8 +399,12 @@ RETURNING *`,
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            pilotsNeeded: row.pilots_needed || null,
             latitude: row.latitude ? parseFloat(row.latitude) : null,
             longitude: row.longitude ? parseFloat(row.longitude) : null,
+            countryId: row.country_id || null,
+            clientId: row.client_id || null,
+            industryKey: row.industry_key || null,
             dailyLogs: [],
             technicianIds: []
         };
@@ -357,16 +413,6 @@ RETURNING *`,
             success: true,
             data: deployment,
             message: 'Deployment created successfully'
-        });
-
-        // §3 Emit mission.created event (non-blocking, after response sent)
-        eventBus.emit(EVENT_TYPES.MISSION_CREATED, {
-            missionId:  row.id,
-            title:      row.title,
-            userId:     req.user?.id,
-            tenantId:   req.user?.tenantId,
-            requestId:  req.requestId,
-            after: deployment,
         });
     } catch (error) {
         console.error('Error creating deployment:', error);
@@ -394,17 +440,19 @@ export const updateDeployment = async (req, res) => {
             location,
             notes,
             daysOnSite,
+            pilotsNeeded,
             latitude,
             longitude,
             state
         } = req.body;
 
         // Check current status for transition validation
-        const currentCheck = await db.query('SELECT status FROM deployments WHERE id = $1', [id]);
+        const currentCheck = await db.query('SELECT * FROM deployments WHERE id = $1 AND tenant_id = $2', [id, req.user.tenantId]);
         if (currentCheck.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Deployment not found' });
         }
-        const currentStatus = currentCheck.rows[0].status;
+        const current = currentCheck.rows[0];
+        const currentStatus = current.status;
 
         // Lifecycle Enforcement logic
         if (status && status !== currentStatus) {
@@ -449,25 +497,84 @@ export const updateDeployment = async (req, res) => {
                 console.log(`[deploymentController] Auto-geocoded on update: "${location || siteName}" → ${geocoded.label} (${lat}, ${lon})`);
             }
         }
+        
+        // Resolve fields: if passed as undefined, keep existing. If passed as null/empty, clear it.
+        const finalTitle = title !== undefined ? title : current.title;
+        const finalType = type !== undefined ? type : current.type;
+        const finalStatus = status !== undefined ? status : current.status;
+        const finalSiteName = siteName !== undefined ? siteName : current.site_name;
+        const finalSiteId = req.body.siteId !== undefined ? (req.body.siteId || null) : current.site_id;
+        const finalDate = date !== undefined ? date : current.date;
+        const finalLocation = location !== undefined ? location : current.location;
+        const finalNotes = notes !== undefined ? (notes || null) : current.notes;
+        const finalDaysOnSite = daysOnSite !== undefined ? daysOnSite : current.days_on_site;
+        const finalPilotsNeeded = pilotsNeeded !== undefined ? (pilotsNeeded || null) : current.pilots_needed;
+        const finalClientId = req.body.clientId !== undefined ? (req.body.clientId || null) : current.client_id;
+        const finalCountryId = req.body.countryId !== undefined ? (req.body.countryId || null) : current.country_id;
+        const finalIndustryKey = req.body.industryKey !== undefined ? (req.body.industryKey || null) : current.industry_key;
+        
+        const finalLat = lat !== undefined ? lat : current.latitude;
+        const finalLon = lon !== undefined ? lon : current.longitude;
 
-        const result = await db.query(
-            `UPDATE deployments 
-            SET title = COALESCE($1, title),
-    type = COALESCE($2, type),
-    status = COALESCE($3, status),
-    site_name = COALESCE($4, site_name),
-    site_id = COALESCE($5, site_id),
-    date = COALESCE($6, date),
-    location = COALESCE($7, location),
-    notes = COALESCE($8, notes),
-    days_on_site = COALESCE($9, days_on_site),
-    latitude = CASE WHEN $12::numeric IS NOT NULL THEN $12::numeric ELSE latitude END,
-    longitude = CASE WHEN $13::numeric IS NOT NULL THEN $13::numeric ELSE longitude END,
-    updated_at = CURRENT_TIMESTAMP
-            WHERE id = $10 AND tenant_id = $11
-RETURNING * `,
-            [title, type, status, siteName, siteId, date, location, notes, daysOnSite, id, req.user.tenantId, lat ?? null, lon ?? null]
-        );
+        let result;
+        try {
+            result = await db.query(
+                `UPDATE deployments 
+                SET title         = $1,
+        type          = $2,
+        status        = $3,
+        site_name     = $4,
+        site_id       = $5,
+        date          = $6,
+        location      = $7,
+        notes         = $8,
+        days_on_site  = $9,
+        pilots_needed = $10,
+        client_id     = $11,
+        country_id    = $12,
+        industry_key  = $13,
+        latitude      = $14,
+        longitude     = $15,
+        updated_at    = CURRENT_TIMESTAMP
+                WHERE id = $16 AND tenant_id = $17
+    RETURNING * `,
+                [
+                    finalTitle, finalType, finalStatus, finalSiteName, finalSiteId, finalDate, finalLocation,
+                    finalNotes, finalDaysOnSite, finalPilotsNeeded, finalClientId, finalCountryId, finalIndustryKey,
+                    finalLat, finalLon, id, req.user.tenantId
+                ]
+            );
+        } catch (dbErr) {
+            if (dbErr.code === '42703' && dbErr.message.includes('pilots_needed')) {
+                result = await db.query(
+                    `UPDATE deployments 
+                    SET title         = $1,
+            type          = $2,
+            status        = $3,
+            site_name     = $4,
+            site_id       = $5,
+            date          = $6,
+            location      = $7,
+            notes         = $8,
+            days_on_site  = $9,
+            client_id     = $10,
+            country_id    = $11,
+            industry_key  = $12,
+            latitude      = $13,
+            longitude     = $14,
+            updated_at    = CURRENT_TIMESTAMP
+                    WHERE id = $15 AND tenant_id = $16
+        RETURNING * `,
+                    [
+                        finalTitle, finalType, finalStatus, finalSiteName, finalSiteId, finalDate, finalLocation,
+                        finalNotes, finalDaysOnSite, finalClientId, finalCountryId, finalIndustryKey,
+                        finalLat, finalLon, id, req.user.tenantId
+                    ]
+                );
+            } else {
+                throw dbErr;
+            }
+        }
 
         // Audit Log
         if (req.user) { // Ensure auth middleware populated user
@@ -497,6 +604,10 @@ VALUES($1, $2, $3, $4, $5)`,
             location: row.location,
             notes: row.notes,
             daysOnSite: row.days_on_site,
+            pilotsNeeded: row.pilots_needed || null,
+            clientId: row.client_id || null,
+            countryId: row.country_id || null,
+            industryKey: row.industry_key || null,
             latitude: row.latitude ? parseFloat(row.latitude) : null,
             longitude: row.longitude ? parseFloat(row.longitude) : null,
         };
@@ -515,21 +626,6 @@ VALUES($1, $2, $3, $4, $5)`,
             success: true,
             data: deployment,
             message: 'Deployment updated successfully'
-        });
-
-        // §3 Emit mission.updated event (non-blocking)
-        eventBus.emit(EVENT_TYPES.MISSION_UPDATED, {
-            missionId:      id,
-            userId:         req.user?.id,
-            tenantId:       req.user?.tenantId,
-            requestId:      req.requestId,
-            previousStatus: currentStatus,
-            newStatus:      status || currentStatus,
-            after:          deployment,
-            entityType:     'deployment',
-            entityId:       id,
-            resourceType:   'deployment',
-            resourceId:     id,
         });
     } catch (error) {
         console.error('Error updating deployment:', error.message, error.stack);

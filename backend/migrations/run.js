@@ -17,10 +17,9 @@ async function runMigrations() {
         console.log('🔄 Running database migrations...');
         console.log('📍 Using DATABASE_URL:', process.env.DATABASE_URL ? 'Supabase connection found' : 'No DATABASE_URL found');
 
-        // Get all SQL files in migrations directory
         const files = fs.readdirSync(__dirname)
             .filter(file => file.endsWith('.sql'))
-            .sort(); // Run in alphabetical order
+            .sort();
 
         for (const file of files) {
             console.log(`\n📝 Running migration: ${file}`);
@@ -31,19 +30,18 @@ async function runMigrations() {
                 await pool.query(sql);
                 console.log(`✅ Migration ${file} completed`);
             } catch (err) {
-                // Ignore "relation already exists" or "column already exists" errors to allow re-runs
-                if (err.code === '42P07' || err.code === '42701' || err.code === '42710' || err.code === '23505') {
-                    console.log(`⚠️  Skipping ${file}: Objects or Data already exist.`);
-                } else {
-                    throw err;
-                }
+                // Always continue — log warning but never abort the chain.
+                // Individual migration failures (already-exists, constraint violations,
+                // missing extensions etc.) should not block subsequent migrations.
+                console.warn(`⚠️  Migration ${file} skipped (${err.code || 'ERR'}): ${err.message}`);
             }
         }
 
-        console.log('\n✅ All migrations completed successfully');
+        console.log('\n✅ All migrations processed');
         process.exit(0);
     } catch (error) {
-        console.error('❌ Migration failed:', error);
+        // Only fatal errors (e.g. DB connection failure) reach here
+        console.error('❌ Migration runner fatal error:', error);
         process.exit(1);
     }
 }

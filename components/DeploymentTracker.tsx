@@ -23,7 +23,7 @@ import {
     Square,
     Check,
     X,
-    ArrowRight, Briefcase, Building2, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, Layers, MapPin, MoreVertical, Receipt, Search, Target, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail, UserPlus, UserCheck, BrainCircuit, RotateCcw, ClipboardList
+    ArrowRight, Briefcase, Building2, ChevronDown, ChevronRight, Clock, Edit2, ExternalLink, Filter, LayoutGrid, Link as LinkIcon, Loader2, Layers, MapPin, MoreVertical, Receipt, RefreshCw, Search, Target, Zap, Plane, List, Grid3X3, BarChart3, Activity, Mail, UserPlus, UserCheck, BrainCircuit, RotateCcw, ClipboardList
 } from 'lucide-react';
 import ProjectInvoiceView from './ProjectInvoiceView';
 import { Deployment, DeploymentStatus, DeploymentType, DailyLog, Personnel, DeploymentFile, UserAccount, Country } from '../types';
@@ -47,10 +47,11 @@ import { useIndustry } from '../context/IndustryContext';
 import { MissionSessionPanel } from './MissionSessionPanel';
 import { SolarBlockMap } from './SolarBlockMap';
 import LBDBlockTracker from './LBDBlockTracker';
+import LBDDocumentGrid from './LBDDocumentGrid';
 import { ThermalHotspotMap } from './ThermalHotspotMap';
 import DailyFieldReportsTab from './DailyFieldReportsTab';
 import AssignmentsTab from './AssignmentsTab';
-import { ProcessingJobs } from './orthomosaic/ProcessingJobs';
+
 import type { OrthoJob } from './orthomosaic/types';
 import { orthoApi } from './orthomosaic/api';
 
@@ -77,6 +78,636 @@ const calculateDistance = (loc1?: string, loc2?: string) => {
     return null;
 };
 
+// ── Interest Inquiry Panel ─────────────────────────────────────────────────────
+interface ManualRecipient { id: string; name: string; email: string; isManual: true; dailyPay: number; }
+
+const InterestInquiryPanel: React.FC<{ deployment: any; personnel: Personnel[] }> = ({ deployment, personnel }) => {
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [manualRecipients, setManualRecipients] = useState<ManualRecipient[]>([]);
+    const [manualInput, setManualInput] = useState('');
+    const [search, setSearch] = useState('');
+    const [sending, setSending] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const [results, setResults] = useState<{ pilotId: string; pilotName: string; status: string; reason?: string }[]>([]);
+    const [sent, setSent] = useState(false);
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewIdx, setPreviewIdx] = useState(0);
+
+    // AI email draft state
+    const [aiBody, setAiBody] = useState<string | null>(null);
+    const [aiSubject, setAiSubject] = useState<string | null>(null);
+    const [additionalNote, setAdditionalNote] = useState('');
+    const [aiError, setAiError] = useState<string | null>(null);
+
+    // Job context for AI generation
+    const [jobRole, setJobRole] = useState<'pilot' | 'lbd' | 'both'>('pilot');
+    const [postToLinkedIn, setPostToLinkedIn] = useState(false);
+
+    // Step 2: pilots who received an inquiry for this mission
+    const [inquiryRecipients, setInquiryRecipients] = useState<{ pilotId: string; pilotName: string; sentAt: string; assigned: boolean }[] | null>(null);
+    const [loadingRecipients, setLoadingRecipients] = useState(false);
+    const [notifyingNotSelected, setNotifyingNotSelected] = useState(false);
+    const [notifyResults, setNotifyResults] = useState<{ pilotId: string; pilotName: string; status: string }[]>([]);
+
+    const loadInquiryRecipients = async () => {
+        setLoadingRecipients(true);
+        try {
+            const res = await apiClient.get(`/deployments/${deployment.id}/interest-inquiry/recipients`);
+            setInquiryRecipients(res.data.data || []);
+        } catch { setInquiryRecipients([]); }
+        finally { setLoadingRecipients(false); }
+    };
+
+    // Auto-load recipients on mount
+    useEffect(() => { loadInquiryRecipients(); }, [deployment.id]);
+
+    const filtered = personnel.filter(p =>
+        !search || p.fullName.toLowerCase().includes(search.toLowerCase()) ||
+        (p.email || '').toLowerCase().includes(search.toLowerCase())
+    );
+
+    const addManualEmails = () => {
+        // Accept comma / semicolon / space / newline-separated list
+        const raw = manualInput.trim();
+        if (!raw) return;
+        const candidates = raw.split(/[,;\s\n]+/).map(s => s.trim()).filter(Boolean);
+        let added = 0;
+        const newEntries: ManualRecipient[] = [];
+        const newIds: string[] = [];
+        for (const email of candidates) {
+            if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) continue;
+            if (manualRecipients.some(r => r.email === email)) continue;
+            if (newEntries.some(r => r.email === email)) continue;
+            const id = `manual-${Date.now()}-${added}`;
+            newEntries.push({ id, name: email.split('@')[0], email, isManual: true, dailyPay: 400 });
+            newIds.push(id);
+            added++;
+        }
+        if (newEntries.length) {
+            setManualRecipients(prev => [...prev, ...newEntries]);
+            setSelectedIds(prev => { const n = new Set(prev); newIds.forEach(id => n.add(id)); return n; });
+        }
+        setManualInput('');
+    };
+
+    // Combined list: DB pilots + manual entries
+    const allRecipients = [
+        ...filtered,
+        ...manualRecipients,
+    ];
+
+    // Preview recipients (selected pilots + selected manual)
+    const previewRecipients = [
+        ...personnel.filter(p => selectedIds.has(p.id)),
+        ...manualRecipients.filter(r => selectedIds.has(r.id)),
+    ];
+
+    const togglePilot = (id: string) => setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+    });
+
+    const selectAll = () => setSelectedIds(new Set(filtered.map(p => p.id)));
+    const clearAll = () => setSelectedIds(new Set());
+
+    const handleGenerate = async () => {
+        setGenerating(true);
+        setAiError(null);
+        try {
+            // Auto-compute average pay rate: selected DB pilots + $400 fallback for manual recipients
+            const selectedPilots = personnel.filter(p => selectedIds.has(p.id));
+            const selectedManuals = manualRecipients.filter(r => selectedIds.has(r.id));
+            const pilotRates = selectedPilots.map(p => p.dailyPayRate).filter((r): r is number => !!r && r > 0);
+            const manualRates = selectedManuals.map(r => r.dailyPay);
+            const allRates = [...pilotRates, ...manualRates];
+            const avgRate = allRates.length > 0 ? allRates.reduce((a, b) => a + b, 0) / allRates.length : 400;
+
+            const res = await apiClient.post(`/deployments/${deployment.id}/interest-inquiry/generate`, {
+                payRate:       avgRate,
+                personnelRole: jobRole,
+            });
+            setAiBody(res.data.body || '');
+            setAiSubject(res.data.subject || null);
+        } catch (e: any) {
+            setAiError(e?.response?.data?.message || 'AI generation failed. Try again.');
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    const handleSend = async () => {
+        const allSelected = [
+            ...personnel.filter(p => selectedIds.has(p.id)),
+            ...manualRecipients.filter(r => selectedIds.has(r.id)),
+        ];
+        if (allSelected.length === 0) return;
+        setSending(true);
+        setResults([]);
+        try {
+            const pilotIds = personnel.filter(p => selectedIds.has(p.id)).map(p => p.id);
+
+            const res = await apiClient.post(`/deployments/${deployment.id}/interest-inquiry`, {
+                personnelIds:      pilotIds,
+                manualEmails:      manualRecipients.filter(r => selectedIds.has(r.id)).map(r => ({ name: r.name, email: r.email, dailyPay: r.dailyPay ?? 400 })),
+                customMessage:     additionalNote,
+                aiGeneratedBody:   aiBody   || null,
+                aiGeneratedSubject: aiSubject || null,
+                postToLinkedIn:    postToLinkedIn,
+            });
+            setResults(res.data.results || []);
+            setSent(true);
+            // Immediately load recipients list for Step 2
+            setLoadingRecipients(true);
+            try {
+                const rr = await apiClient.get(`/deployments/${deployment.id}/interest-inquiry/recipients`);
+                setInquiryRecipients(rr.data.data || []);
+            } catch { setInquiryRecipients([]); }
+            finally { setLoadingRecipients(false); }
+        } catch (e: any) {
+            alert(e?.response?.data?.message || 'Failed to send inquiries');
+        } finally {
+            setSending(false);
+            setShowPreview(false);
+        }
+    };
+
+    const handleNotifyNotSelected = async () => {
+        if (!inquiryRecipients) return;
+        const targets = inquiryRecipients.filter(r => !r.assigned);
+        if (targets.length === 0) return;
+        if (!confirm(`Send "Not Selected" notices to ${targets.length} pilot${targets.length !== 1 ? 's' : ''} who received an inquiry but were not assigned to this mission?`)) return;
+        setNotifyingNotSelected(true);
+        setNotifyResults([]);
+        try {
+            const res = await apiClient.post(`/deployments/${deployment.id}/interest-inquiry/not-selected`, {
+                personnelIds: targets.map(r => r.pilotId),
+            });
+            setNotifyResults(res.data.results || []);
+            // Refresh recipients
+            const rr = await apiClient.get(`/deployments/${deployment.id}/interest-inquiry/recipients`);
+            setInquiryRecipients(rr.data.data || []);
+        } catch (e: any) {
+            alert(e?.response?.data?.message || 'Failed to send notices');
+        } finally {
+            setNotifyingNotSelected(false);
+        }
+    };
+
+    const previewLines = [
+        deployment.title                 && `Mission: ${deployment.title}`,
+        deployment.siteName              && `Site: ${deployment.siteName}`,
+        deployment.date                  && `Date: ${deployment.date}`,
+        deployment.location              && `Location: ${deployment.location}`,
+        deployment.type                  && `Type: ${deployment.type}`,
+        deployment.industry              && `Industry: ${deployment.industry}`,
+        deployment.estimatedDurationDays && `Est. Duration: ${deployment.estimatedDurationDays} day${deployment.estimatedDurationDays > 1 ? 's' : ''}`,
+    ].filter(Boolean) as string[];
+
+    return (
+        <div className="h-full overflow-y-auto bg-slate-950 p-6 space-y-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/15 border border-violet-500/30 flex items-center justify-center flex-shrink-0">
+                        <Mail className="w-5 h-5 text-violet-400" />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-white text-base">Pilot Interest Inquiry</h3>
+                        <p className="text-xs text-slate-400">Set job type &amp; pay, let AI write the email, select recipients, send.</p>
+                    </div>
+                </div>
+                {/* AI Generate Button */}
+                <button
+                    onClick={handleGenerate}
+                    disabled={generating}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all disabled:opacity-60 bg-gradient-to-r from-violet-700 to-indigo-700 hover:from-violet-600 hover:to-indigo-600 text-white shadow-md shadow-violet-900/40 flex-shrink-0"
+                >
+                    {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BrainCircuit className="w-3.5 h-3.5" />}
+                    {generating ? 'Generating…' : aiBody ? 'Regenerate with AI' : '✨ Write with AI'}
+                </button>
+            </div>
+
+            {/* Job Context Strip — tells AI what kind of work and what pay to mention */}
+            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl p-4 flex flex-wrap gap-5 items-end">
+                {/* Job Role Selector */}
+                <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Job Type</label>
+                    <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden text-[11px] font-bold">
+                        {([
+                            { value: 'pilot', label: '🚁 Flying / Pilot' },
+                            { value: 'lbd',   label: '🔍 LBD Scanning' },
+                            { value: 'both',  label: '⚡ Both' },
+                        ] as const).map(opt => (
+                            <button
+                                key={opt.value}
+                                onClick={() => setJobRole(opt.value)}
+                                className={`px-3 py-2 transition-colors whitespace-nowrap ${
+                                    jobRole === opt.value
+                                        ? 'bg-violet-600 text-white'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                                }`}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <p className="text-[10px] text-slate-600 italic flex-1 self-end pb-0.5">
+                    Job type helps AI describe the work accurately. Each pilot's pay rate from their profile is used automatically.
+                </p>
+            </div>
+
+            {/* AI Error */}
+            {aiError && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                    <XCircle className="w-4 h-4 flex-shrink-0" /> {aiError}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Left: Pilot multi-select + Manual Email */}
+                <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden flex flex-col">
+                    <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between gap-3">
+                        <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Recipients</span>
+                        <div className="flex items-center gap-2">
+                            <button onClick={selectAll} className="text-[10px] font-bold text-sky-400 hover:text-sky-300 transition-colors">All</button>
+                            <span className="text-slate-600">·</span>
+                            <button onClick={clearAll} className="text-[10px] font-bold text-slate-400 hover:text-slate-300 transition-colors">Clear</button>
+                            {selectedIds.size > 0 && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                                    {selectedIds.size} selected
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="p-3 border-b border-slate-700/40">
+                        <div className="relative">
+                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search pilots & technicians..."
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500/40" />
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto max-h-72 divide-y divide-slate-800/80">
+                        {allRecipients.map(p => {
+                            const isSelected = selectedIds.has(p.id);
+                            const isManual = (p as any).isManual;
+                            return (
+                                <div key={p.id} className={`flex items-center gap-2 px-3 py-2 transition-colors ${isSelected ? 'bg-violet-500/10' : 'hover:bg-slate-800/50'}`}>
+                                    <label className="flex items-center gap-3 flex-1 cursor-pointer min-w-0">
+                                        <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${isSelected ? 'bg-violet-500 border-violet-500' : 'border-slate-600'}`}>
+                                            {isSelected && <Check className="w-3 h-3 text-white" />}
+                                        </div>
+                                        <input type="checkbox" className="sr-only" checked={isSelected} onChange={() => togglePilot(p.id)} />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-semibold text-slate-200 truncate">{p.fullName || (p as any).name}</p>
+                                            <p className="text-[10px] text-slate-500 truncate">{p.email || 'No email on file'}</p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            {isManual && (
+                                                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                                    $400/day
+                                                </span>
+                                            )}
+                                            {!isManual && (p as any).dailyPayRate ? (
+                                                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                                                    ${Number((p as any).dailyPayRate).toLocaleString()}/day
+                                                </span>
+                                            ) : null}
+                                            {isManual && (
+                                                <button onClick={() => {
+                                                    setManualRecipients(prev => prev.filter(r => r.id !== p.id));
+                                                    setSelectedIds(prev => { const n = new Set(prev); n.delete(p.id); return n; });
+                                                }} className="text-slate-600 hover:text-red-400 transition-colors ml-1"><XCircle className="w-3.5 h-3.5" /></button>
+                                            )}
+                                        </div>
+                                    </label>
+                                    {/* Not-Selected buttons removed — use Step 2 below after crew is selected */}
+                                </div>
+                            );
+                        })}
+                        {allRecipients.length === 0 && <p className="text-xs text-slate-500 text-center py-8">No pilots found</p>}
+                    </div>
+
+                    {/* Manual email add — supports bulk paste */}
+                    <div className="p-3 border-t border-slate-700/40 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Add Emails Manually</p>
+                            <p className="text-[10px] text-slate-600 italic">comma, space or newline separated</p>
+                        </div>
+                        <div className="flex gap-2">
+                            <textarea
+                                value={manualInput}
+                                onChange={e => setManualInput(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), addManualEmails())}
+                                placeholder={`pilot@example.com, crew@example.com\nOr paste a list...`}
+                                rows={2}
+                                className="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500/40 resize-none"
+                            />
+                            <button
+                                onClick={addManualEmails}
+                                className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold rounded-lg transition-colors flex-shrink-0 self-stretch"
+                            >+ Add</button>
+                        </div>
+                        {manualRecipients.length > 0 && (
+                            <p className="text-[10px] text-slate-600">
+                                {manualRecipients.length} manual email{manualRecipients.length !== 1 ? 's' : ''} added · all default to <span className="text-amber-400 font-bold">$400/day</span>
+                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right: Email compose area */}
+                <div className="flex flex-col gap-4">
+                    {/* Mission detail summary (always shown) */}
+                    <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden">
+                        <div className="px-4 py-2.5 bg-slate-800/40 border-b border-slate-700/60 flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Mission Data Included in Email</span>
+                        </div>
+                        <div className="p-3.5 space-y-1">
+                            {previewLines.map((line, i) => (
+                                <div key={i} className="flex items-center gap-2 text-[11px]">
+                                    <span className="text-emerald-500/70">✓</span>
+                                    <span className="text-slate-300">{line}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* AI-generated email body — editable */}
+                    <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden flex flex-col flex-1 min-h-[180px]">
+                        <div className="px-4 py-2.5 border-b border-slate-700/60 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                {aiBody ? (
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-violet-400 flex items-center gap-1">
+                                        <BrainCircuit className="w-3 h-3" /> AI-Written Email Body
+                                    </span>
+                                ) : (
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Email Body</span>
+                                )}
+                            </div>
+                            {aiBody && (
+                                <button onClick={() => { setAiBody(null); setAiSubject(null); }}
+                                    className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
+                                    <RotateCcw className="w-3 h-3" /> Reset
+                                </button>
+                            )}
+                        </div>
+                        {aiBody !== null ? (
+                            <textarea value={aiBody} onChange={e => setAiBody(e.target.value)} rows={8}
+                                className="flex-1 w-full bg-transparent p-4 text-xs text-slate-200 resize-none focus:outline-none leading-relaxed"
+                                placeholder="AI email body will appear here..." />
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-3">
+                                <BrainCircuit className="w-8 h-8 text-slate-700" />
+                                <p className="text-xs text-slate-500 max-w-[200px] leading-relaxed">
+                                    Click <strong className="text-violet-400">✨ Write with AI</strong> to generate a professional email explaining the mission
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Additional admin note */}
+                    <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden">
+                        <div className="px-4 py-2 border-b border-slate-700/60">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Additional Note <span className="font-normal text-slate-600">(optional)</span></span>
+                        </div>
+                        <textarea value={additionalNote} onChange={e => setAdditionalNote(e.target.value)} rows={2}
+                            placeholder="Any extra context to include..."
+                            className="w-full bg-transparent p-3 text-xs text-slate-300 placeholder:text-slate-600 resize-none focus:outline-none" />
+                    </div>
+
+                    {/* Send / Preview button */}
+                    <button onClick={() => { setPreviewIdx(0); setShowPreview(true); }} disabled={selectedIds.size === 0}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg shadow-violet-500/20">
+                        <Eye className="w-4 h-4" />
+                        {`Preview & Send to ${selectedIds.size || 0} Recipient${selectedIds.size !== 1 ? 's' : ''}`}
+                    </button>
+                </div>
+            </div>
+
+            {/* ── Email Preview Modal ── */}
+            {showPreview && previewRecipients.length > 0 && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowPreview(false)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                        {/* Modal header */}
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/60">
+                            <div>
+                                <h3 className="font-bold text-white text-sm">Email Preview</h3>
+                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                    Recipient {previewIdx + 1} of {previewRecipients.length}: <span className="text-violet-400 font-bold">{previewRecipients[previewIdx]?.email}</span>
+                                </p>
+                            </div>
+                            <button onClick={() => setShowPreview(false)} className="text-slate-500 hover:text-white transition-colors"><XCircle className="w-5 h-5" /></button>
+                        </div>
+
+                        {/* Recipient nav */}
+                        {previewRecipients.length > 1 && (
+                            <div className="flex gap-1.5 px-5 py-2.5 border-b border-slate-800 flex-wrap">
+                                {previewRecipients.map((r, i) => (
+                                    <button key={r.id || r.email} onClick={() => setPreviewIdx(i)}
+                                        className={`text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
+                                            i === previewIdx ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                                        }`}>
+                                        {r.fullName || (r as any).name || r.email}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Email preview body */}
+                        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+                            {/* Subject */}
+                            <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl px-4 py-3">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Subject</p>
+                                <p className="text-sm font-semibold text-white">
+                                    {aiSubject || `Mission Opportunity — ${deployment.title}`}
+                                </p>
+                            </div>
+                            {/* To */}
+                            <div className="flex gap-3 text-xs">
+                                <span className="text-slate-500 font-bold w-6 shrink-0">To:</span>
+                                <span className="text-slate-300">{previewRecipients[previewIdx]?.email}</span>
+                            </div>
+                            {/* Body */}
+                            <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Email Body</p>
+                                {aiBody ? (
+                                    <pre className="text-xs text-slate-300 whitespace-pre-wrap leading-relaxed font-sans">
+                                        {aiBody.replace(/\[Name\]/gi, previewRecipients[previewIdx]?.fullName || (previewRecipients[previewIdx] as any)?.name || 'Pilot')}
+                                    </pre>
+                                ) : (
+                                    <div className="space-y-2 text-xs text-slate-400">
+                                        <p>Hi {previewRecipients[previewIdx]?.fullName || (previewRecipients[previewIdx] as any)?.name || 'Pilot'},</p>
+                                        <p>We have an upcoming mission opportunity:</p>
+                                        {previewLines.map((l, i) => <p key={i} className="text-slate-300">• {l}</p>)}
+                                        {additionalNote && <p className="mt-2 text-slate-300">{additionalNote}</p>}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* LinkedIn Blast Toggle */}
+                        <div className="px-5 py-4 border-t border-slate-700/60 bg-slate-800/20 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-xs">
+                                    in
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-white">LinkedIn Blast</p>
+                                    <p className="text-[10px] text-slate-400">Post this opportunity to the authorized LinkedIn feed</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setPostToLinkedIn(!postToLinkedIn)} 
+                                className={`w-10 h-5 rounded-full relative transition-colors border border-transparent focus:outline-none ${postToLinkedIn ? 'bg-blue-600' : 'bg-slate-700'}`}>
+                                <div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all shadow-sm ${postToLinkedIn ? 'left-[1.3rem]' : 'left-[0.125rem]'}`} />
+                            </button>
+                        </div>
+
+                        {/* Footer actions */}
+                        <div className="flex gap-3 px-5 py-4 border-t border-slate-700/60">
+                            <button onClick={() => setShowPreview(false)} className="flex-1 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition-colors">Cancel</button>
+                            <button onClick={handleSend} disabled={sending}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg disabled:opacity-50">
+                                {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                {sending ? 'Sending…' : `Confirm & Send to ${selectedIds.size}`}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Step 1 Send Results ── */}
+            {sent && results.length > 0 && (
+                <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-800/60 border-b border-slate-700/60 flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                            Inquiry Sent — {results.filter(r => r.status === 'sent').length} of {results.length} delivered
+                        </span>
+                        <button onClick={() => { setSent(false); setResults([]); setSelectedIds(new Set()); setAiBody(null); setAiSubject(null); setAdditionalNote(''); }}
+                            className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1">
+                            <RotateCcw className="w-3 h-3" /> New Inquiry
+                        </button>
+                    </div>
+                    <div className="p-4 flex flex-wrap gap-2">
+                        {results.map(r => (
+                            <div key={r.pilotId} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                                r.status === 'sent'    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                                r.status === 'skipped' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                                'bg-red-500/10 border-red-500/30 text-red-400'
+                            }`}>
+                                {r.status === 'sent' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                {r.pilotName}
+                                {r.reason && <span className="opacity-60 font-normal ml-1">· {r.reason}</span>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Step 2: Notify Not Selected ── */}
+            <div className="bg-slate-900 border border-slate-700/60 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-slate-800/40 border-b border-slate-700/60 flex items-center justify-between gap-3">
+                    <div>
+                        <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Step 2 · Notify Not Selected</span>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                            After crew is assigned — notify pilots who received an inquiry but weren't selected.
+                        </p>
+                    </div>
+                    <button
+                        onClick={loadInquiryRecipients}
+                        disabled={loadingRecipients}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] font-bold rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+                    >
+                        {loadingRecipients ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        Refresh
+                    </button>
+                </div>
+
+                {loadingRecipients && (
+                    <div className="flex items-center gap-2 p-4 text-xs text-slate-500">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading inquiry history…
+                    </div>
+                )}
+
+
+                {inquiryRecipients && !loadingRecipients && (
+                    <>
+                        {inquiryRecipients.length === 0 ? (
+                            <p className="text-xs text-slate-500 text-center py-6">No inquiry emails have been sent for this mission yet.</p>
+                        ) : (
+                            <div className="divide-y divide-slate-800/80">
+                                {inquiryRecipients.map(r => (
+                                    <div key={r.pilotId} className={`flex items-center gap-3 px-4 py-2.5 ${r.assigned ? 'opacity-50' : ''}`}>
+                                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.assigned ? 'bg-emerald-500' : 'bg-amber-400'}`} />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-slate-200 truncate">{r.pilotName}</p>
+                                            <p className="text-[10px] text-slate-500">
+                                                Inquiry sent {new Date(r.sentAt).toLocaleDateString()}
+                                                {r.assigned && <span className="ml-2 text-emerald-400 font-bold">· Assigned to mission</span>}
+                                            </p>
+                                        </div>
+                                        {r.assigned ? (
+                                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded flex-shrink-0">
+                                                Selected ✓
+                                            </span>
+                                        ) : (
+                                            <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded flex-shrink-0">
+                                                Not assigned
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Bulk notify button — only for non-assigned recipients */}
+                        {inquiryRecipients.filter(r => !r.assigned).length > 0 && (
+                            <div className="px-4 py-3 border-t border-slate-700/60 flex items-center justify-between gap-3">
+                                <p className="text-[10px] text-slate-500">
+                                    <span className="text-amber-400 font-bold">{inquiryRecipients.filter(r => !r.assigned).length}</span> pilot{inquiryRecipients.filter(r => !r.assigned).length !== 1 ? 's' : ''} to notify
+                                </p>
+                                <button
+                                    onClick={handleNotifyNotSelected}
+                                    disabled={notifyingNotSelected}
+                                    className="flex items-center gap-2 px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-400 text-xs font-bold rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+                                >
+                                    {notifyingNotSelected ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                                    {notifyingNotSelected ? 'Sending…' : 'Send Not Selected Notices'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* After sending notify results */}
+                        {notifyResults.length > 0 && (
+                            <div className="px-4 pb-4 flex flex-wrap gap-2">
+                                {notifyResults.map(r => (
+                                    <div key={r.pilotId} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium border ${
+                                        r.status === 'sent' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'
+                                    }`}>
+                                        {r.status === 'sent' ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                                        {r.pilotName}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="px-4 pb-3 flex justify-end">
+                            <button onClick={loadInquiryRecipients} disabled={loadingRecipients}
+                                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1">
+                                <RefreshCw className="w-3 h-3" /> Refresh
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
 const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFilter?: string; countryFilter?: string | null; countryIsoCode?: string | null }> = ({ forcedStatus, industryFilter, countryFilter, countryIsoCode }) => {
     const navigate = useNavigate();
     const { user, hasPermission } = useAuth();
@@ -100,12 +731,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     // Lifecycle Transition Logic
     const getNextAllowedStatuses = (current: DeploymentStatus): DeploymentStatus[] => {
         const allowed: Record<string, DeploymentStatus[]> = {
-            [DeploymentStatus.DRAFT]: [DeploymentStatus.SCHEDULED, DeploymentStatus.ARCHIVED],
-            [DeploymentStatus.SCHEDULED]: [DeploymentStatus.ACTIVE, DeploymentStatus.CANCELLED, DeploymentStatus.DELAYED, DeploymentStatus.DRAFT],
-            [DeploymentStatus.ACTIVE]: [DeploymentStatus.REVIEW, DeploymentStatus.COMPLETED, DeploymentStatus.DELAYED, DeploymentStatus.CANCELLED],
-            [DeploymentStatus.REVIEW]: [DeploymentStatus.COMPLETED, DeploymentStatus.ACTIVE],
-            [DeploymentStatus.COMPLETED]: [DeploymentStatus.ARCHIVED, DeploymentStatus.REVIEW],
-            [DeploymentStatus.ARCHIVED]: [] // Terminal
+            [DeploymentStatus.DRAFT]:      [DeploymentStatus.SCHEDULED, DeploymentStatus.ARCHIVED],
+            [DeploymentStatus.SCHEDULED]:  [DeploymentStatus.COMPLETED, DeploymentStatus.CANCELLED, DeploymentStatus.DELAYED, DeploymentStatus.DRAFT],
+            [DeploymentStatus.ACTIVE]:     [DeploymentStatus.COMPLETED, DeploymentStatus.CANCELLED],   // legacy — hidden in Kanban but kept for data integrity
+            [DeploymentStatus.REVIEW]:     [DeploymentStatus.COMPLETED],                               // legacy — hidden in Kanban but kept for data integrity
+            [DeploymentStatus.COMPLETED]:  [DeploymentStatus.ARCHIVED],
+            [DeploymentStatus.ARCHIVED]:   [] // Terminal
         };
         return allowed[current] || [];
     };
@@ -134,8 +765,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     const [invoiceNote, setInvoiceNote] = useState('');
     const [showInvoiceNoteModal, setShowInvoiceNoteModal] = useState(false);
     const [pendingInvoiceIds, setPendingInvoiceIds] = useState<string[] | undefined>(undefined);
+    // Email composer state
+    const [emailSubject, setEmailSubject] = useState('');
+    const [emailBody, setEmailBody] = useState('');
+    const [emailModalTab, setEmailModalTab] = useState<'preview' | 'edit'>('preview');
 
-    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'assignments' | 'checklist' | 'ai-reports' | 'weather' | 'axis-intel' | 'forecast' | 'sessions' | 'solar' | 'thermal' | 'field-reports' | 'orthomosaic'>('logs');
+    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'assignments' | 'checklist' | 'ai-reports' | 'weather' | 'axis-intel' | 'forecast' | 'sessions' | 'solar' | 'thermal' | 'field-reports' | 'orthomosaic' | 'interest-inquiry' | 'blocks'>('logs');
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
     const [generatedLink, setGeneratedLink] = useState<string | null>(null);
@@ -166,6 +801,18 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         bonusPay: 0,
         notes: ''
     });
+
+    // Mission-level expenses (linked to mission_expenses table)
+    const [missionExpenses, setMissionExpenses] = useState<any[]>([]);
+    const [loadingMissionExpenses, setLoadingMissionExpenses] = useState(false);
+    const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
+    const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+    const [expenseForm, setExpenseForm] = useState({
+        category: 'Other', description: '', amount: '',
+        expense_date: new Date().toISOString().split('T')[0],
+        vendor: '', notes: ''
+    });
+    const EXPENSE_CATEGORIES = ['Fuel', 'Lodging', 'Equipment', 'Travel', 'Software', 'Subcontractor', 'Other'];
 
     // Pricing Engine State
     const [pricingData, setPricingData] = useState<any>(null);
@@ -377,7 +1024,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         fetchClients();
         fetchSites();
         fetchCountries();
-    }, [currentIndustry]);
+    }, [currentIndustry, countryFilter]);
 
     const fetchCountries = async () => {
         try {
@@ -391,8 +1038,10 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     const fetchDeployments = async () => {
         try {
             setLoading(true);
-            // Filter by active industry so each terminal only shows its own missions
-            const url = currentIndustry ? `/deployments?industryKey=${currentIndustry}` : '/deployments';
+            const params = new URLSearchParams();
+            if (currentIndustry) params.append('industryKey', currentIndustry);
+            if (countryFilter) params.append('country_id', countryFilter);
+            const url = params.toString() ? `/deployments?${params.toString()}` : '/deployments';
             const response = await apiClient.get(url);
             setDeployments(response.data.data || []);
             setError(null);
@@ -406,7 +1055,10 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const fetchPersonnel = async () => {
         try {
-            const response = await apiClient.get('/personnel');
+            const params = new URLSearchParams();
+            if (countryFilter) params.append('country_id', countryFilter);
+            const url = params.toString() ? `/personnel?${params.toString()}` : '/personnel';
+            const response = await apiClient.get(url);
             setPersonnel(response.data.data || []);
         } catch (err: any) {
             console.error('Error fetching personnel:', err);
@@ -455,6 +1107,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         try {
             await handleViewDetails(deployment);
             setActiveModalTab('financials');
+            fetchMissionExpenses(deployment.id);
         } catch (err: any) {
             console.error('Error opening financials:', err);
         }
@@ -507,7 +1160,8 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                 fetchClientStakeholders(freshDeployment.clientId);
             }
 
-            setActiveModalTab(user?.role === 'pilot_technician' ? 'files' : 'logs');
+            setActiveModalTab(user?.role === 'pilot_technician' ? 'files' : 'financials');
+            if (freshDeployment.id) fetchMissionExpenses(freshDeployment.id);
             setIsLogModalOpen(true);
         } catch (err: any) {
             console.error('Error fetching deployment details:', err);
@@ -546,7 +1200,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                 // Use native fetch instead of apiClient to guarantee multipart/form-data content-type.
                 // apiClient has a default Content-Type: application/json that survives axios interceptors
                 // in the production bundle — native fetch auto-sets the correct multipart boundary.
-                const token = localStorage.getItem('skylens_token');
+                const token = sessionStorage.getItem('skylens_token');
                 const fetchResponse = await fetch(`/api/deployments/${selectedDeployment.id}/files`, {
                     method: 'POST',
                     headers: {
@@ -838,6 +1492,63 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         return deployment.dailyLogs.reduce((sum, log) => sum + (log.dailyPay || 0) + (log.bonusPay || 0), 0);
     };
 
+    /** True when a mission's financials are finalized (no further changes expected) */
+    const isMissionClosed = (d: Deployment) =>
+        d.status === 'Completed' || d.status === 'Archived';
+
+    // ── Mission Expense Handlers ─────────────────────────────────────────────
+    const fetchMissionExpenses = async (deploymentId: string) => {
+        setLoadingMissionExpenses(true);
+        try {
+            const res = await apiClient.get(`/deployments/${deploymentId}/expenses`);
+            setMissionExpenses(res.data.data || []);
+        } catch (e) { console.error('[fetchMissionExpenses]', e); }
+        finally { setLoadingMissionExpenses(false); }
+    };
+
+    const handleSaveExpense = async () => {
+        if (!selectedDeployment || !expenseForm.description || !expenseForm.amount) return;
+        try {
+            if (editingExpenseId) {
+                // Edit existing
+                const res = await apiClient.put(`/deployments/${selectedDeployment.id}/expenses/${editingExpenseId}`, {
+                    ...expenseForm, amount: parseFloat(expenseForm.amount)
+                });
+                setMissionExpenses(prev => prev.map(e => e.id === editingExpenseId ? res.data.data : e));
+            } else {
+                // Add new
+                const res = await apiClient.post(`/deployments/${selectedDeployment.id}/expenses`, {
+                    ...expenseForm, amount: parseFloat(expenseForm.amount)
+                });
+                setMissionExpenses(prev => [res.data.data, ...prev]);
+            }
+            setShowAddExpenseForm(false);
+            setEditingExpenseId(null);
+            setExpenseForm({ category: 'Other', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0], vendor: '', notes: '' });
+        } catch (e) { console.error('[handleSaveExpense]', e); }
+    };
+
+    const handleDeleteExpense = async (expId: string) => {
+        if (!selectedDeployment || !confirm('Delete this expense?')) return;
+        try {
+            await apiClient.delete(`/deployments/${selectedDeployment.id}/expenses/${expId}`);
+            setMissionExpenses(prev => prev.filter(e => e.id !== expId));
+        } catch (e) { console.error('[handleDeleteExpense]', e); }
+    };
+
+    const handleStartEditExpense = (exp: any) => {
+        setEditingExpenseId(exp.id);
+        setExpenseForm({
+            category: exp.category || 'Other',
+            description: exp.description || '',
+            amount: String(exp.amount || ''),
+            expense_date: exp.expense_date ? String(exp.expense_date).split('T')[0] : new Date().toISOString().split('T')[0],
+            vendor: exp.vendor || '',
+            notes: exp.notes || ''
+        });
+        setShowAddExpenseForm(true);
+    };
+
     const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
 
     // City autocomplete state
@@ -867,9 +1578,11 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     };
 
     const handleCitySelect = (city: { name: string; admin1: string; country_code: string; lat: number; lon: number }) => {
+        // Build location as "City, State" — include state/region if available
+        const locationLabel = city.admin1 ? `${city.name}, ${city.admin1}` : city.name;
         setNewDeployment({
             ...newDeployment,
-            location: city.name,
+            location: locationLabel,
             state: city.admin1,
             latitude: city.lat,
             longitude: city.lon,
@@ -912,8 +1625,10 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             siteName: deployment.siteName,
             date: String(deployment.date).split('T')[0],
             location: deployment.location,
+            state: (deployment as any).state || '',
             notes: deployment.notes,
             daysOnSite: deployment.daysOnSite,
+            pilotsNeeded: (deployment as any).pilotsNeeded || '',
             clientId: deployment.clientId,
             countryId: deployment.countryId,
             latitude: initLat,
@@ -937,6 +1652,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     location: newDeployment.location,
                     notes: newDeployment.notes,
                     daysOnSite: newDeployment.daysOnSite,
+                    pilotsNeeded: (newDeployment as any).pilotsNeeded || null,
                     clientId: newDeployment.clientId,
                     countryId: newDeployment.countryId,
                     industryKey: currentIndustry || null,
@@ -966,6 +1682,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                     location: newDeployment.location,
                     notes: newDeployment.notes,
                     daysOnSite: newDeployment.daysOnSite,
+                    pilotsNeeded: (newDeployment as any).pilotsNeeded || null,
                     clientId: newDeployment.clientId,
                     countryId: newDeployment.countryId,
                     industryKey: currentIndustry || null,
@@ -1003,7 +1720,42 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     const handleEmailInvoices = async (specificPersonnelIds?: string[]) => {
         if (!selectedDeployment) return;
-        // Show note modal first
+        // Build default email template for preview/editing
+        const dep = selectedDeployment;
+        const targetIds = specificPersonnelIds && specificPersonnelIds.length > 0
+            ? specificPersonnelIds
+            : Array.from(selectedPersonnelForInvoice);
+
+        // Determine sample pilot name for preview
+        const isSingle = targetIds.length === 1;
+        const samplePilot = isSingle
+            ? (personnel.find(p => String(p.id) === String(targetIds[0]))?.fullName || '[Pilot Name]')
+            : '[Pilot Name]';
+        const sampleAmount = isSingle
+            ? (() => {
+                const logs = (dep.dailyLogs || []).filter(l => String(l.technicianId) === String(targetIds[0]));
+                return logs.reduce((s, l) => s + (l.dailyPay || 0) + (l.bonusPay || 0), 0);
+            })()
+            : null;
+
+        const defaultSubject = `Invoice Ready: ${dep.title}`;
+        const defaultBody = `Hi {PILOT_NAME},
+
+An invoice has been generated for your recent mission:
+
+  Mission: ${dep.title}
+  Site: ${dep.siteName || dep.site_name || 'N/A'}
+  Total Amount: {AMOUNT}
+
+Please click the link below to view and acknowledge your invoice:
+
+  {INVOICE_LINK}
+
+If you have any questions, please reach out to operations.`;
+
+        setEmailSubject(defaultSubject);
+        setEmailBody(defaultBody);
+        setEmailModalTab('preview');
         setPendingInvoiceIds(specificPersonnelIds || []);
         setShowInvoiceNoteModal(true);
     };
@@ -1012,7 +1764,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
         if (!selectedDeployment) return;
         setShowInvoiceNoteModal(false);
 
-        // Determine the target list exactly like the previous logic did
+        // Determine the target list
         const idsToUse = pendingInvoiceIds && pendingInvoiceIds.length > 0
             ? pendingInvoiceIds
             : Array.from(selectedPersonnelForInvoice);
@@ -1021,11 +1773,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
         try {
             const payload = isSelective
-                ? { personnelIds: idsToUse, sendToPilots, adminNote: invoiceNote.trim() || undefined }
-                : { sendToPilots, adminNote: invoiceNote.trim() || undefined };
+                ? { personnelIds: idsToUse, sendToPilots, adminNote: invoiceNote.trim() || undefined, emailSubject: emailSubject.trim() || undefined, emailBody: emailBody.trim() || undefined }
+                : { sendToPilots, adminNote: invoiceNote.trim() || undefined, emailSubject: emailSubject.trim() || undefined, emailBody: emailBody.trim() || undefined };
 
             const response = await apiClient.post(`/deployments/${selectedDeployment.id}/invoices/send`, payload);
             setInvoiceNote('');
+            setEmailSubject('');
+            setEmailBody('');
             if (response.data.emailStatus === 'MOCK') {
                 alert('Success, but NOTE: System is in SMTP MOCK MODE. Emails were logged to server but not actually sent. Please check your SMTP settings if this is unexpected.');
             } else {
@@ -1240,54 +1994,192 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            {/* ── Invoice Note Modal ── */}
+            {/* ── Email Composer Modal ── */}
             {showInvoiceNoteModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-                        <div className="bg-slate-900 px-6 py-5">
-                            <h3 className="text-white font-bold text-lg">Send Invoices</h3>
-                            <p className="text-slate-400 text-sm mt-0.5">
-                                {pendingInvoiceIds && pendingInvoiceIds.length > 0
-                                    ? `Sending to ${pendingInvoiceIds.length} selected pilot${pendingInvoiceIds.length > 1 ? 's' : ''}`
-                                    : selectedPersonnelForInvoice.size > 0
-                                        ? `Sending to ${selectedPersonnelForInvoice.size} selected pilot${selectedPersonnelForInvoice.size > 1 ? 's' : ''}`
-                                        : 'Sending to all eligible pilots'}
-                                {!sendToPilots && ' · Generating only (not emailing)'}
-                            </p>
-                        </div>
-                        <div className="p-6 space-y-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+                        {/* Header */}
+                        <div className="bg-slate-900 px-6 py-4 flex items-start justify-between gap-4 shrink-0">
                             <div>
-                                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                    Note to pilots <span className="text-slate-400 font-normal">(optional)</span>
-                                </label>
-                                <textarea
-                                    className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 placeholder-slate-400 bg-slate-50"
-                                    rows={4}
-                                    placeholder="e.g. Please review your invoice and confirm your banking details are correct. Payment will be processed within 5 business days."
-                                    value={invoiceNote}
-                                    onChange={e => setInvoiceNote(e.target.value)}
-                                    autoFocus
+                                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                                    <Mail className="w-5 h-5 text-sky-400" />
+                                    Compose Invoice Email
+                                </h3>
+                                <p className="text-slate-400 text-xs mt-0.5">
+                                    {(() => {
+                                        const ids = pendingInvoiceIds && pendingInvoiceIds.length > 0 ? pendingInvoiceIds : Array.from(selectedPersonnelForInvoice);
+                                        if (ids.length === 1) {
+                                            const p = personnel.find(px => String(px.id) === String(ids[0]));
+                                            return `To: ${p?.fullName || 'pilot'} · ${p?.email || ''}`;
+                                        }
+                                        return ids.length > 0 ? `Sending to ${ids.length} pilots` : 'Sending to all eligible pilots';
+                                    })()}
+                                    {!sendToPilots && ' · Generating only (not emailing)'}
+                                </p>
+                            </div>
+                            <button onClick={() => { setShowInvoiceNoteModal(false); setPendingInvoiceIds(undefined); }} className="text-slate-400 hover:text-white transition-colors mt-0.5">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Tab bar */}
+                        <div className="flex border-b border-slate-200 bg-slate-50 shrink-0">
+                            <button
+                                onClick={() => setEmailModalTab('preview')}
+                                className={`px-5 py-3 text-sm font-semibold transition-colors border-b-2 ${emailModalTab === 'preview' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                            >
+                                👁 Preview
+                            </button>
+                            <button
+                                onClick={() => setEmailModalTab('edit')}
+                                className={`px-5 py-3 text-sm font-semibold transition-colors border-b-2 ${emailModalTab === 'edit' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                            >
+                                ✏️ Edit
+                            </button>
+                            <div className="flex-1" />
+                            <div className="flex items-center px-4 gap-2 text-[11px] text-slate-400 font-mono">
+                                <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">{'{PILOT_NAME}'}</span>
+                                <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">{'{AMOUNT}'}</span>
+                                <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">{'{INVOICE_LINK}'}</span>
+                            </div>
+                        </div>
+
+                        {/* Body */}
+                        <div className="flex-1 overflow-y-auto min-h-0">
+                            {emailModalTab === 'edit' ? (
+                                <div className="p-6 space-y-4">
+                                    {/* Subject */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Subject Line</label>
+                                        <input
+                                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 bg-slate-50"
+                                            value={emailSubject}
+                                            onChange={e => setEmailSubject(e.target.value)}
+                                            placeholder="Email subject..."
+                                        />
+                                    </div>
+                                    {/* Body */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            Body
+                                            <span className="ml-2 text-slate-400 normal-case font-normal">— use tokens above for pilot-specific values</span>
+                                        </label>
+                                        <textarea
+                                            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 bg-slate-50 leading-relaxed"
+                                            rows={16}
+                                            value={emailBody}
+                                            onChange={e => setEmailBody(e.target.value)}
+                                            placeholder="Email body..."
+                                        />
+                                    </div>
+                                    {/* Note (still appended at the end if filled) */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                                            Ops Note <span className="font-normal text-slate-400">(appended in a blue callout box)</span>
+                                        </label>
+                                        <textarea
+                                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 bg-slate-50"
+                                            rows={3}
+                                            placeholder="Optional note from operations..."
+                                            value={invoiceNote}
+                                            onChange={e => setInvoiceNote(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Preview tab — renders the email as it will look */
+                                <div className="p-6">
+                                    {/* Email chrome mock */}
+                                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                        {/* From / To / Subject row */}
+                                        <div className="bg-slate-50 border-b border-slate-200 px-5 py-3 space-y-1 text-sm">
+                                            <div className="flex gap-2 text-slate-500">
+                                                <span className="font-semibold w-16 shrink-0">From:</span>
+                                                <span className="text-slate-700">Coatzadrone Admin &lt;admin@coatzadroneusa.com&gt;</span>
+                                            </div>
+                                            <div className="flex gap-2 text-slate-500">
+                                                <span className="font-semibold w-16 shrink-0">To:</span>
+                                                <span className="text-slate-700">
+                                                    {(() => {
+                                                        const ids = pendingInvoiceIds && pendingInvoiceIds.length > 0 ? pendingInvoiceIds : Array.from(selectedPersonnelForInvoice);
+                                                        if (ids.length === 1) {
+                                                            const p = personnel.find(px => String(px.id) === String(ids[0]));
+                                                            return p ? `${p.fullName} <${p.email || 'no-email'}>` : 'Pilot';
+                                                        }
+                                                        return ids.length > 0 ? `${ids.length} pilots` : 'All eligible pilots';
+                                                    })()}
+                                                </span>
+                                            </div>
+                                            <div className="flex gap-2 text-slate-500">
+                                                <span className="font-semibold w-16 shrink-0">Subject:</span>
+                                                <span className="text-slate-900 font-semibold">{emailSubject || '(no subject)'}</span>
+                                            </div>
+                                        </div>
+                                        {/* Email body rendered */}
+                                        <div className="bg-white px-8 py-6 font-sans">
+                                            <div className="max-w-xl mx-auto space-y-4 text-sm text-slate-700 leading-relaxed">
+                                                {emailBody.split('\n').map((line, i) => {
+                                                    // Highlight tokens
+                                                    const highlighted = line
+                                                        .replace(/\{PILOT_NAME\}/g, '<span class="font-bold text-blue-700">[Pilot Name]</span>')
+                                                        .replace(/\{AMOUNT\}/g, '<span class="font-bold text-emerald-600">[$Amount]</span>')
+                                                        .replace(/\{INVOICE_LINK\}/g, '<a class="text-blue-600 underline" href="#">[Invoice Link]</a>');
+                                                    return line.trim() === ''
+                                                        ? <div key={i} className="h-2" />
+                                                        : <p key={i} dangerouslySetInnerHTML={{ __html: highlighted }} />;
+                                                })}
+                                                {/* Ops note preview */}
+                                                {invoiceNote.trim() && (
+                                                    <div style={{ backgroundColor: '#f0f9ff', borderLeft: '4px solid #0ea5e9', padding: '14px 16px', marginTop: '16px', borderRadius: '4px' }}>
+                                                        <p style={{ margin: 0, fontSize: '13px', color: '#0c4a6e', fontWeight: 600 }}>Note from Operations:</p>
+                                                        <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#1e293b', whiteSpace: 'pre-wrap' }}>{invoiceNote}</p>
+                                                    </div>
+                                                )}
+                                                {/* CTA button preview */}
+                                                <div className="pt-2">
+                                                    <span style={{ backgroundColor: '#2563eb', color: 'white', padding: '10px 20px', textDecoration: 'none', borderRadius: '5px', display: 'inline-block', fontSize: '13px', fontWeight: 600 }}>
+                                                        View Invoice →
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mt-3 text-center">Tokens like <code className="bg-slate-100 px-1 rounded">{'{PILOT_NAME}'}</code> are replaced with real values per pilot before sending.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="border-t border-slate-200 px-6 py-4 flex items-center gap-3 bg-slate-50 shrink-0">
+                            <button
+                                onClick={() => { setShowInvoiceNoteModal(false); setInvoiceNote(''); setPendingInvoiceIds(undefined); }}
+                                className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-100 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <div className="flex-1" />
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="sendToPilotsModal"
+                                    checked={sendToPilots}
+                                    onChange={e => setSendToPilots(e.target.checked)}
+                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                 />
-                                <p className="text-xs text-slate-400 mt-1.5">This note will appear in the invoice email sent to each pilot.</p>
+                                <label htmlFor="sendToPilotsModal" className="text-sm text-slate-600 cursor-pointer select-none">Send email</label>
                             </div>
-                            <div className="flex gap-3 pt-2">
-                                <button
-                                    onClick={() => { setShowInvoiceNoteModal(false); setInvoiceNote(''); setPendingInvoiceIds(undefined); }}
-                                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleConfirmSendInvoices}
-                                    className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors shadow-md"
-                                >
-                                    Send Invoices
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleConfirmSendInvoices}
+                                className="px-7 py-2.5 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors shadow-md flex items-center gap-2"
+                            >
+                                <Send className="w-4 h-4" />
+                                {sendToPilots ? 'Send Invoices' : 'Generate Only'}
+                            </button>
                         </div>
                     </div>
                 </div>
             )}
+
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div>
                     <h2 className="text-lg font-semibold text-white">
@@ -1347,8 +2239,26 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Fleet Spend</span>
                     </div>
                     <div className="flex items-baseline gap-1.5">
-                        <span className="text-2xl font-bold text-white">${totalFleetSpend.toLocaleString()}</span>
-                        <span className="text-[10px] font-medium text-slate-500">USD</span>
+                        {/* Yellow if any open mission contributes to this total */}
+                        {(() => {
+                            const pendingSpend = filteredDeployments.filter(d => !isMissionClosed(d)).reduce((s, d) => s + getTotalCost(d), 0);
+                            const closedSpend  = filteredDeployments.filter(d =>  isMissionClosed(d)).reduce((s, d) => s + getTotalCost(d), 0);
+                            return (
+                                <>
+                                    {closedSpend > 0 && (
+                                        <span className="text-2xl font-bold text-white">${closedSpend.toLocaleString()}</span>
+                                    )}
+                                    {pendingSpend > 0 && (
+                                        <span className={`text-2xl font-bold text-amber-400 ${closedSpend > 0 ? 'text-lg' : ''}`} title="Includes costs from open missions">
+                                            {closedSpend > 0 ? `+$${pendingSpend.toLocaleString()}` : `$${pendingSpend.toLocaleString()}`}
+                                        </span>
+                                    )}
+                                    {pendingSpend === 0 && closedSpend === 0 && <span className="text-2xl font-bold text-white">$0</span>}
+                                    <span className="text-[10px] font-medium text-slate-500">USD</span>
+                                    {pendingSpend > 0 && <span className="text-[9px] font-bold text-amber-500 uppercase tracking-wider">pending</span>}
+                                </>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -1381,18 +2291,16 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
             {viewMode === 'calendar' ? (
                 <CalendarView
-                    deployments={deployments} // No filtering on calendar to see full schedule
+                    deployments={filteredDeployments}
                     onDeploymentClick={handleViewDetails}
                     onDayClick={handleDayClick}
-                    pilotReports={deployments.flatMap((d: any) => d.pilotReports || [])}
+                    pilotReports={filteredDeployments.flatMap((d: any) => d.pilotReports || [])}
                 />
             ) : viewMode === 'kanban' ? (
                 <div className="flex gap-4 overflow-x-auto min-h-[600px] h-full pt-2 pb-6 pl-1 mi-scrollbar">
                     {[
-                        { id: DeploymentStatus.SCHEDULED, label: 'Scheduled', color: '#f59e0b' },
-                        { id: DeploymentStatus.ACTIVE,    label: 'Active',    color: '#3b82f6' },
-                        { id: DeploymentStatus.COMPLETED, label: 'Completed', color: '#10b981' },
-                        { id: DeploymentStatus.CANCELLED, label: 'Cancelled', color: '#64748b' }
+                        { id: DeploymentStatus.SCHEDULED, label: 'Dispatched', color: '#f59e0b' },
+                        { id: DeploymentStatus.COMPLETED, label: 'Delivered',  color: '#10b981' }
                     ].map(col => {
                         const colMissions = filteredDeployments.filter(d => d.status === col.id);
                         return (
@@ -1581,7 +2489,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                 setActiveModalTab('files');
                                                             }}
                                                             className="p-1 px-2 text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 hover:bg-blue-100 rounded transition-all flex items-center gap-1"
-                                                            title="Upload Flight Data"
+                                                            title="Upload Mission Documents"
                                                         >
                                                             <Upload className="w-3.5 h-3.5" />
                                                             Data
@@ -1666,8 +2574,8 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
             {/* Mission Details Modal */}
             {
                 isLogModalOpen && selectedDeployment && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-slate-900 rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 h-[80vh] flex flex-col text-white border border-white/10">
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setIsLogModalOpen(false)}>
+                    <div className="bg-slate-900 rounded-xl shadow-2xl w-full max-w-4xl animate-in zoom-in-95 duration-200 h-[85vh] flex flex-col text-white border border-white/10" onClick={e => e.stopPropagation()}>
                             <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center shrink-0">
                                 <div>
                                     <h3 className="font-semibold text-white flex items-center gap-2">
@@ -1709,22 +2617,21 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                             </div>
 
                             {/* Tabs */}
-                            {/* Tabs: pilots see only Flight Data; admins/ops see full tab set */}
-                            <div className="flex border-b border-white/10 px-6 overflow-x-auto scrollbar-hide">
+                            <div className="flex border-b border-white/10 px-6 overflow-x-auto overscroll-contain scrollbar-hide" onWheel={e => e.stopPropagation()}>
                                 {user?.role === 'pilot_technician' ? (
                                     <>
                                         <button
                                             onClick={() => setActiveModalTab('files')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <FileText className="w-4 h-4" />
-                                                Flight Data
+                                                Mission Documents
                                             </div>
                                         </button>
                                         <button
                                             onClick={() => setActiveModalTab('assignments')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <ClipboardList className="w-4 h-4" />
@@ -1733,512 +2640,133 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                         </button>
                                         <button
                                             onClick={() => setActiveModalTab('field-reports')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
                                         >
                                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                             Field Reports
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveModalTab('blocks')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'blocks' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Grid3X3 className="w-4 h-4" />
+                                                Block Grid
+                                            </div>
                                         </button>
                                     </>
                                 ) : (
                                     <>
-                                        <button
-                                            onClick={() => setActiveModalTab('logs')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'logs' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <DollarSign className="w-4 h-4" />
-                                                Daily Logs & Pay
-                                            </div>
-                                        </button>
+
+                                        {/* Field Reports */}
                                         <button
                                             onClick={() => setActiveModalTab('field-reports')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeModalTab === 'field-reports' ? 'border-green-500 text-green-400 bg-green-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
                                         >
                                             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                             Field Reports
                                         </button>
+
+                                        {/* Mission Documents & Assets */}
                                         <button
                                             onClick={() => setActiveModalTab('files')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'files' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <Layers className="w-4 h-4" />
-                                                Assets & Flight Data
+                                                Mission Documents
                                             </div>
                                         </button>
-                                        <button
-                                            onClick={() => setActiveModalTab('financials')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'financials' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Receipt className="w-4 h-4" />
-                                                Financials & Invoicing
-                                            </div>
-                                        </button>
+
+                                        {/* Team */}
                                         <button
                                             onClick={() => setActiveModalTab('team')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'team' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'team' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <Users className="w-4 h-4" />
-                                                Team Setup
+                                                Team
                                             </div>
                                         </button>
-                                        <button
-                                            onClick={() => setActiveModalTab('site-assets')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'site-assets' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <Zap className="w-4 h-4" />
-                                                Site Assets
-                                            </div>
-                                        </button>
+
+
+
+                                        {/* Assignments */}
                                         <button
                                             onClick={() => setActiveModalTab('assignments')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'assignments' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <Target className="w-4 h-4" />
                                                 Assignments
                                             </div>
                                         </button>
-                                        <button
-                                            onClick={() => setActiveModalTab('checklist')}
-                                            className={`py-4 px-4 text-sm font-medium border-b-2 transition-all ${activeModalTab === 'checklist' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <CheckSquare className="w-4 h-4" />
-                                                Checklist
-                                            </div>
-                                        </button>
-                                        <button
-                                            onClick={() => setActiveModalTab('ai-reports')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'ai-reports' ? 'border-orange-500 text-orange-400 bg-orange-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                        >
-                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                                            AI Reports
-                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500/15 text-orange-400">NEW</span>
-                                        </button>
+
+                                        {/* Weather */}
                                         <button
                                             onClick={() => setActiveModalTab('weather')}
-                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'weather' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${activeModalTab === 'weather' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
                                         >
                                             <Cloud className="w-4 h-4" />
                                             Weather
                                         </button>
-                                        {isAdmin(user) && (
+
+                                        {/* Finance (Pilot Pay + Expenses) — visible to all non-pilot roles */}
+                                        {user?.role !== 'pilot_technician' && (
                                             <button
-                                                onClick={() => setActiveModalTab('axis-intel')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'axis-intel' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                                onClick={() => { setActiveModalTab('financials'); if (selectedDeployment) fetchMissionExpenses(selectedDeployment.id); }}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                                                    activeModalTab === 'financials'
+                                                        ? 'border-amber-400 text-amber-400'
+                                                        : isMissionClosed(selectedDeployment)
+                                                            ? 'border-transparent text-emerald-400/70 hover:text-emerald-300'
+                                                            : 'border-transparent text-amber-500/70 hover:text-amber-400'
+                                                }`}
                                             >
-                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.5V12h2a2 2 0 0 1 2 2v1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a2 2 0 0 1 2-2h2V9.5C8.8 8.8 8 7.5 8 6a4 4 0 0 1 4-4z" /></svg>
-                                                Axis Intel
-                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400">AI</span>
-                                            </button>
-                                        )}
-                                        {/* Mission Forecast — Admin Only */}
-                                        {isAdmin(user) && (
-                                            <button
-                                                onClick={() => setActiveModalTab('forecast')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'forecast' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                            >
-                                                <BarChart3 className="w-4 h-4" />
-                                                Forecast
-                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400">NEW</span>
-                                            </button>
-                                        )}
-                                        {/* Sessions Tab — Admin Only */}
-                                        {isAdmin(user) && (
-                                            <button
-                                                onClick={() => setActiveModalTab('sessions')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'sessions' ? 'border-violet-500 text-violet-400 bg-violet-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                            >
-                                                <BarChart3 className="w-4 h-4" />
-                                                Sessions
-                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400">NEW</span>
+                                                <div className="flex items-center gap-2">
+                                                    <DollarSign className="w-4 h-4" />
+                                                    Finance
+                                                    {!isMissionClosed(selectedDeployment) && getTotalCost(selectedDeployment) > 0 && (
+                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                                            ${getTotalCost(selectedDeployment).toLocaleString()}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </button>
                                         )}
                                         {isAdmin(user) && (
                                             <button
-                                                onClick={() => setActiveModalTab('solar')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'solar' ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
+                                                onClick={() => setActiveModalTab('interest-inquiry')}
+                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'interest-inquiry' ? 'border-violet-500 text-violet-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
                                             >
-                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                                                Blocks / LBDs
+                                                <div className="flex items-center gap-2">
+                                                    <Mail className="w-4 h-4" />
+                                                    Interest Inquiry
+                                                </div>
                                             </button>
                                         )}
-                                        {isAdmin(user) && (
-                                            <button
-                                                onClick={() => setActiveModalTab('thermal')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'thermal' ? 'border-red-500 text-red-400 bg-red-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                            >
-                                                🌡️ Thermal
-                                            </button>
-                                        )}
-                                        {isAdmin(user) && (
-                                            <button
-                                                onClick={() => setActiveModalTab('orthomosaic')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeModalTab === 'orthomosaic' ? 'border-sky-500 text-sky-400 bg-sky-500/5' : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                                            >
+                                        {/* Block Grid — visible to admin + pilots */}
+                                        <button
+                                            onClick={() => setActiveModalTab('blocks')}
+                                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'blocks' ? 'border-orange-500 text-orange-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
+                                        >
+                                            <div className="flex items-center gap-2">
                                                 <Grid3X3 className="w-4 h-4" />
-                                                Orthomosaic
-                                            </button>
-                                        )}
+                                                Block Grid
+                                            </div>
+                                        </button>
                                     </>
                                 )}
                             </div>
 
-                            <div className="flex-1 overflow-y-auto bg-slate-900/50">
+                            <div
+                                id="mission-modal-body"
+                                className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-900/50"
+                                style={{ WebkitOverflowScrolling: 'touch' }}
+                            >
                                 {activeModalTab === 'checklist' ? (
                                     <div className="p-6">
                                         <WorkItemChecklist scopeType="mission" scopeId={selectedDeployment.id} />
-                                    </div>
-                                ) : activeModalTab === 'logs' ? (
-                                    <div className="p-6 space-y-6">
-                                        {/* Daily Logs Content */}
-                                        {getDeploymentDays(selectedDeployment).map((day) => (
-                                            <div key={day} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-                                                <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
-                                                    <h4 className="font-medium text-slate-700 text-sm flex items-center gap-2">
-                                                        <Calendar className="w-4 h-4 text-slate-400" />
-                                                        {(() => {
-                                                            const [y, m, d] = day.split('-').map(Number);
-                                                            return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                                                        })()}
-                                                    </h4>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-semibold text-slate-500 bg-slate-200/50 px-2 py-1 rounded">
-                                                            Day Total: ${(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day).reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0) || 0).toLocaleString()}
-                                                        </span>
-                                                        <button
-                                                            onClick={() => handleDeleteDay(day)}
-                                                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                            title="Delete entire day"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="p-4 space-y-4">
-                                                    {/* Existing Logs for this day */}
-                                                    <div className="space-y-2">
-
-                                                        <div className="space-y-2">
-                                                            {(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day) || []).map(log => {
-                                                                const personName = personnel.find(p => String(p.id) === String(log.technicianId))?.fullName || `Pilot #${String(log.technicianId).slice(0, 8)}`;
-                                                                const totalPay = (editingLogId === log.id ? editForm.dailyPay + editForm.bonusPay : (log.dailyPay || 0) + (log.bonusPay || 0));
-
-                                                                return (
-                                                                    <div key={log.id} className="flex items-center justify-between text-sm bg-slate-50 p-3 rounded border border-slate-100">
-                                                                        <div className="flex items-center gap-3 flex-1">
-                                                                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                                                                                {personName.charAt(0)}
-                                                                            </div>
-                                                                            <div className="flex-1">
-                                                                                <span className="font-medium text-slate-700 block">{personName}</span>
-
-                                                                                {editingLogId === log.id ? (
-                                                                                    <div className="flex items-center gap-2 mt-1">
-                                                                                        <div className="flex items-center gap-1">
-                                                                                            <span className="text-[10px] text-slate-400 uppercase">Rate:</span>
-                                                                                            <input
-                                                                                                type="number"
-                                                                                                className="w-20 px-1 py-0.5 text-xs border rounded"
-                                                                                                value={editForm.dailyPay}
-                                                                                                onChange={e => setEditForm({ ...editForm, dailyPay: parseFloat(e.target.value) || 0 })}
-                                                                                            />
-                                                                                        </div>
-                                                                                        <div className="flex items-center gap-1">
-                                                                                            <span className="text-[10px] text-emerald-500 uppercase">Bonus:</span>
-                                                                                            <input
-                                                                                                type="number"
-                                                                                                className="w-20 px-1 py-0.5 text-xs border rounded"
-                                                                                                value={editForm.bonusPay}
-                                                                                                onChange={e => setEditForm({ ...editForm, bonusPay: parseFloat(e.target.value) || 0 })}
-                                                                                            />
-                                                                                        </div>
-                                                                                    </div>
-                                                                                ) : (
-                                                                                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                                                                                        <span>Daily: ${log.dailyPay?.toLocaleString() || 0}</span>
-                                                                                        {(log.bonusPay || 0) > 0 && (
-                                                                                            <>
-                                                                                                <span>•</span>
-                                                                                                <span className="text-emerald-600 font-medium">Bonus: ${log.bonusPay?.toLocaleString()}</span>
-                                                                                            </>
-                                                                                        )}
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-emerald-600 font-bold bg-emerald-50 px-3 py-1 rounded border border-emerald-100 min-w-[80px] text-center">
-                                                                                ${totalPay.toLocaleString()}
-                                                                            </span>
-
-                                                                            {editingLogId === log.id ? (
-                                                                                <>
-                                                                                    <button
-                                                                                        onClick={() => saveEditLog(log.id)}
-                                                                                        className="p-1.5 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-                                                                                        title="Save Changes"
-                                                                                    >
-                                                                                        <Check className="w-4 h-4" />
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onClick={cancelEditLog}
-                                                                                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition-colors"
-                                                                                        title="Cancel Edit"
-                                                                                    >
-                                                                                        <X className="w-4 h-4" />
-                                                                                    </button>
-                                                                                </>
-                                                                            ) : (
-                                                                                <>
-                                                                                    <button
-                                                                                        onClick={() => startEditLog(log)}
-                                                                                        className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                                                        title="Edit Pay/Bonus"
-                                                                                    >
-                                                                                        <Edit2 className="w-4 h-4" />
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onClick={() => handleDeleteLog(log.id)}
-                                                                                        className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                                                        title="Remove Pilot"
-                                                                                    >
-                                                                                        <Trash2 className="w-4 h-4" />
-                                                                                    </button>
-                                                                                </>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                            {(selectedDeployment.dailyLogs?.filter(l => l.date === day) || []).length === 0 && (
-                                                                <p className="text-xs text-slate-400 italic text-center py-3">No pilots assigned to this day yet.</p>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Pilot Field Reports for this day */}
-                                                        {(() => {
-                                                            const dayReports = ((selectedDeployment as any).pilotReports || []).filter((r: any) =>
-                                                                String(r.date).split('T')[0] === day
-                                                            );
-                                                            if (dayReports.length === 0) return null;
-
-                                                            const SEVERITY_STYLE: Record<string, string> = {
-                                                                low: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-                                                                medium: 'bg-orange-50 text-orange-700 border-orange-200',
-                                                                high: 'bg-red-50 text-red-700 border-red-200',
-                                                                critical: 'bg-red-900 text-red-100 border-red-700',
-                                                            };
-
-                                                            return (
-                                                                <div className="pt-4 border-t border-violet-100 mt-3">
-                                                                    <h5 className="text-xs font-bold text-violet-600 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                                                        <span>🤖 AI Pilot Field Reports</span>
-                                                                        {dayReports.some((r: any) => r.is_incident) && (
-                                                                            <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-200">⚠ Incident Reported</span>
-                                                                        )}
-                                                                    </h5>
-                                                                    <div className="space-y-4">
-                                                                        {dayReports.map((report: any) => {
-                                                                            const wx = report.weather_snapshot ? (typeof report.weather_snapshot === 'string' ? JSON.parse(report.weather_snapshot) : report.weather_snapshot) : null;
-                                                                            const ir = report.irradiance_snapshot ? (typeof report.irradiance_snapshot === 'string' ? JSON.parse(report.irradiance_snapshot) : report.irradiance_snapshot) : null;
-                                                                            return (
-                                                                                <div key={report.id} className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-                                                                                    {/* Report header */}
-                                                                                    <div className="px-4 py-2.5 bg-white border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <span className="text-xs font-bold text-slate-700">{report.technician_name || report.pilot_name || 'Pilot'}</span>
-                                                                                            <span className="text-[10px] text-slate-400">submitted {new Date(report.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                                                        </div>
-                                                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.missions_flown ?? '—'} flights</span>
-                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.blocks_completed ?? '—'} blocks</span>
-                                                                                            <span className="text-[10px] text-slate-500 bg-slate-100 rounded px-2 py-0.5">{report.hours_worked ?? '—'}h</span>
-                                                                                            {report.is_incident && report.incident_severity && (
-                                                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${SEVERITY_STYLE[report.incident_severity] || SEVERITY_STYLE.low}`}>
-                                                                                                    ⚠ {report.incident_severity.toUpperCase()}
-                                                                                                </span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    {/* Incident summary */}
-                                                                                    {report.is_incident && report.incident_summary && (
-                                                                                        <div className="px-4 py-2 bg-red-50 border-b border-red-100 text-xs text-red-700 font-medium">
-                                                                                            ⚠ {report.incident_summary}
-                                                                                        </div>
-                                                                                    )}
-
-                                                                                    {/* Weather + Irradiance strip */}
-                                                                                    {wx && (
-                                                                                        <div className="px-4 py-2 bg-blue-50/70 border-b border-blue-100 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-600">
-                                                                                            <span>🌡 {wx.temperature}°F</span>
-                                                                                            <span>💨 {wx.wind_speed} mph</span>
-                                                                                            <span>🌧 {wx.precipitation} mm</span>
-                                                                                            <span>☁ {wx.conditions}</span>
-                                                                                            {ir?.ghi_wm2 != null && <span>☀ GHI {ir.ghi_wm2} W/m² · {ir.description}</span>}
-                                                                                        </div>
-                                                                                    )}
-
-                                                                                    {/* AI report text */}
-                                                                                    {report.ai_report && (
-                                                                                        <div className="px-4 py-3">
-                                                                                            {report.ai_report.split('\n\n').filter(Boolean).map((para: string, i: number) => (
-                                                                                                <p key={i} className={`text-xs text-slate-600 leading-relaxed ${i > 0 ? 'mt-2' : ''}`}>{para}</p>
-                                                                                            ))}
-                                                                                        </div>
-                                                                                    )}
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })()}
-
-                                                        {/* Add New Pilot Form */}
-                                                        <div className="pt-3 border-t border-slate-200 mt-3">
-                                                            <div className="flex items-center justify-between mb-3">
-                                                                <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Add Pilot to This Day</h5>
-                                                            </div>
-                                                            <div className="grid grid-cols-12 gap-2">
-                                                                <div className="col-span-5">
-                                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pilot/Technician</label>
-                                                                    <select
-                                                                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                                        value={newLog.technicianId || ''}
-                                                                        onChange={e => {
-                                                                            const selectedPersonnel = personnel.find(p => String(p.id) === String(e.target.value));
-                                                                            setNewLog({
-                                                                                ...newLog,
-                                                                                technicianId: e.target.value,
-                                                                                dailyPay: selectedPersonnel?.dailyPayRate || 0
-                                                                            });
-                                                                        }}
-                                                                    >
-                                                                        <option value="">Select...</option>
-                                                                        {personnel
-                                                                            .filter(p => p.status === 'Active' || p.status === 'Inactive' || p.status === 'On Leave')
-                                                                            .filter(p => {
-                                                                                // Debug logging for first few items to avoid console spam
-                                                                                // console.log(`Checking ${p.fullName} for day ${day}`);
-
-                                                                                const isAssigned = selectedDeployment.dailyLogs?.some(log => {
-                                                                                    // robust date compare: string to string
-                                                                                    const logDateStr = String(log.date).split('T')[0];
-                                                                                    const targetDateStr = String(day).split('T')[0];
-                                                                                    const isSameDay = logDateStr === targetDateStr;
-                                                                                    const isSamePerson = String(log.technicianId) === String(p.id);
-
-                                                                                    return isSameDay && isSamePerson;
-                                                                                });
-
-                                                                                return !isAssigned;
-                                                                            })
-                                                                            .map(person => (
-                                                                                <option key={person.id} value={person.id}>
-                                                                                    {person.fullName} ({person.role})
-                                                                                </option>
-                                                                            ))}
-                                                                    </select>
-                                                                </div>
-                                                                <div className="col-span-2">
-                                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Daily Rate</label>
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                                        placeholder="0"
-                                                                        value={newLog.dailyPay ?? ''}
-                                                                        onChange={e => setNewLog({ ...newLog, dailyPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                                                    />
-                                                                </div>
-                                                                <div className="col-span-2">
-                                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bonus Pay</label>
-                                                                    <input
-                                                                        type="number"
-                                                                        className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded focus:ring-2 focus:ring-emerald-500/20 outline-none"
-                                                                        placeholder="0"
-                                                                        value={newLog.bonusPay ?? ''}
-                                                                        onChange={e => setNewLog({ ...newLog, bonusPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                                                    />
-                                                                </div>
-                                                                <div className="col-span-3 flex items-end gap-1">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault();
-                                                                            handleAddLog(day);
-                                                                        }}
-                                                                        disabled={!newLog.technicianId || newLog.dailyPay == null}
-                                                                        className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
-                                                                    >
-                                                                        <Plus className="w-3 h-3" /> Day
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault();
-                                                                            handleAddPilotToAllDays();
-                                                                        }}
-                                                                        disabled={!newLog.technicianId || newLog.dailyPay == null}
-                                                                        className="flex-1 px-2 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"
-                                                                        title="Add this pilot to every day of the mission"
-                                                                    >
-                                                                        <Calendar className="w-3 h-3" /> All Days
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-
-
-                                        {/* Add Extra/Non-Consecutive Day UI */}
-                                        <div className="pt-4 border-t border-slate-200">
-                                            {isAddingExtraDay ? (
-                                                <div className="bg-white rounded-lg border border-blue-200 shadow-sm p-4 animate-in fade-in slide-in-from-top-2">
-                                                    <h4 className="text-sm font-bold text-slate-900 mb-2">Add Non-Consecutive Day</h4>
-                                                    <div className="flex items-end gap-3">
-                                                        <div className="flex-1">
-                                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Select Date</label>
-                                                            <input
-                                                                type="date"
-                                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                                                value={extraDayDate}
-                                                                onChange={(e) => setExtraDayDate(e.target.value)}
-                                                            />
-                                                        </div>
-                                                        <button
-                                                            onClick={confirmAddExtraDay}
-                                                            disabled={!extraDayDate}
-                                                            className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                                                        >
-                                                            Confirm Day
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setIsAddingExtraDay(false)}
-                                                            className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <button
-                                                    onClick={() => setIsAddingExtraDay(true)}
-                                                    className="w-full py-3 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-bold uppercase tracking-wider hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
-                                                >
-                                                    <Plus className="w-4 h-4" /> Add Extra Day (Out of Range)
-                                                </button>
-                                            )}
-                                        </div>
                                     </div>
                                 ) : activeModalTab === 'field-reports' ? (
                                     <div className="p-6">
@@ -2252,7 +2780,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                 <Upload className="w-6 h-6" />
                                             </div>
                                             <h3 className="text-sm font-semibold text-slate-900">
-                                                {user?.role === 'pilot_technician' ? 'Upload Flight Data' : 'Upload Mission Assets'}
+                                                {user?.role === 'pilot_technician' ? 'Upload Mission Documents' : 'Upload Mission Assets'}
                                             </h3>
                                             <p className="text-xs text-slate-500 mt-1 max-w-xs">
                                                 {user?.role === 'pilot_technician'
@@ -2325,21 +2853,52 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             </div>
                                         </div>
 
-                                        {/* ── Flight Data Ingest (merged in) ── */}
-                                        <div className="border-t border-slate-100 pt-6">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <svg className="w-4 h-4 text-cyan-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
-                                                <h4 className="text-sm font-bold text-slate-900">Flight Data Ingest</h4>
-                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700">KML + Params</span>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mb-3">Upload KML flight paths and parameter docs to auto-populate AI reports</p>
-                                            <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-950">
-                                                <FlightDataUpload
-                                                    deploymentId={selectedDeployment.id}
-                                                    deploymentTitle={selectedDeployment.title}
-                                                />
-                                            </div>
+                                        {/* ── LBD Block Grid — visible to all roles ── */}
+                                        <div className="border-t border-slate-700/40 pt-6">
+                                            <LBDDocumentGrid
+                                                deploymentId={selectedDeployment.id}
+                                                userRole={user?.role}
+                                            />
                                         </div>
+
+                                        {/* ── LBD Upload + Admin Controls (admin only) ── */}
+                                        {isAdmin(user) && (
+                                            <div className="border-t border-slate-700/40 pt-6">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
+                                                        <Grid3X3 className="w-4 h-4 text-orange-400" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-sm font-bold text-white">Block Import &amp; Assignment</h4>
+                                                        <p className="text-[11px] text-slate-500">Upload CSV/XLSX to create blocks · Assign pilots to individual blocks</p>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
+                                                    <LBDBlockTracker
+                                                        deploymentId={selectedDeployment.id}
+                                                        personnel={personnel}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* ── Mission Document Ingest (admin only) ── */}
+                                        {user?.role !== 'client' && user?.role !== 'client_user' && user?.role !== 'customer' && (
+                                            <div className="border-t border-slate-100 pt-6">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <svg className="w-4 h-4 text-cyan-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" /></svg>
+                                                    <h4 className="text-sm font-bold text-slate-900">Mission Document Ingest</h4>
+                                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700">KML + Params</span>
+                                                </div>
+                                                <p className="text-xs text-slate-400 mb-3">Upload KML flight paths and parameter docs to auto-populate AI reports</p>
+                                                <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-950">
+                                                    <FlightDataUpload
+                                                        deploymentId={selectedDeployment.id}
+                                                        deploymentTitle={selectedDeployment.title}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {/* Performance Snapshot — Pilot View Only */}
                                         {user?.role === 'pilot_technician' && (
@@ -2385,28 +2944,166 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                         </div>
                                         
                                         <div className="bg-slate-950/50 rounded-xl border border-white/5 p-4">
-                                            <ProcessingJobs 
-                                                missionId={selectedDeployment.id}
-                                                onViewMap={(jobId) => window.open(`/orthomosaic/viewer/${jobId}`, '_blank')}
-                                                onViewUpload={(job) => {
-                                                    // This could open a sub-modal or redirect
-                                                    console.log("View upload for job:", job.id);
-                                                }}
-                                            />
+                                            <div>Processing Jobs module is currently unavailable.</div>
                                         </div>
                                     </div>
                                 ) : activeModalTab === 'financials' ? (
                                     <>
                                         <div className="p-6 space-y-6 mission-cost-report">
-                                            {/* DEBUGGING LOGS */}
-                                            {(() => {
-                                                console.log('Rendering Financials Tab:', {
-                                                    selectedDeployment,
-                                                    dailyLogs: selectedDeployment?.dailyLogs,
-                                                    personnel
-                                                });
-                                                return null;
-                                            })()}
+                                            {/* ── PILOT PAY (Daily Logs) — merged here ── */}
+                                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                                                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                                                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                                                        <DollarSign className="w-4 h-4 text-blue-500" />
+                                                        Pilot Pay — Daily Logs
+                                                    </h4>
+                                                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                                                        isMissionClosed(selectedDeployment)
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                                                    }`}>
+                                                        {isMissionClosed(selectedDeployment) ? `Total: $${getTotalCost(selectedDeployment).toLocaleString()}` : `Accruing: $${getTotalCost(selectedDeployment).toLocaleString()} est.`}
+                                                    </span>
+                                                </div>
+                                                <div className="p-6 space-y-6">
+                                                    {getDeploymentDays(selectedDeployment).map((day) => (
+                                                        <div key={day} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                                                            <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
+                                                                <h4 className="font-medium text-slate-700 text-sm flex items-center gap-2">
+                                                                    <Calendar className="w-4 h-4 text-slate-400" />
+                                                                    {(() => {
+                                                                        const [y, m, d] = day.split('-').map(Number);
+                                                                        return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                                                                    })()}
+                                                                </h4>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs font-semibold text-slate-500 bg-slate-200/50 px-2 py-1 rounded">
+                                                                        Day Total: ${(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day).reduce((sum, l) => sum + (l.dailyPay || 0) + (l.bonusPay || 0), 0) || 0).toLocaleString()}
+                                                                    </span>
+                                                                    <button onClick={() => handleDeleteDay(day)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete entire day">
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="p-4 space-y-4">
+                                                                <div className="space-y-2">
+                                                                    <div className="space-y-2">
+                                                                        {(selectedDeployment.dailyLogs?.filter(l => String(l.date).split('T')[0] === day) || []).map(log => {
+                                                                            const personName = personnel.find(p => String(p.id) === String(log.technicianId))?.fullName || `Pilot #${String(log.technicianId).slice(0, 8)}`;
+                                                                            const totalPay = (editingLogId === log.id ? editForm.dailyPay + editForm.bonusPay : (log.dailyPay || 0) + (log.bonusPay || 0));
+                                                                            return (
+                                                                                <div key={log.id} className="flex items-center justify-between text-sm bg-slate-50 p-3 rounded border border-slate-100">
+                                                                                    <div className="flex items-center gap-3 flex-1">
+                                                                                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{personName.charAt(0)}</div>
+                                                                                        <div className="flex-1">
+                                                                                            <span className="font-medium text-slate-700 block">{personName}</span>
+                                                                                            {editingLogId === log.id ? (
+                                                                                                <div className="flex items-center gap-2 mt-1">
+                                                                                                    <div className="flex items-center gap-1">
+                                                                                                        <span className="text-[10px] text-slate-400 uppercase">Rate:</span>
+                                                                                                        <input type="number" className="w-20 px-1 py-0.5 text-xs border rounded" value={editForm.dailyPay} onChange={e => setEditForm({ ...editForm, dailyPay: parseFloat(e.target.value) || 0 })} />
+                                                                                                    </div>
+                                                                                                    <div className="flex items-center gap-1">
+                                                                                                        <span className="text-[10px] text-emerald-500 uppercase">Bonus:</span>
+                                                                                                        <input type="number" className="w-20 px-1 py-0.5 text-xs border rounded" value={editForm.bonusPay} onChange={e => setEditForm({ ...editForm, bonusPay: parseFloat(e.target.value) || 0 })} />
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            ) : (
+                                                                                                <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                                                                                                    <span>Daily: ${log.dailyPay?.toLocaleString() || 0}</span>
+                                                                                                    {(log.bonusPay || 0) > 0 && (<><span>•</span><span className="text-emerald-600 font-medium">Bonus: ${log.bonusPay?.toLocaleString()}</span></>)}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <span className="text-emerald-600 font-bold bg-emerald-50 px-3 py-1 rounded border border-emerald-100 min-w-[80px] text-center">${totalPay.toLocaleString()}</span>
+                                                                                        {editingLogId === log.id ? (
+                                                                                            <>
+                                                                                                <button onClick={() => saveEditLog(log.id)} className="p-1.5 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Save"><Check className="w-4 h-4" /></button>
+                                                                                                <button onClick={cancelEditLog} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
+                                                                                            </>
+                                                                                        ) : (
+                                                                                            <>
+                                                                                                <button onClick={() => startEditLog(log)} className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit"><Edit2 className="w-4 h-4" /></button>
+                                                                                                <button onClick={() => handleDeleteLog(log.id)} className="p-1.5 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Remove"><Trash2 className="w-4 h-4" /></button>
+                                                                                            </>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        {(selectedDeployment.dailyLogs?.filter(l => l.date === day) || []).length === 0 && (
+                                                                            <p className="text-xs text-slate-400 italic text-center py-3">No pilots assigned to this day yet.</p>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* Add New Pilot Form */}
+                                                                    <div className="pt-3 border-t border-slate-200 mt-3">
+                                                                        <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Add Pilot to This Day</h5>
+                                                                        <div className="grid grid-cols-12 gap-2">
+                                                                            <div className="col-span-5">
+                                                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pilot/Technician</label>
+                                                                                <select className="w-full px-2 py-1.5 text-sm text-slate-800 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none bg-white" value={newLog.technicianId || ''} onChange={e => { const sel = personnel.find(p => String(p.id) === String(e.target.value)); setNewLog({ ...newLog, technicianId: e.target.value, dailyPay: sel?.dailyPayRate || 0 }); }}>
+                                                                                    <option value="">Select...</option>
+                                                                                    {personnel.filter(p => p.status === 'Active' || p.status === 'Inactive' || p.status === 'On Leave').filter(p => !selectedDeployment.dailyLogs?.some(log => String(log.date).split('T')[0] === String(day).split('T')[0] && String(log.technicianId) === String(p.id))).map(person => (
+                                                                                        <option key={person.id} value={person.id}>{person.fullName} ({person.role})</option>
+                                                                                    ))}
+                                                                                </select>
+                                                                            </div>
+                                                                            <div className="col-span-2">
+                                                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Daily Rate</label>
+                                                                                <input type="number" className="w-full px-2 py-1.5 text-sm text-slate-800 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none bg-white" placeholder="0" value={newLog.dailyPay ?? ''} onChange={e => setNewLog({ ...newLog, dailyPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })} />
+                                                                            </div>
+                                                                            <div className="col-span-2">
+                                                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bonus Pay</label>
+                                                                                <input type="number" className="w-full px-2 py-1.5 text-sm text-slate-800 border border-slate-200 rounded focus:ring-2 focus:ring-blue-500/20 outline-none bg-white" placeholder="0" value={newLog.bonusPay ?? ''} onChange={e => setNewLog({ ...newLog, bonusPay: e.target.value === '' ? 0 : parseFloat(e.target.value) })} />
+                                                                            </div>
+                                                                            <div className="col-span-3 flex items-end gap-1">
+                                                                                <button type="button" onClick={e => { e.preventDefault(); handleAddLog(day); }} disabled={!newLog.technicianId || newLog.dailyPay == null} className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1"><Plus className="w-3 h-3" /> Day</button>
+                                                                                <button type="button" onClick={e => { e.preventDefault(); handleAddPilotToAllDays(); }} disabled={!newLog.technicianId || newLog.dailyPay == null} className="flex-1 px-2 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1" title="Add this pilot to every day"><Calendar className="w-3 h-3" /> All Days</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {/* Add Extra Day */}
+                                                    <div className="pt-4 border-t border-slate-200">
+                                                        {isAddingExtraDay ? (
+                                                            <div className="bg-white rounded-lg border border-blue-200 shadow-sm p-4 animate-in fade-in slide-in-from-top-2">
+                                                                <h4 className="text-sm font-bold text-slate-900 mb-2">Add Non-Consecutive Day</h4>
+                                                                <div className="flex items-end gap-3">
+                                                                    <div className="flex-1">
+                                                                        <label className="block text-xs font-semibold text-slate-500 mb-1">Select Date</label>
+                                                                        <input type="date" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 outline-none" value={extraDayDate} onChange={e => setExtraDayDate(e.target.value)} />
+                                                                    </div>
+                                                                    <button onClick={confirmAddExtraDay} disabled={!extraDayDate} className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">Confirm Day</button>
+                                                                    <button onClick={() => setIsAddingExtraDay(false)} className="px-4 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors">Cancel</button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <button onClick={() => setIsAddingExtraDay(true)} className="w-full py-3 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 text-xs font-bold uppercase tracking-wider hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Add Extra Day (Out of Range)</button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {/* ── PENDING BANNER — shown when mission is still open ── */}
+                                            {!isMissionClosed(selectedDeployment) && (
+                                                <div className="flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                                                    <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs font-bold text-amber-400 uppercase tracking-wider">Pending — Mission Open</p>
+                                                        <p className="text-[11px] text-amber-400/70 mt-0.5">
+                                                            Costs shown in <span className="font-bold text-amber-400">yellow</span> are provisional until this mission is marked <strong>Completed</strong> or <strong>Archived</strong>.
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right flex-shrink-0">
+                                                        <p className="text-[10px] text-amber-400/60 uppercase tracking-wider font-bold">Accrued So Far</p>
+                                                        <p className="text-xl font-black text-amber-400">${getTotalCost(selectedDeployment).toLocaleString()}</p>
+                                                    </div>
+                                                </div>
+                                            )}
                                             {/* Pricing & Profit Engine */}
                                             <div className={`bg-white rounded-xl border transition-all ${expandedFinancialId === 'PRICING_ENGINE' ? 'border-blue-500 shadow-md ring-1 ring-blue-500/10' : 'border-slate-200 shadow-sm'}`}>
                                                 <div
@@ -2545,8 +3242,15 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                     </div>
                                                     <div className="flex items-end gap-6">
                                                         <div className="text-right">
-                                                            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Total Project Gross</p>
-                                                            <p className="text-2xl font-bold text-slate-900">${getTotalCost(selectedDeployment).toLocaleString()}</p>
+                                                            <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Total Pilot Cost</p>
+                                                            <p className={`text-2xl font-bold ${
+                                                                isMissionClosed(selectedDeployment) ? 'text-emerald-600' : 'text-amber-400'
+                                                            }`}>
+                                                                ${getTotalCost(selectedDeployment).toLocaleString()}
+                                                                {!isMissionClosed(selectedDeployment) && (
+                                                                    <span className="text-xs font-normal text-amber-400/60 ml-1">est.</span>
+                                                                )}
+                                                            </p>
                                                         </div>
                                                         <div className="text-right">
                                                             <label className="text-xs text-slate-500 uppercase tracking-wider font-bold block mb-1">Payment Terms</label>
@@ -2653,7 +3357,14 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                                     </div>
                                                                     <div className="flex items-center gap-6">
                                                                         <div className="text-right">
-                                                                            <p className="text-xl font-bold text-emerald-600">${totalPay.toLocaleString()}</p>
+                                                                            <p className={`text-xl font-bold ${
+                                                                                isMissionClosed(selectedDeployment) ? 'text-emerald-600' : 'text-amber-400'
+                                                                            }`}>
+                                                                                ${totalPay.toLocaleString()}
+                                                                                {!isMissionClosed(selectedDeployment) && (
+                                                                                    <span className="ml-1 text-[9px] font-bold text-amber-500/70 uppercase tracking-wider">pending</span>
+                                                                                )}
+                                                                            </p>
                                                                         </div>
                                                                         <button
                                                                             onClick={(e) => {
@@ -2727,6 +3438,145 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                                     )}
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        {/* ── Mission Expenses Panel ─────────────────────────────────── */}
+                                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                                            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                                                <div>
+                                                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                                                        <Receipt className="w-4 h-4 text-blue-500" />
+                                                        Mission Expenses
+                                                        {!isMissionClosed(selectedDeployment) && (
+                                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 uppercase tracking-wider">
+                                                                Pending until mission closes
+                                                            </span>
+                                                        )}
+                                                    </h4>
+                                                    <p className="text-xs text-slate-400 mt-0.5">
+                                                        {isMissionClosed(selectedDeployment)
+                                                            ? 'Finalized — mission is closed.'
+                                                            : 'Expenses are marked pending until this mission is Completed or Archived.'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setShowAddExpenseForm(v => !v); setEditingExpenseId(null); setExpenseForm({ category: 'Other', description: '', amount: '', expense_date: new Date().toISOString().split('T')[0], vendor: '', notes: '' }); }}
+                                                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500 transition-colors"
+                                                >
+                                                    <Plus className="w-3.5 h-3.5" /> Add Expense
+                                                </button>
+                                            </div>
+
+                                            {/* Add / Edit Form */}
+                                            {showAddExpenseForm && (
+                                                <div className="px-6 py-4 bg-blue-50/50 border-b border-blue-100 animate-in fade-in slide-in-from-top-1">
+                                                    <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-3">
+                                                        {editingExpenseId ? 'Edit Expense' : 'New Expense'}
+                                                    </p>
+                                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Category</label>
+                                                            <select value={expenseForm.category} onChange={e => setExpenseForm(p => ({ ...p, category: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500 bg-white">
+                                                                {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <div className="md:col-span-2">
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Description *</label>
+                                                            <input value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} placeholder="e.g. Hotel — Site A" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Amount ($) *</label>
+                                                            <input type="number" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Date</label>
+                                                            <input type="date" value={expenseForm.expense_date} onChange={e => setExpenseForm(p => ({ ...p, expense_date: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Vendor</label>
+                                                            <input value={expenseForm.vendor} onChange={e => setExpenseForm(p => ({ ...p, vendor: e.target.value }))} placeholder="Vendor name" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500" />
+                                                        </div>
+                                                        <div className="md:col-span-3">
+                                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Notes</label>
+                                                            <input value={expenseForm.notes} onChange={e => setExpenseForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 focus:outline-none focus:border-blue-500" />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex justify-end gap-2 mt-3">
+                                                        <button onClick={() => { setShowAddExpenseForm(false); setEditingExpenseId(null); }} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+                                                        <button onClick={handleSaveExpense} disabled={!expenseForm.description || !expenseForm.amount} className="px-6 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500 disabled:opacity-40 transition-colors">
+                                                            {editingExpenseId ? 'Save Changes' : 'Add Expense'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Expenses List */}
+                                            {loadingMissionExpenses ? (
+                                                <div className="px-6 py-8 flex items-center justify-center text-slate-400 gap-2">
+                                                    <Loader2 className="w-4 h-4 animate-spin" /> Loading expenses…
+                                                </div>
+                                            ) : missionExpenses.length === 0 ? (
+                                                <div className="px-6 py-8 text-center text-slate-400 text-sm italic">
+                                                    No expenses recorded for this mission yet.
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-slate-50 border-b border-slate-100">
+                                                            <tr className="text-slate-500 uppercase tracking-wider font-bold">
+                                                                <th className="px-5 py-3 text-left">Category</th>
+                                                                <th className="px-4 py-3 text-left">Description</th>
+                                                                <th className="px-4 py-3 text-left">Vendor</th>
+                                                                <th className="px-4 py-3 text-left">Date</th>
+                                                                <th className="px-4 py-3 text-left">Status</th>
+                                                                <th className="px-4 py-3 text-right">Amount</th>
+                                                                <th className="px-4 py-3" />
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-50">
+                                                            {missionExpenses.map(exp => (
+                                                                <tr key={exp.id} className={`hover:bg-slate-50/60 transition-colors ${editingExpenseId === exp.id ? 'bg-blue-50/40' : ''}`}>
+                                                                    <td className="px-5 py-3">
+                                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">{exp.category}</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 font-medium text-slate-800">{exp.description || '—'}</td>
+                                                                    <td className="px-4 py-3 text-slate-500">{exp.vendor || '—'}</td>
+                                                                    <td className="px-4 py-3 font-mono text-slate-500">{exp.expense_date ? String(exp.expense_date).split('T')[0] : '—'}</td>
+                                                                    <td className="px-4 py-3">
+                                                                        {exp.status === 'confirmed' ? (
+                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">Confirmed</span>
+                                                                        ) : (
+                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">Pending</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-right font-black text-slate-900">${Number(exp.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                                                    <td className="px-4 py-3 text-right">
+                                                                        <div className="flex items-center justify-end gap-1">
+                                                                            <button onClick={() => handleStartEditExpense(exp)} className="p-1 text-slate-400 hover:text-blue-600 transition-colors rounded" title="Edit">
+                                                                                <Edit2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                            <button onClick={() => handleDeleteExpense(exp.id)} className="p-1 text-slate-400 hover:text-red-500 transition-colors rounded" title="Delete">
+                                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                        <tfoot className="border-t border-slate-200 bg-slate-50/80">
+                                                            <tr>
+                                                                <td colSpan={5} className="px-5 py-3 text-xs font-black text-slate-500 uppercase tracking-widest text-right">
+                                                                    {isMissionClosed(selectedDeployment) ? 'Total Confirmed' : 'Total (Pending)'}
+                                                                </td>
+                                                                <td className={`px-4 py-3 text-right text-base font-black ${isMissionClosed(selectedDeployment) ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                                    ${missionExpenses.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                                </td>
+                                                                <td />
+                                                            </tr>
+                                                        </tfoot>
+                                                    </table>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {generatedLink && (
@@ -3091,7 +3941,13 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                 ) : activeModalTab === 'weather' ? (
                                     <div className="h-full overflow-y-auto bg-slate-950">
                                         <div className="p-6">
-                                            <WeatherDashboard />
+                                            <WeatherDashboard
+                                                initialLocation={
+                                                    selectedDeployment.location ||
+                                                    selectedDeployment.siteName ||
+                                                    undefined
+                                                }
+                                            />
                                         </div>
                                     </div>
                                 ) : activeModalTab === 'axis-intel' && isAdmin(user) ? (
@@ -3133,6 +3989,36 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                     <div className="h-full overflow-y-auto bg-slate-950 p-6">
                                         <ThermalHotspotMap deploymentId={selectedDeployment.id} />
                                     </div>
+                                ) : activeModalTab === 'blocks' ? (
+                                    <div className="h-full overflow-y-auto bg-slate-950 p-6 space-y-6">
+                                        {/* LBD Block Grid — interactive for pilots, read-only for others */}
+                                        <LBDDocumentGrid
+                                            deploymentId={selectedDeployment.id}
+                                            userRole={user?.role}
+                                        />
+                                        {/* Block Import & Assignment — admin only */}
+                                        {isAdmin(user) && (
+                                            <div className="border-t border-slate-800 pt-6">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <div className="w-8 h-8 rounded-lg bg-orange-500/20 border border-orange-500/30 flex items-center justify-center">
+                                                        <Grid3X3 className="w-4 h-4 text-orange-400" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-sm font-bold text-white">Block Import & Assignment</h4>
+                                                        <p className="text-[11px] text-slate-500">Upload CSV/XLSX to create blocks · Assign pilots to individual blocks</p>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                                                    <LBDBlockTracker
+                                                        deploymentId={selectedDeployment.id}
+                                                        personnel={personnel}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : activeModalTab === 'interest-inquiry' && isAdmin(user) ? (
+                                    <InterestInquiryPanel deployment={selectedDeployment} personnel={personnel} />
                                 ) : (
                                     <div className="p-6 flex items-center justify-center text-slate-500">
                                         Select a tab to view details
@@ -3375,6 +4261,17 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
                                             placeholder="e.g. 5"
                                             value={newDeployment.daysOnSite || ''}
                                             onChange={e => setNewDeployment({ ...newDeployment, daysOnSite: parseInt(e.target.value) })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Pilots / Technicians Needed</label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none"
+                                            placeholder="e.g. 3"
+                                            value={(newDeployment as any).pilotsNeeded || ''}
+                                            onChange={e => setNewDeployment({ ...newDeployment, pilotsNeeded: parseInt(e.target.value) } as any)}
                                         />
                                     </div>
                                 </div>

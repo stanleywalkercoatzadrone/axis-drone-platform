@@ -4,7 +4,7 @@
  * Fetches from GET /api/blocks?deploymentId=:id (already live).
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { Grid3x3, CheckCircle2, AlertCircle, Clock, RefreshCw, Zap } from 'lucide-react';
 
 interface Block {

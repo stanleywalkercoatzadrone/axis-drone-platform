@@ -11,7 +11,7 @@ import {
     TrendingUp, TrendingDown, Minus, Calendar, Sun, Wind,
     CloudRain, Activity, Target, AlertTriangle, CheckCircle
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface Props {
     missionId: string;

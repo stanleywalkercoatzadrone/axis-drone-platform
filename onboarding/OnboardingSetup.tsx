@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Settings2, ShieldCheck, ChevronRight, ToggleLeft, ToggleRight, Lock } from 'lucide-react';
-import apiClient from '../../src/services/apiClient';
+import apiClient from '../src/services/apiClient';
 
 const SECTIONS = [
     {

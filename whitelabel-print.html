@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Axis White Label — Print</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#030712;color:#fff}
+.page{width:100vw;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:5vw;page-break-after:always;position:relative;overflow:hidden}
+.page:last-child{page-break-after:auto}
+.glow{position:absolute;border-radius:50%;pointer-events:none}
+.tag{display:inline-block;padding:.22rem .7rem;border-radius:999px;font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.tpur{background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#a78bfa}
+.tblue{background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);color:#60a5fa}
+.tgreen{background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#34d399}
+.tamb{background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.4);color:#fbbf24}
+.h1{font-size:clamp(2rem,5vw,4rem);font-weight:900;line-height:1.06;text-align:center}
+.h2{font-size:clamp(1.3rem,2.8vw,2.2rem);font-weight:900;margin-bottom:.6rem}
+.sub{color:#94a3b8;font-size:.9rem;line-height:1.7;max-width:600px;text-align:center}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;width:100%;max-width:860px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;width:100%;max-width:940px}
+.card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:1.25rem}
+.price{font-size:2.2rem;font-weight:900}
+.pur{background:linear-gradient(135deg,#7c3aed,#4f46e5);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.blue{background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.check{color:#34d399;margin-right:.35rem}
+ul.feat{list-style:none;color:#94a3b8;font-size:.8rem;line-height:2}
+.divider{height:1px;background:rgba(255,255,255,.08);width:100%;margin:.75rem 0}
+.num{font-weight:900;font-size:1rem}
+@media print{
+  body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{page-break-after:always}
+}
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: Cover -->
+<div class="page">
+  <div class="glow" style="width:500px;height:500px;background:radial-gradient(circle,rgba(124,58,237,.16),transparent 70%);top:-150px;left:-150px"></div>
+  <div style="margin-bottom:1.25rem"><span class="tag tpur">White Label Partnership · 2026</span></div>
+  <div class="h1">Your Brand.<br><span class="pur">Our Platform.</span><br>Full Ownership.</div>
+  <p class="sub" style="margin-top:1.25rem">Axis Enterprise is available as a fully white-labeled drone inspection SaaS — rebranded, redeployed, and resold under your company's identity in 30 days or less.</p>
+  <div style="margin-top:1.75rem;display:flex;gap:.6rem;flex-wrap:wrap;justify-content:center">
+    <span class="tag tpur">Admin Portal</span>
+    <span class="tag tblue">Pilot Terminal</span>
+    <span class="tag tgreen">Client Portal</span>
+    <span class="tag tamb">AI Engine</span>
+  </div>
+  <div style="position:absolute;bottom:2rem;left:50%;transform:translateX(-50%);color:#334155;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em">Axis Enterprise · Confidential · 2026</div>
+</div>
+
+<!-- PAGE 2: What's Included -->
+<div class="page">
+  <div style="max-width:940px;width:100%">
+    <div class="tag tpur" style="margin-bottom:.6rem">What's Included</div>
+    <div class="h2">Everything. Fully branded.</div>
+    <div class="g3" style="margin-top:1.25rem">
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">⚡</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Admin Platform</div><ul class="feat"><li><span class="check">✓</span>Mission Terminal</li><li><span class="check">✓</span>Pilot Dispatch</li><li><span class="check">✓</span>Finance & Payroll</li><li><span class="check">✓</span>Weather Intelligence</li><li><span class="check">✓</span>AI Intelligence Hub</li></ul></div>
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">✈️</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Pilot Terminal</div><ul class="feat"><li><span class="check">✓</span>Mission Dashboard</li><li><span class="check">✓</span>File Uploads</li><li><span class="check">✓</span>Checklists & Issues</li><li><span class="check">✓</span>Banking & Compliance</li><li><span class="check">✓</span>Offline-Ready PWA</li></ul></div>
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">🏢</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Client Portal</div><ul class="feat"><li><span class="check">✓</span>Mission Tracking</li><li><span class="check">✓</span>LBD Block Progress</li><li><span class="check">✓</span>Deliverables Hub</li><li><span class="check">✓</span>AI-Generated Reports</li><li><span class="check">✓</span>Real-Time Status</li></ul></div>
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">🤖</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">AI Engine</div><ul class="feat"><li><span class="check">✓</span>Gemini Vision Analysis</li><li><span class="check">✓</span>Defect Detection</li><li><span class="check">✓</span>Report Generator</li><li><span class="check">✓</span>Confidence Scoring</li><li><span class="check">✓</span>Multi-Provider Fallback</li></ul></div>
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">☁️</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Infrastructure</div><ul class="feat"><li><span class="check">✓</span>Google Cloud Run</li><li><span class="check">✓</span>PostgreSQL Database</li><li><span class="check">✓</span>CI/CD Pipeline</li><li><span class="check">✓</span>Custom Domain + SSL</li><li><span class="check">✓</span>Multi-Country Support</li></ul></div>
+      <div class="card"><div style="font-size:1.2rem;margin-bottom:.4rem">🎨</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Full Branding</div><ul class="feat"><li><span class="check">✓</span>Your Logo & Colors</li><li><span class="check">✓</span>Custom Domain</li><li><span class="check">✓</span>Branded Emails</li><li><span class="check">✓</span>Renamed Portals</li><li><span class="check">✓</span>Onboarding Flow</li></ul></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 3: Pricing -->
+<div class="page">
+  <div style="max-width:940px;width:100%;text-align:center">
+    <div class="tag tpur" style="margin-bottom:.6rem">White Label Pricing</div>
+    <div class="h2" style="text-align:center">Three tiers. One platform.</div>
+    <div class="g3" style="margin-top:1.25rem;text-align:left">
+      <div class="card" style="border-color:rgba(59,130,246,.3)">
+        <div class="tag tblue" style="margin-bottom:.6rem">Starter</div>
+        <div class="price blue">$4,999</div>
+        <div style="color:#94a3b8;font-size:.75rem;margin-bottom:.6rem">one-time setup + $799/mo</div>
+        <div class="divider"></div>
+        <ul class="feat"><li><span class="check">✓</span>Full platform license</li><li><span class="check">✓</span>Logo & color rebranding</li><li><span class="check">✓</span>Custom domain setup</li><li><span class="check">✓</span>Up to 3 admin users</li><li><span class="check">✓</span>Up to 10 pilot accounts</li><li><span class="check">✓</span>Up to 5 client orgs</li><li><span class="check">✓</span>Email support</li></ul>
+      </div>
+      <div class="card" style="border-color:rgba(124,58,237,.45);background:rgba(124,58,237,.07)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+          <span class="tag tpur">Professional</span>
+          <span style="font-size:.62rem;color:#a78bfa;font-weight:700">MOST POPULAR</span>
+        </div>
+        <div class="price pur">$12,500</div>
+        <div style="color:#94a3b8;font-size:.75rem;margin-bottom:.6rem">one-time setup + $1,499/mo</div>
+        <div class="divider"></div>
+        <ul class="feat"><li><span class="check">✓</span>Everything in Starter</li><li><span class="check">✓</span>Full UI rebrand</li><li><span class="check">✓</span>Branded client onboarding</li><li><span class="check">✓</span>Unlimited admin users</li><li><span class="check">✓</span>Up to 50 pilot accounts</li><li><span class="check">✓</span>Up to 25 client orgs</li><li><span class="check">✓</span>Priority support + SLA</li></ul>
+      </div>
+      <div class="card" style="border-color:rgba(245,158,11,.3)">
+        <div class="tag tamb" style="margin-bottom:.6rem">Enterprise</div>
+        <div class="price" style="background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Custom</div>
+        <div style="color:#94a3b8;font-size:.75rem;margin-bottom:.6rem">negotiated setup + monthly</div>
+        <div class="divider"></div>
+        <ul class="feat"><li><span class="check">✓</span>Everything in Professional</li><li><span class="check">✓</span>Source code license</li><li><span class="check">✓</span>Custom feature builds</li><li><span class="check">✓</span>Unlimited everything</li><li><span class="check">✓</span>Dedicated infra tenant</li><li><span class="check">✓</span>On-premise option</li><li><span class="check">✓</span>Dedicated dev support</li></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 4: ROI -->
+<div class="page">
+  <div style="max-width:840px;width:100%">
+    <div class="tag tgreen" style="margin-bottom:.6rem">Your Business Case</div>
+    <div class="h2">Resell at 5–10× your cost</div>
+    <p style="color:#94a3b8;font-size:.88rem;margin-bottom:1.25rem">License Axis at $1,499/mo. Resell to your enterprise clients at $5,000–$12,000/mo. Keep 70–85% margin.</p>
+    <div class="g2">
+      <div class="card">
+        <div style="font-weight:700;font-size:.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.75rem">5-Client Scenario (Professional)</div>
+        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-bottom:.3rem"><span style="color:#94a3b8">Platform cost</span><span style="color:#f87171;font-weight:700">−$1,499/mo</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-bottom:.3rem"><span style="color:#94a3b8">5 clients @ $5,000/mo</span><span style="color:#34d399;font-weight:700">+$25,000/mo</span></div>
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-weight:700;font-size:.9rem">Net monthly profit</span><span style="color:#34d399;font-weight:900;font-size:1.15rem">$23,501</span></div>
+        <div style="color:#64748b;font-size:.72rem;margin-top:.35rem">$282K ARR from one white-label seat</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;font-size:.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.75rem">15-Client Scale (Enterprise)</div>
+        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-bottom:.3rem"><span style="color:#94a3b8">Platform cost</span><span style="color:#f87171;font-weight:700">−$3,500/mo</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:.88rem;margin-bottom:.3rem"><span style="color:#94a3b8">15 clients @ $8,000/mo</span><span style="color:#34d399;font-weight:700">+$120,000/mo</span></div>
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:space-between"><span style="font-weight:700;font-size:.9rem">Net monthly profit</span><span style="color:#34d399;font-weight:900;font-size:1.15rem">$116,500</span></div>
+        <div style="color:#64748b;font-size:.72rem;margin-top:.35rem">$1.4M ARR from one white-label seat</div>
+      </div>
+    </div>
+    <div style="background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:12px;padding:.9rem 1.5rem;margin-top:1.1rem;text-align:center">
+      <span style="color:#34d399;font-weight:700;font-size:.88rem">Average payback period on setup fee: </span>
+      <span style="color:#fff;font-weight:900"> &lt; 30 days at 2 clients</span>
+    </div>
+    <div class="g3" style="margin-top:1.1rem">
+      <div class="card" style="text-align:center"><div style="color:#a78bfa;font-weight:900;font-size:1.5rem">94%</div><div style="color:#94a3b8;font-size:.78rem;margin-top:.2rem">Gross margin<br>at scale</div></div>
+      <div class="card" style="text-align:center"><div style="color:#60a5fa;font-weight:900;font-size:1.5rem">5×</div><div style="color:#94a3b8;font-size:.78rem;margin-top:.2rem">Average resale<br>multiplier</div></div>
+      <div class="card" style="text-align:center"><div style="color:#34d399;font-weight:900;font-size:1.5rem">&lt;30d</div><div style="color:#94a3b8;font-size:.78rem;margin-top:.2rem">Setup fee<br>payback period</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 5: Timeline -->
+<div class="page">
+  <div style="max-width:800px;width:100%">
+    <div class="tag tamb" style="margin-bottom:.6rem">Go-Live Timeline</div>
+    <div class="h2">Live in 30 days, guaranteed</div>
+    <div style="display:flex;flex-direction:column;gap:.85rem;margin-top:1.5rem">
+      <div class="card" style="display:flex;align-items:center;gap:1.1rem">
+        <div style="min-width:50px;height:50px;border-radius:10px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);display:flex;align-items:center;justify-content:center;font-weight:900;color:#a78bfa;font-size:.8rem">D1–3</div>
+        <div><div style="font-weight:700;margin-bottom:.15rem">Brand Kit & Onboarding Call</div><div style="color:#94a3b8;font-size:.82rem">Submit logos, colors, domain, and portal names. We configure your dedicated environment.</div></div>
+      </div>
+      <div class="card" style="display:flex;align-items:center;gap:1.1rem">
+        <div style="min-width:50px;height:50px;border-radius:10px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);display:flex;align-items:center;justify-content:center;font-weight:900;color:#60a5fa;font-size:.8rem">D4–14</div>
+        <div><div style="font-weight:700;margin-bottom:.15rem">Rebranding & Infrastructure Deploy</div><div style="color:#94a3b8;font-size:.82rem">Custom domain + SSL, your branding applied across all 3 portals, database provisioned, CI/CD pipeline live.</div></div>
+      </div>
+      <div class="card" style="display:flex;align-items:center;gap:1.1rem">
+        <div style="min-width:50px;height:50px;border-radius:10px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.25);display:flex;align-items:center;justify-content:center;font-weight:900;color:#34d399;font-size:.75rem">D15–25</div>
+        <div><div style="font-weight:700;margin-bottom:.15rem">UAT & Admin Training</div><div style="color:#94a3b8;font-size:.82rem">Guided walkthrough of all admin functions, pilot onboarding flows, and client deliverable workflows. QA sign-off.</div></div>
+      </div>
+      <div class="card" style="display:flex;align-items:center;gap:1.1rem;border-color:rgba(245,158,11,.3)">
+        <div style="min-width:50px;height:50px;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);display:flex;align-items:center;justify-content:center;font-weight:900;color:#fbbf24;font-size:.8rem">D30</div>
+        <div><div style="font-weight:700;margin-bottom:.15rem">🚀 Launch Day</div><div style="color:#94a3b8;font-size:.82rem">Your branded platform goes live. Onboard your first client and pilot from day one.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 6: Ideal Partners -->
+<div class="page">
+  <div style="max-width:940px;width:100%;text-align:center">
+    <div class="tag tblue" style="margin-bottom:.6rem">Ideal Partners</div>
+    <div class="h2" style="text-align:center">Built for companies that already have the clients</div>
+    <div class="g3" style="margin-top:1.25rem;text-align:left">
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">🏗️</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Drone Service Operators</div><div style="color:#94a3b8;font-size:.82rem">Stop using spreadsheets. Deliver a premium client experience under your brand with zero dev cost.</div></div>
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">🏢</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Asset Management Firms</div><div style="color:#94a3b8;font-size:.82rem">Solar farms, telecom towers, utilities. Deploy a branded inspection platform for your maintenance network.</div></div>
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">🤝</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">SaaS Resellers & MSPs</div><div style="color:#94a3b8;font-size:.82rem">Add drone inspection to your portfolio without building from scratch. Turn-key, white-labeled, 30 days.</div></div>
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">🌍</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">International Operators</div><div style="color:#94a3b8;font-size:.82rem">Multi-country, region-aware, aviation-authority-compliant tooling under your local brand.</div></div>
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">🏛️</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Insurance Companies</div><div style="color:#94a3b8;font-size:.82rem">Integrate drone inspection into claims workflows with a branded client portal and AI defect reports.</div></div>
+      <div class="card"><div style="font-size:1.3rem;margin-bottom:.4rem">⚡</div><div style="font-weight:700;margin-bottom:.3rem;font-size:.9rem">Energy & Utilities</div><div style="color:#94a3b8;font-size:.82rem">Large-scale solar, wind, and grid inspection programs with a branded, procurement-friendly vendor experience.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAGE 7: CTA -->
+<div class="page">
+  <div class="glow" style="width:500px;height:500px;background:radial-gradient(circle,rgba(124,58,237,.13),transparent 70%);bottom:-150px;right:-150px"></div>
+  <div style="max-width:680px;width:100%;text-align:center">
+    <div class="tag tpur" style="margin-bottom:.9rem">Ready to Launch</div>
+    <div class="h1">Your branded platform<br>awaits. <span class="pur">Let's talk.</span></div>
+    <p class="sub" style="margin:1.25rem auto 1.75rem">We're accepting a limited number of white-label partners in 2026. Setup slots are capped at 3 per quarter to ensure quality delivery.</p>
+    <div class="g3" style="margin:0 auto 1.5rem">
+      <div class="card" style="text-align:center"><div style="color:#a78bfa;font-weight:900;font-size:1.25rem;margin-bottom:.25rem">3</div><div style="color:#94a3b8;font-size:.78rem">Partner slots remaining<br>Q2 2026</div></div>
+      <div class="card" style="text-align:center"><div style="color:#60a5fa;font-weight:900;font-size:1.25rem;margin-bottom:.25rem">30 days</div><div style="color:#94a3b8;font-size:.78rem">From signed contract<br>to live platform</div></div>
+      <div class="card" style="text-align:center"><div style="color:#34d399;font-weight:900;font-size:1.25rem;margin-bottom:.25rem">$0</div><div style="color:#94a3b8;font-size:.78rem">Ongoing dev cost<br>on Starter & Pro</div></div>
+    </div>
+    <div style="background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:14px;padding:1.25rem 2rem">
+      <div style="font-weight:700;font-size:.95rem;margin-bottom:.2rem">Book a 30-minute white-label demo</div>
+      <div style="color:#94a3b8;font-size:.82rem">We'll walk through the platform live, answer pricing questions, and scope your custom setup.</div>
+    </div>
+    <div style="margin-top:2rem;color:#334155;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em">Axis Enterprise · Confidential · 2026</div>
+  </div>
+</div>
+
+</body>
+</html>

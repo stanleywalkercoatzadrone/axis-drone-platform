@@ -212,7 +212,7 @@ const AssetDrawer: React.FC<AssetDrawerProps> = ({ isOpen, onClose, asset, onUpd
                                                 )}
                                                 {event.eventType === 'field_update' && event.beforeState && event.afterState && (
                                                     <div className="text-xs font-mono text-slate-500 mt-1">
-                                                        Changed from <span className="text-slate-400">{event.beforeState.status}</span> to <span className="text-indigo-400">{event.afterState.status}</span>
+                                                        Changed from <span className="text-slate-400">{String(event.beforeState.status)}</span> to <span className="text-indigo-400">{String(event.afterState.status)}</span>
                                                     </div>
                                                 )}
                                             </div>

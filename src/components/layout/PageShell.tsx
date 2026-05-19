@@ -230,9 +230,12 @@ export const PageShell: React.FC<PageShellProps> = ({
                         <span className="font-bold text-white text-lg">A</span>
                     </div>
                     {isSidebarOpen && (
-                        <span className="ml-3 font-bold text-lg tracking-tight uppercase">
-                            Axis <span className="text-blue-500">Enterprise</span>
-                        </span>
+                        <div className="ml-3 flex flex-col leading-none gap-0.5">
+                            <span className="font-bold text-sm tracking-tight uppercase">
+                                Axis <span className="text-blue-500">Enterprise</span>
+                            </span>
+                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em]">Operations</span>
+                        </div>
                     )}
                 </div>
 
@@ -418,19 +421,6 @@ export const PageShell: React.FC<PageShellProps> = ({
                                                 <div className="text-[8px] font-black uppercase tracking-widest text-amber-400/60 px-1 pt-2 pb-0.5">Solar Intelligence</div>
 
                                                 <button
-                                                    onClick={() => onNavigate?.('solar-intel', { subTab: 'thermal' })}
-                                                    className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
-                                                        ${activeTab === 'solar-intel'
-                                                            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                                            : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/50'
-                                                        }`}
-                                                >
-                                                    <Flame size={13} className={`mr-2 transition-colors ${activeTab === 'solar-intel' ? 'text-red-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                                    <span>Thermal Faults</span>
-                                                    {activeTab === 'solar-intel' && <div className="ml-auto w-1 h-1 rounded-full bg-red-400 animate-pulse" />}
-                                                </button>
-
-                                                <button
                                                     onClick={() => onNavigate?.('solar-intel', { subTab: 'energy' })}
                                                     className="flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group text-slate-500 hover:text-slate-200 hover:bg-slate-800/50"
                                                 >
@@ -533,29 +523,12 @@ export const PageShell: React.FC<PageShellProps> = ({
                     )}
 
                     {/* ── INTELLIGENCE ──────────────────────────────────── */}
-                    {(isAdmin(user) || isClient(user)) && isSidebarOpen && (
-                        <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Intelligence</div>
-                            <CompactNavItem
-                                icon={<Thermometer size={16} />}
-                                label="Thermal Faults"
-                                active={activeTab === 'thermal-faults'}
-                                onClick={() => onNavigate?.('thermal-faults')}
-                            />
-                            <CompactNavItem
-                                icon={<Sun size={16} />}
-                                label="Solar Command"
-                                active={activeTab === 'solar-command'}
-                                onClick={() => onNavigate?.('solar-command')}
-                            />
                             <CompactNavItem
                                 icon={<Cpu size={16} />}
                                 label="AI Studio"
                                 active={activeTab === 'ai-studio'}
                                 onClick={() => onNavigate?.('ai-studio')}
                             />
-                        </div>
-                    )}
 
                     {/* ── PILOTS ────────────────────────────────────────── */}
                     {isAdmin(user) && isSidebarOpen && (

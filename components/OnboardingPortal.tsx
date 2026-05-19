@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { BadgeCheck, FileText, Upload, CheckCircle2, AlertCircle, Loader2, Download } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface OnboardingDocument {
     id: string;

@@ -12,6 +12,7 @@ import { Heading, Text } from '../src/stitch/components/Typography';
 
 import { useIndustry } from '../context/IndustryContext';
 import { useCountry } from '../context/CountryContext';
+import { isoToFlag } from '../src/utils/countryFlag';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AxisPerformanceTab } from '../src/components/personnel/AxisPerformanceTab';
@@ -147,15 +148,18 @@ const PersonnelTracker: React.FC = () => {
     const addFileInputRef = useRef<HTMLInputElement>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
 
-    // Fetch personnel on mount
+    // Fetch personnel on mount and country change
     useEffect(() => {
         fetchPersonnel();
-    }, []);
+    }, [activeCountryId]);
 
     const fetchPersonnel = async () => {
         try {
             setLoading(true);
-            const response = await apiClient.get('/personnel');
+            const params = new URLSearchParams();
+            if (activeCountryId) params.append('country_id', activeCountryId);
+            const url = params.toString() ? `/personnel?${params.toString()}` : '/personnel';
+            const response = await apiClient.get(url);
             setPersonnel(response.data.data || []);
             setError(null);
         } catch (err: any) {
@@ -897,6 +901,54 @@ const PersonnelTracker: React.FC = () => {
                                             </div>
                                         </div>
                                     ))}
+
+                                    {/* Pilot Network Profile Fields */}
+                                    {(selectedPerson.bio || (selectedPerson.specializations?.length ?? 0) > 0 || (selectedPerson.drone_equipment?.length ?? 0) > 0 || selectedPerson.portfolio_url || selectedPerson.travel_distance_km) && (
+                                        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 space-y-2">
+                                            <div className="flex items-center gap-1.5 mb-2">
+                                                <BadgeCheck className="h-3.5 w-3.5 text-blue-400" />
+                                                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-400">Pilot Network Profile</span>
+                                                {selectedPerson.source === 'network_application' && (
+                                                    <span className="ml-auto text-[9px] bg-blue-600/20 border border-blue-500/30 text-blue-300 px-1.5 py-0.5 rounded-md font-bold">Via Application</span>
+                                                )}
+                                            </div>
+                                            {selectedPerson.years_exp != null && selectedPerson.years_exp > 0 && (
+                                                <div className="text-xs text-slate-400">Experience: <span className="text-white font-semibold">{selectedPerson.years_exp}+ yrs</span></div>
+                                            )}
+                                            {selectedPerson.travel_distance_km != null && (
+                                                <div className="text-xs text-slate-400">Travel radius: <span className="text-white font-semibold">{selectedPerson.travel_distance_km >= 500 ? '500+ km' : `${selectedPerson.travel_distance_km} km`}</span></div>
+                                            )}
+                                            {selectedPerson.terrestrial_thermal && (
+                                                <div className="text-xs text-orange-300 font-semibold">🌡 Willing to do terrestrial thermal scans</div>
+                                            )}
+                                            {(selectedPerson.drone_equipment?.length ?? 0) > 0 && (
+                                                <div>
+                                                    <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Equipment</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {selectedPerson.drone_equipment!.map(e => (
+                                                            <span key={e} className="text-[10px] bg-slate-800 border border-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{e}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {(selectedPerson.specializations?.length ?? 0) > 0 && (
+                                                <div>
+                                                    <div className="text-[10px] text-slate-500 mb-1 uppercase tracking-wider">Specializations</div>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {selectedPerson.specializations!.map(s => (
+                                                            <span key={s} className="text-[10px] bg-violet-600/15 border border-violet-500/30 text-violet-300 px-1.5 py-0.5 rounded">{s}</span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {selectedPerson.bio && (
+                                                <div className="text-xs text-slate-400 italic leading-relaxed">"{selectedPerson.bio}"</div>
+                                            )}
+                                            {selectedPerson.portfolio_url && (
+                                                <a href={selectedPerson.portfolio_url} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:text-blue-300 underline">View Portfolio →</a>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Footer */}
@@ -968,26 +1020,45 @@ const PersonnelTracker: React.FC = () => {
                             <div className="space-y-4 border-t pt-4">
                                 <Heading level={4} className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Address</Heading>
                                 <Input label="Street Address" value={newPersonnel.homeAddress || ''} onChange={e => setNewPersonnel({ ...newPersonnel, homeAddress: e.target.value })} placeholder="123 Main St" />
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                                     <Input label="City" value={newPersonnel.city || ''} onChange={e => setNewPersonnel({ ...newPersonnel, city: e.target.value })} />
-                                    <Input label="State" value={newPersonnel.state || ''} onChange={e => setNewPersonnel({ ...newPersonnel, state: e.target.value })} />
-                                    <Input label="Zip Code" value={newPersonnel.zipCode || ''} onChange={e => setNewPersonnel({ ...newPersonnel, zipCode: e.target.value })} />
-                                    <Input label="Country Code" value={newPersonnel.country || 'US'} onChange={e => setNewPersonnel({ ...newPersonnel, country: e.target.value })} />
+                                    <Input label="State / Province" value={newPersonnel.state || ''} onChange={e => setNewPersonnel({ ...newPersonnel, state: e.target.value })} />
+                                    <Input label="Zip / Postal Code" value={newPersonnel.zipCode || ''} onChange={e => setNewPersonnel({ ...newPersonnel, zipCode: e.target.value })} />
                                 </div>
-                                {/* Assigned Country (FK to countries table) */}
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-slate-700">Assigned Country</label>
+
+                                {/* Country — sets ISO code + dashboard scope in one picker */}
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Country</label>
                                     <select
-                                        className="w-full p-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                                        value={(newPersonnel as any).countryId || ''}
-                                        onChange={e => setNewPersonnel({ ...newPersonnel, countryId: e.target.value || undefined } as any)}
+                                        className="w-full px-3 py-2.5 border border-slate-700 rounded-xl bg-slate-800 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+                                        value={newPersonnel.country || 'US'}
+                                        onChange={e => {
+                                            const iso = e.target.value;
+                                            const match = enabledCountries.find((c: any) => c.iso_code === iso);
+                                            setNewPersonnel({ ...newPersonnel, country: iso, countryId: match?.id } as any);
+                                        }}
                                     >
-                                        <option value="">— No country assignment —</option>
-                                        {enabledCountries.map((c: any) => (
-                                            <option key={c.id} value={c.id}>{c.name} ({c.iso_code})</option>
+                                        {[
+                                            ['US','🇺🇸 United States'],['MX','🇲🇽 Mexico'],['CA','🇨🇦 Canada'],
+                                            ['BR','🇧🇷 Brazil'],['AR','🇦🇷 Argentina'],['CO','🇨🇴 Colombia'],
+                                            ['CL','🇨🇱 Chile'],['PE','🇵🇪 Peru'],['EC','🇪🇨 Ecuador'],
+                                            ['GB','🇬🇧 United Kingdom'],['FR','🇫🇷 France'],['DE','🇩🇪 Germany'],
+                                            ['ES','🇪🇸 Spain'],['IT','🇮🇹 Italy'],['PT','🇵🇹 Portugal'],
+                                            ['BE','🇧🇪 Belgium'],['CH','🇨🇭 Switzerland'],['AT','🇦🇹 Austria'],
+                                            ['NL','🇳🇱 Netherlands'],['PL','🇵🇱 Poland'],['SE','🇸🇪 Sweden'],
+                                            ['NO','🇳🇴 Norway'],['DK','🇩🇰 Denmark'],['FI','🇫🇮 Finland'],
+                                            ['AU','🇦🇺 Australia'],['NZ','🇳🇿 New Zealand'],
+                                            ['JP','🇯🇵 Japan'],['KR','🇰🇷 South Korea'],['CN','🇨🇳 China'],
+                                            ['IN','🇮🇳 India'],['SG','🇸🇬 Singapore'],['PH','🇵🇭 Philippines'],
+                                            ['TH','🇹🇭 Thailand'],['MY','🇲🇾 Malaysia'],['ID','🇮🇩 Indonesia'],
+                                            ['AE','🇦🇪 UAE'],['SA','🇸🇦 Saudi Arabia'],['EG','🇪🇬 Egypt'],
+                                            ['MA','🇲🇦 Morocco'],['NG','🇳🇬 Nigeria'],['ZA','🇿🇦 South Africa'],
+                                            ['KE','🇰🇪 Kenya'],['GH','🇬🇭 Ghana'],
+                                        ].map(([iso, label]) => (
+                                            <option key={iso} value={iso}>{label}</option>
                                         ))}
                                     </select>
-                                    <p className="text-xs text-slate-400">This scopes the pilot to the selected country's dashboard view.</p>
+                                    <p className="text-[11px] text-slate-500">Sets pilot's language and scopes their dashboard to the selected country.</p>
                                 </div>
                             </div>
 
@@ -1120,58 +1191,79 @@ const PersonnelTracker: React.FC = () => {
 
             {
                 isDetailModalOpen && selectedPerson && (
-                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh] text-slate-900">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:'rgba(2,6,23,0.85)',backdropFilter:'blur(12px)'}}>
+                        <div className="w-full max-w-3xl flex flex-col max-h-[90vh] rounded-2xl overflow-hidden shadow-2xl" style={{background:'linear-gradient(145deg,#0f1729 0%,#0d1527 60%,#111827 100%)',border:'1px solid rgba(99,102,241,0.18)'}}>
                             {/* Header */}
-                            <div className="px-6 py-5 border-b bg-slate-50 flex flex-wrap gap-y-3 justify-between items-center">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer relative group" onClick={() => photoInputRef.current?.click()}>
+                            <div className="px-6 pt-6 pb-5 flex flex-wrap gap-y-4 justify-between items-start" style={{borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
+                                <div className="flex items-start gap-4 flex-1 min-w-0">
+                                    {/* Avatar */}
+                                    <div className="w-16 h-16 rounded-2xl overflow-hidden shrink-0 cursor-pointer relative group" style={{border:'2px solid rgba(99,102,241,0.4)',boxShadow:'0 0 0 4px rgba(99,102,241,0.08)'}} onClick={() => photoInputRef.current?.click()}>
                                         <input type="file" ref={photoInputRef} className="hidden" accept="image/*" onChange={handlePhotoUpload} />
-                                        {selectedPerson.photoUrl ? <img src={selectedPerson.photoUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-slate-200 flex items-center justify-center text-xl font-bold text-slate-500">{selectedPerson.fullName[0]}</div>}
-                                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Upload className="w-5 h-5 text-white" /></div>
+                                        {selectedPerson.photoUrl
+                                            ? <img src={selectedPerson.photoUrl} className="w-full h-full object-cover" />
+                                            : <div className="w-full h-full flex items-center justify-center text-2xl font-black" style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'white'}}>{selectedPerson.fullName[0]}</div>}
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{background:'rgba(0,0,0,0.5)'}}><Upload className="w-4 h-4 text-white" /></div>
                                     </div>
-                                    <div>
-                                        <Heading level={3} className="text-slate-900">{selectedPerson.fullName}</Heading>
-                                        <div className="flex gap-2 mt-1 items-center flex-wrap">
-                                            <Badge variant="outline">{selectedPerson.role}</Badge>
-                                            <Badge variant={selectedPerson.status === 'Active' ? 'success' : 'default'}>{selectedPerson.status}</Badge>
-                                            {selectedPerson.onboarding_status && (
-                                                <Badge variant={selectedPerson.onboarding_status === 'completed' ? 'success' : 'outline'} className="capitalize">
-                                                    Onboarding: {selectedPerson.onboarding_status.replace('_', ' ')}
-                                                </Badge>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-lg font-black text-white truncate">{selectedPerson.fullName}</h3>
+                                            {selectedPerson.source === 'network_application' && (
+                                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full" style={{background:'rgba(99,102,241,0.2)',border:'1px solid rgba(99,102,241,0.4)',color:'#a5b4fc'}}>Pilot Network</span>
                                             )}
                                         </div>
+                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{background:'rgba(255,255,255,0.08)',color:'#cbd5e1'}}>{selectedPerson.role}</span>
+                                            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${selectedPerson.status === 'Active' ? 'text-emerald-300' : 'text-slate-400'}`} style={{background: selectedPerson.status === 'Active' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)'}}>{selectedPerson.status}</span>
+                                            {selectedPerson.years_exp != null && selectedPerson.years_exp > 0 && <span className="text-xs text-slate-400">{selectedPerson.years_exp}+ yrs exp</span>}
+                                            {selectedPerson.city && <span className="text-xs text-slate-500">📍 {selectedPerson.city}{selectedPerson.country ? `, ${selectedPerson.country}` : ''}</span>}
+                                        </div>
+                                        {/* Pilot Network chips */}
+                                        {((selectedPerson.drone_equipment?.length ?? 0) > 0 || (selectedPerson.specializations?.length ?? 0) > 0 || selectedPerson.travel_distance_km != null) && (
+                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {selectedPerson.travel_distance_km != null && selectedPerson.travel_distance_km > 0 && (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-lg font-semibold" style={{background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.25)',color:'#93c5fd'}}>✈ {selectedPerson.travel_distance_km >= 500 ? '500+ km' : `${selectedPerson.travel_distance_km} km`}</span>
+                                                )}
+                                                {selectedPerson.terrestrial_thermal && (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-lg font-semibold" style={{background:'rgba(249,115,22,0.15)',border:'1px solid rgba(249,115,22,0.25)',color:'#fdba74'}}>🌡 Terrestrial Thermal</span>
+                                                )}
+                                                {(selectedPerson.drone_equipment || []).slice(0, 3).map((e: string) => (
+                                                    <span key={e} className="text-[10px] px-2 py-0.5 rounded-lg font-semibold" style={{background:'rgba(99,102,241,0.12)',border:'1px solid rgba(99,102,241,0.2)',color:'#c4b5fd'}}>{e}</span>
+                                                ))}
+                                                {(selectedPerson.specializations || []).slice(0, 2).map((s: string) => (
+                                                    <span key={s} className="text-[10px] px-2 py-0.5 rounded-lg font-semibold" style={{background:'rgba(139,92,246,0.12)',border:'1px solid rgba(139,92,246,0.2)',color:'#ddd6fe'}}>{s}</span>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {selectedPerson.bio && (
+                                            <p className="text-xs mt-2 leading-relaxed line-clamp-2" style={{color:'rgba(148,163,184,0.8)'}}>{selectedPerson.bio}</p>
+                                        )}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                                     {selectedPerson.onboarding_status !== 'completed' && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 whitespace-nowrap"
+                                        <button
+                                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl transition-all"
+                                            style={{background:'rgba(59,130,246,0.15)',border:'1px solid rgba(59,130,246,0.3)',color:'#93c5fd'}}
                                             onClick={() => handleSendOnboarding(selectedPerson.id, selectedPerson.email)}
                                         >
-                                            <Send className="w-4 h-4 mr-2" />
-                                            Send Onboarding
-                                        </Button>
+                                            <Send className="w-3.5 h-3.5" /> Onboarding
+                                        </button>
                                     )}
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 whitespace-nowrap"
+                                    <button
+                                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl transition-all"
+                                        style={{background:'rgba(16,185,129,0.15)',border:'1px solid rgba(16,185,129,0.3)',color:'#6ee7b7'}}
                                         onClick={() => handleProvisionAccount(selectedPerson.id, selectedPerson.email)}
                                     >
-                                        <ShieldCheck className="w-4 h-4 mr-2" />
-                                        Provision Account
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => setIsDetailModalOpen(false)}><X /></Button>
+                                        <ShieldCheck className="w-3.5 h-3.5" /> Provision
+                                    </button>
+                                    <button onClick={() => setIsDetailModalOpen(false)} className="w-8 h-8 flex items-center justify-center rounded-xl transition-all" style={{background:'rgba(255,255,255,0.06)',color:'#94a3b8'}}><X className="w-4 h-4" /></button>
                                 </div>
                             </div>
 
                             {/* Onboarding Progress Bar */}
                             {selectedPerson.onboarding_status !== 'completed' && (
-                                <div className="px-6 py-3 bg-slate-50/50 border-b">
-                                    <div className="flex justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                                <div className="px-6 py-3" style={{borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+                                    <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-2" style={{color:'rgba(148,163,184,0.6)'}}>
                                         <span>Onboarding Progress</span>
                                         <span>{
                                             selectedPerson.onboarding_status === 'not_sent' ? '0%' :
@@ -1179,10 +1271,11 @@ const PersonnelTracker: React.FC = () => {
                                                     selectedPerson.onboarding_status === 'in_progress' ? '60%' : '100%'
                                         }</span>
                                     </div>
-                                    <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                                    <div className="h-1.5 rounded-full overflow-hidden" style={{background:'rgba(255,255,255,0.06)'}}>
                                         <div
-                                            className="h-full bg-blue-500 transition-all duration-500"
+                                            className="h-full rounded-full transition-all duration-700"
                                             style={{
+                                                background:'linear-gradient(90deg,#6366f1,#8b5cf6)',
                                                 width: selectedPerson.onboarding_status === 'not_sent' ? '5%' :
                                                     selectedPerson.onboarding_status === 'sent' ? '25%' :
                                                         selectedPerson.onboarding_status === 'in_progress' ? '60%' : '100%'
@@ -1193,20 +1286,22 @@ const PersonnelTracker: React.FC = () => {
                             )}
 
                             {/* Tabs */}
-                            <div className="flex border-b border-slate-200 bg-slate-50 px-4 pt-2">
+                            <div className="flex px-4 pt-1 gap-0.5" style={{borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
                                 {['details', 'performance', 'schedule', 'banking', 'documents'].map(tab => (
                                     <button
                                         key={tab}
-                                        className={`px-6 py-4 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all ${modalTab === tab ? 'text-blue-600 border-blue-600' : 'text-slate-500 border-transparent hover:text-slate-800'}`}
+                                        className="px-4 py-3.5 text-[10px] font-black uppercase tracking-widest transition-all relative"
+                                        style={modalTab === tab ? {color:'#a5b4fc'} : {color:'rgba(148,163,184,0.5)'}}
                                         onClick={() => setModalTab(tab as any)}
                                     >
                                         {tab === 'details' ? 'Profile' : tab}
+                                        {modalTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{background:'linear-gradient(90deg,#6366f1,#8b5cf6)'}} />}
                                     </button>
                                 ))}
                             </div>
 
                             {/* Content */}
-                            <div className="p-6 space-y-6 overflow-y-auto flex-1 bg-white text-slate-900">
+                            <div className="p-6 space-y-6 overflow-y-auto flex-1" style={{background:'transparent',color:'#e2e8f0'}}>
                                 {modalTab === 'performance' && selectedPerson && (
                                     <AxisPerformanceTab pilotId={selectedPerson.id} />
                                 )}
@@ -1229,52 +1324,229 @@ const PersonnelTracker: React.FC = () => {
                                                     <Input label="Secondary Phone" value={editedPerson?.secondaryPhone || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, secondaryPhone: e.target.value } : null)} />
                                                 </div>
 
-                                                {/* Address */}
-                                                <div className="space-y-2 pt-2 border-t">
-                                                    <Text variant="small" className="font-semibold text-slate-500 uppercase">Address</Text>
+                                                <div className="space-y-2 pt-2" style={{borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Address</p>
                                                     <Input label="Street" value={editedPerson?.homeAddress || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, homeAddress: e.target.value } : null)} />
-                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                                         <Input label="City" value={editedPerson?.city || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, city: e.target.value } : null)} />
-                                                        <Input label="State" value={editedPerson?.state || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, state: e.target.value } : null)} />
-                                                        <Input label="Zip" value={editedPerson?.zipCode || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, zipCode: e.target.value } : null)} />
-                                                        <Input label="Country" value={editedPerson?.country || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, country: e.target.value } : null)} />
+                                                        <Input label="State / Province" value={editedPerson?.state || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, state: e.target.value } : null)} />
+                                                        <Input label="Zip / Postal Code" value={editedPerson?.zipCode || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, zipCode: e.target.value } : null)} />
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <select
+                                                            className="w-full p-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                                                            style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0'}}
+                                                            value={editedPerson?.country || 'US'}
+                                                            onChange={e => {
+                                                                const iso = e.target.value;
+                                                                const match = enabledCountries.find((c: any) => c.iso_code === iso);
+                                                                setEditedPerson(prev => prev ? { ...prev, country: iso, countryId: match?.id } : null);
+                                                            }}
+                                                        >
+                                                            {[
+                                                                ['US','🇺🇸 United States'],['MX','🇲🇽 Mexico'],['CA','🇨🇦 Canada'],
+                                                                ['BR','🇧🇷 Brazil'],['AR','🇦🇷 Argentina'],['CO','🇨🇴 Colombia'],
+                                                                ['CL','🇨🇱 Chile'],['PE','🇵🇪 Peru'],['EC','🇪🇨 Ecuador'],
+                                                                ['GB','🇬🇧 United Kingdom'],['FR','🇫🇷 France'],['DE','🇩🇪 Germany'],
+                                                                ['ES','🇪🇸 Spain'],['IT','🇮🇹 Italy'],['PT','🇵🇹 Portugal'],
+                                                                ['BE','🇧🇪 Belgium'],['CH','🇨🇭 Switzerland'],['AT','🇦🇹 Austria'],
+                                                                ['NL','🇳🇱 Netherlands'],['PL','🇵🇱 Poland'],['SE','🇸🇪 Sweden'],
+                                                                ['NO','🇳🇴 Norway'],['DK','🇩🇰 Denmark'],['FI','🇫🇮 Finland'],
+                                                                ['AU','🇦🇺 Australia'],['NZ','🇳🇿 New Zealand'],
+                                                                ['JP','🇯🇵 Japan'],['KR','🇰🇷 South Korea'],['CN','🇨🇳 China'],
+                                                                ['IN','🇮🇳 India'],['SG','🇸🇬 Singapore'],['PH','🇵🇭 Philippines'],
+                                                                ['TH','🇹🇭 Thailand'],['MY','🇲🇾 Malaysia'],['ID','🇮🇩 Indonesia'],
+                                                                ['AE','🇦🇪 UAE'],['SA','🇸🇦 Saudi Arabia'],['EG','🇪🇬 Egypt'],
+                                                                ['MA','🇲🇦 Morocco'],['NG','🇳🇬 Nigeria'],['ZA','🇿🇦 South Africa'],
+                                                                ['KE','🇰🇪 Kenya'],['GH','🇬🇭 Ghana'],
+                                                            ].map(([iso, label]) => (
+                                                                <option key={iso} value={iso}>{label}</option>
+                                                            ))}
+                                                        </select>
+                                                        <p className="text-[11px] text-slate-400">Sets pilot's portal language and dashboard scope.</p>
                                                     </div>
                                                 </div>
 
-                                                {/* Emergency */}
-                                                <div className="space-y-4 pt-4 border-t">
-                                                    <Text variant="small" className="font-semibold text-slate-500 uppercase">Emergency Contact</Text>
+                                                <div className="space-y-4 pt-4" style={{borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Emergency Contact</p>
                                                     <div className="grid grid-cols-2 gap-4">
                                                         <Input label="Name" value={editedPerson?.emergencyContactName || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, emergencyContactName: e.target.value } : null)} />
                                                         <Input label="Phone" value={editedPerson?.emergencyContactPhone || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, emergencyContactPhone: e.target.value } : null)} />
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                                                <div className="grid grid-cols-2 gap-4 pt-4" style={{borderTop:'1px solid rgba(255,255,255,0.07)'}}>
                                                     <Input label="Travel Radius (Miles)" type="number" value={editedPerson?.maxTravelDistance || ''} onChange={e => setEditedPerson(prev => prev ? { ...prev, maxTravelDistance: parseFloat(e.target.value) } : null)} />
                                                     <div className="space-y-2">
-                                                        <label className="text-sm font-medium text-slate-700">Role</label>
-                                                        <select className="w-full p-2 border rounded-lg" value={editedPerson?.role} onChange={e => setEditedPerson(prev => prev ? { ...prev, role: e.target.value as any } : null)}>
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Role</label>
+                                                        <select className="w-full p-2 rounded-lg text-sm focus:outline-none" style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0'}} value={editedPerson?.role} onChange={e => setEditedPerson(prev => prev ? { ...prev, role: e.target.value as any } : null)}>
                                                             <option value={PersonnelRole.PILOT}>Pilot</option>
                                                             <option value={PersonnelRole.TECHNICIAN}>Technician</option>
                                                             <option value={PersonnelRole.BOTH}>Both</option>
                                                         </select>
                                                     </div>
                                                 </div>
+
+                                                {/* ── Pilot Network Profile Section ─────────────────── */}
+                                                <div className="space-y-4 pt-4" style={{borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-black text-indigo-400 uppercase tracking-widest">Pilot Network Profile</span>
+                                                        <div className="flex-1 h-px bg-slate-800" />
+                                                    </div>
+
+                                                    {/* Bio */}
+                                                    <div className="space-y-1">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Bio / About</label>
+                                                        <textarea
+                                                            rows={3}
+                                                            value={editedPerson?.bio || ''}
+                                                            onChange={e => setEditedPerson(prev => prev ? { ...prev, bio: e.target.value } : null)}
+                                                            placeholder="Brief pilot bio..."
+                                                            className="w-full p-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                                                            style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0',resize:'none'}}
+                                                        />
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        {/* Years Experience */}
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Years Experience</label>
+                                                            <select
+                                                                className="w-full p-2 rounded-lg text-sm focus:outline-none"
+                                                                style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0'}}
+                                                                value={editedPerson?.years_exp ?? 0}
+                                                                onChange={e => setEditedPerson(prev => prev ? { ...prev, years_exp: parseInt(e.target.value) } : null)}
+                                                            >
+                                                                {[0,1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n === 0 ? 'Less than 1 year' : `${n}+ years`}</option>)}
+                                                            </select>
+                                                        </div>
+
+                                                        {/* Portfolio */}
+                                                        <div className="space-y-1">
+                                                            <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Portfolio / Website</label>
+                                                            <input
+                                                                type="url"
+                                                                value={editedPerson?.portfolio_url || ''}
+                                                                onChange={e => setEditedPerson(prev => prev ? { ...prev, portfolio_url: e.target.value } : null)}
+                                                                placeholder="https://..."
+                                                                className="w-full p-2 rounded-lg text-sm focus:outline-none"
+                                                                style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0'}}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Travel Distance (km) */}
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                                            Willing to travel: <span className="text-indigo-400 font-bold">{(editedPerson?.travel_distance_km ?? 0) >= 500 ? '500+ km' : `${editedPerson?.travel_distance_km ?? 0} km`}</span>
+                                                        </label>
+                                                        <input
+                                                            type="range" min={0} max={500} step={25}
+                                                            value={editedPerson?.travel_distance_km ?? 0}
+                                                            onChange={e => setEditedPerson(prev => prev ? { ...prev, travel_distance_km: parseInt(e.target.value) } : null)}
+                                                            className="w-full accent-indigo-500"
+                                                        />
+                                                        <div className="flex justify-between text-[10px] text-slate-500">
+                                                            <span>Local</span><span>100 km</span><span>250 km</span><span>500+ km</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Terrestrial Thermal Toggle */}
+                                                    <div
+                                                        onClick={() => setEditedPerson(prev => prev ? { ...prev, terrestrial_thermal: !prev.terrestrial_thermal } : null)}
+                                                        className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all select-none ${
+                                                            editedPerson?.terrestrial_thermal ? 'bg-orange-500/20 border-orange-500/50' : 'bg-slate-800/50 border-slate-700 hover:border-slate-600'
+                                                        }`}
+                                                    >
+                                                        <div>
+                                                            <p className={`text-sm font-bold ${editedPerson?.terrestrial_thermal ? 'text-orange-200' : 'text-slate-200'}`}>Terrestrial Thermal Scanning</p>
+                                                            <p className="text-xs text-slate-400">Ground-level thermal inspections</p>
+                                                        </div>
+                                                        <div className={`w-10 h-6 rounded-full flex items-center transition-all shrink-0 ml-4 ${editedPerson?.terrestrial_thermal ? 'bg-orange-500 justify-end' : 'bg-slate-700 justify-start'}`}>
+                                                            <div className="w-4 h-4 bg-white rounded-full mx-1 shadow" />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Drone Equipment multi-select */}
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Drone Equipment</label>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {['DJI Mavic 3T', 'DJI Matrice 30T', 'DJI Matrice 350 RTK', 'DJI Phantom 4 RTK', 'Autel EVO II', 'Skydio 2+', 'senseFly eBee X', 'WingtraOne', 'Other'].map(eq => {
+                                                                const selected = (editedPerson?.drone_equipment || []).includes(eq);
+                                                                return (
+                                                                    <button key={eq} type="button"
+                                                                        onClick={() => setEditedPerson(prev => {
+                                                                            if (!prev) return null;
+                                                                            const cur = prev.drone_equipment || [];
+                                                                            return { ...prev, drone_equipment: selected ? cur.filter(e => e !== eq) : [...cur, eq] };
+                                                                        })}
+                                                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${selected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-indigo-500'}`}
+                                                                    >{selected ? '✓ ' : ''}{eq}</button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Specializations multi-select */}
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Specializations</label>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {['Solar / Photovoltaic', 'Wind Energy', 'Infrastructure', 'Construction', 'Agriculture / Precision Ag', 'Mining', 'Oil & Gas', 'Insurance', 'Search & Rescue', 'Mapping / Surveying', 'Thermal Imaging', 'Multispectral'].map(sp => {
+                                                                const selected = (editedPerson?.specializations || []).includes(sp);
+                                                                return (
+                                                                    <button key={sp} type="button"
+                                                                        onClick={() => setEditedPerson(prev => {
+                                                                            if (!prev) return null;
+                                                                            const cur = prev.specializations || [];
+                                                                            return { ...prev, specializations: selected ? cur.filter(s => s !== sp) : [...cur, sp] };
+                                                                        })}
+                                                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${selected ? 'bg-violet-600 border-violet-600 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-violet-500'}`}
+                                                                    >{selected ? '✓ ' : ''}{sp}</button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
-                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Contact</Text>
-                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.email}</Text><Text className="text-slate-900 font-medium">{selectedPerson.phone}</Text><Text className="text-slate-500">{selectedPerson.secondaryPhone}</Text></div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                {/* Contact */}
+                                                <div className="rounded-xl p-4 space-y-3" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Contact</p>
+                                                    <div className="space-y-2">
+                                                        {selectedPerson.email && <p className="text-sm font-medium text-slate-200">{selectedPerson.email}</p>}
+                                                        {selectedPerson.phone && <p className="text-sm text-slate-300">{selectedPerson.phone}</p>}
+                                                        {selectedPerson.secondaryPhone && <p className="text-xs text-slate-500">{selectedPerson.secondaryPhone}</p>}
+                                                        {!selectedPerson.email && !selectedPerson.phone && <p className="text-xs text-slate-600 italic">No contact info</p>}
+                                                    </div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Address</Text>
-                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.homeAddress}</Text><Text className="text-slate-900 font-medium">{selectedPerson.city}, {selectedPerson.state} {selectedPerson.zipCode}</Text><Text className="text-slate-900 font-medium">{selectedPerson.country}</Text></div>
+                                                {/* Address */}
+                                                <div className="rounded-xl p-4 space-y-3" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Address</p>
+                                                    <div className="space-y-1">
+                                                        {selectedPerson.homeAddress && <p className="text-sm text-slate-200">{selectedPerson.homeAddress}</p>}
+                                                        <p className="text-sm text-slate-300">{[selectedPerson.city, selectedPerson.state, selectedPerson.zipCode].filter(Boolean).join(', ')}</p>
+                                                        {selectedPerson.country && <p className="text-xs text-slate-400">{selectedPerson.country}</p>}
+                                                        {!selectedPerson.homeAddress && !selectedPerson.city && <p className="text-xs text-slate-600 italic">No address on file</p>}
+                                                    </div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Emergency</Text>
-                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactName || 'N/A'}</Text><Text className="text-slate-900 font-medium">{selectedPerson.emergencyContactPhone}</Text></div>
+                                                {/* Emergency */}
+                                                <div className="rounded-xl p-4 space-y-3" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Emergency Contact</p>
+                                                    <div className="space-y-1">
+                                                        <p className="text-sm font-medium text-slate-200">{selectedPerson.emergencyContactName || <span className="text-slate-600 italic text-xs">Not provided</span>}</p>
+                                                        {selectedPerson.emergencyContactPhone && <p className="text-sm text-slate-300">{selectedPerson.emergencyContactPhone}</p>}
+                                                    </div>
                                                 </div>
-                                                <div><Text variant="small" className="font-bold text-slate-500 mb-1">Professional</Text>
-                                                    <div className="space-y-1"><Text className="text-slate-900 font-medium">Max Travel: {selectedPerson.maxTravelDistance} miles</Text><Text className="text-slate-900 font-medium">Company: {selectedPerson.companyName || 'N/A'}</Text></div>
+                                                {/* Professional */}
+                                                <div className="rounded-xl p-4 space-y-3" style={{background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Professional</p>
+                                                    <div className="space-y-1.5">
+                                                        {selectedPerson.companyName && <p className="text-sm text-slate-200">🏢 {selectedPerson.companyName}</p>}
+                                                        {selectedPerson.certificationLevel && <p className="text-sm text-slate-300">🎖 {selectedPerson.certificationLevel}</p>}
+                                                        {selectedPerson.maxTravelDistance && <p className="text-sm text-slate-300">✈ {selectedPerson.maxTravelDistance} mi max travel</p>}
+                                                        {selectedPerson.taxClassification && <p className="text-xs text-slate-500">{selectedPerson.taxClassification}</p>}
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
@@ -1286,9 +1558,10 @@ const PersonnelTracker: React.FC = () => {
                                         {isEditMode ? (
                                             <>
                                                 <div className="space-y-2">
-                                                    <label className="text-sm font-medium text-slate-700">Tax Classification</label>
+                                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tax Classification</label>
                                                     <select
-                                                        className="w-full p-2 border rounded-lg bg-white"
+                                                        className="w-full p-2 rounded-lg text-sm focus:outline-none"
+                                                        style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#e2e8f0'}}
                                                         value={editedPerson?.taxClassification || 'Individual/Sole Proprietor'}
                                                         onChange={e => setEditedPerson(prev => prev ? { ...prev, taxClassification: e.target.value } : null)}
                                                     >
@@ -1329,8 +1602,8 @@ const PersonnelTracker: React.FC = () => {
                                                     <Input label="Account" type="text" value={editedBankingInfo.accountNumber || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, accountNumber: e.target.value }))} />
                                                     <Input label="Swift Code" value={editedBankingInfo.swiftCode || ''} onChange={e => setEditedBankingInfo(prev => ({ ...prev, swiftCode: e.target.value }))} />
                                                 </div>
-                                                <div className="space-y-2 pt-4 border-t">
-                                                    <label className="text-sm font-medium text-slate-700">Daily Rate ($)</label>
+                                                <div className="space-y-2 pt-4" style={{borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+                                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Daily Rate ($)</label>
                                                     <input
                                                         type="number"
                                                         step="0.01"
@@ -1393,15 +1666,18 @@ const PersonnelTracker: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="px-6 py-4 bg-slate-50 border-t flex justify-between z-10">
+                            <div className="px-6 py-4 flex justify-between items-center z-10" style={{borderTop:'1px solid rgba(255,255,255,0.07)',background:'rgba(15,23,41,0.8)'}}>
                                 {isEditMode ? (
-                                    <><Button variant="outline" onClick={handleCancelEdit}>Cancel</Button><Button onClick={modalTab === 'banking' ? handleSaveBankingInfo : handleUpdatePersonnel}>Save Changes</Button></>
+                                    <div className="flex gap-2 ml-auto">
+                                        <button onClick={handleCancelEdit} className="px-4 py-2 rounded-xl text-xs font-bold transition-all" style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',color:'#94a3b8'}}>Cancel</button>
+                                        <button onClick={modalTab === 'banking' ? handleSaveBankingInfo : handleUpdatePersonnel} className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all" style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>Save Changes</button>
+                                    </div>
                                 ) : (
                                     <>
-                                        <Button variant="ghost" onClick={() => handleDeletePersonnel(selectedPerson.id)} className="text-red-600 hover:bg-red-50 hover:text-red-700">
-                                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                        </Button>
-                                        <Button onClick={() => setIsEditMode(true)}>Edit Profile</Button>
+                                        <button onClick={() => handleDeletePersonnel(selectedPerson.id)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all" style={{color:'#f87171',background:'rgba(239,68,68,0.08)'}}>
+                                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                                        </button>
+                                        <button onClick={() => setIsEditMode(true)} className="px-4 py-2 rounded-xl text-xs font-bold text-white transition-all" style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'0 4px 12px rgba(99,102,241,0.3)'}}>Edit Profile</button>
                                     </>
                                 )}
                             </div>

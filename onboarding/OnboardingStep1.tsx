@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Save, ChevronRight, Building2, Mail, Globe, MapPin } from 'lucide-react';
 import OnboardingStepper from './OnboardingStepper';
-import apiClient from '../../src/services/apiClient';
+import apiClient from '../src/services/apiClient';
 
 const OnboardingStep1: React.FC = () => {
     const navigate = useNavigate();

@@ -1,13 +1,15 @@
 import { query } from '../config/database.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { isAdmin } from '../utils/roleUtils.js';
+
 
 /**
  * Resolves a user's effective roles and permissions, including scoped and legacy roles.
  */
 export const resolveEffectivePermissions = async (userId, userRole) => {
-    // 1. Map Legacy Roles
+    // 1. Map Legacy Roles (handle both 'ADMIN' and 'admin' from database)
     const mappedRoles = [];
-    if (userRole === 'ADMIN') mappedRoles.push('internal_admin');
+    if (userRole === 'ADMIN' || userRole === 'admin' || userRole === 'administrator') mappedRoles.push('internal_admin');
     if (userRole === 'pilot_technician') mappedRoles.push('external_contributor');
 
     // 2. Fetch Scoped Bindings
@@ -50,10 +52,14 @@ export const resolveEffectivePermissions = async (userId, userRole) => {
  * Checks if a user has a specific permission in a given context.
  */
 export const can = async (user, permissionKey, context = {}) => {
-    // Admin always has full access
-    if (user.role === 'ADMIN') return true;
+    // Admin (any casing) always has full access
+    if (isAdmin(user)) return true;
 
     const { roles, bindings, permissions } = await resolveEffectivePermissions(user.id, user.role);
+
+    // internal_admin role has unrestricted access — check BEFORE permission key lookup
+    // so missing DB role_permissions rows don't block admins
+    if (roles.includes('internal_admin')) return true;
 
     if (!permissions.includes(permissionKey)) return false;
 

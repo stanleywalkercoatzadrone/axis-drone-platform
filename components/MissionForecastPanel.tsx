@@ -11,7 +11,7 @@ import {
     Sun, AlertTriangle, CheckCircle, BarChart3, Sparkles, RefreshCw,
     ChevronRight, Target, Activity, Clock, Shield, MapPin
 } from 'lucide-react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 
 interface ForecastWindow {
     startDate: string;
@@ -184,7 +184,7 @@ const MissionForecastPanel: React.FC<{ missionId: string; missionTitle?: string 
         }
     };
 
-    const handleSaveCoordsveCoords = async () => {
+    const handleSaveCoords = async () => {
         const lat = parseFloat(coordLat);
         const lon = parseFloat(coordLon);
         if (isNaN(lat) || lat < -90 || lat > 90) {

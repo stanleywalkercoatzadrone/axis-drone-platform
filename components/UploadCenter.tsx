@@ -3,14 +3,17 @@
  *
  * Matches PilotUploadV2 design exactly: dark-slate Tailwind theme.
  * Added: Gemini AI auto-analysis + Pix4D dispatch per file.
+ * Orthomosaic type is routed to the Axis Orthomosaic API (not upload_jobs).
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Upload, CheckCircle2, AlertCircle, RotateCw, X, FolderOpen,
   ChevronDown, Rocket, BrainCircuit, Zap, FileImage,
-  Layers, FileText, BarChart3, Clock,
+  Layers, FileText, BarChart3, Clock, Map,
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import { socketService } from '../services/socketService';
+import MissionUploader from './MissionUploader';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type UploadType = 'images' | 'thermal' | 'lbd' | 'kml' | 'orthomosaic';
@@ -39,11 +42,10 @@ interface UploadJob {
 }
 
 const UPLOAD_TYPES: { value: UploadType; label: string; icon: React.FC<any>; desc: string; accept: string }[] = [
-  { value: 'images',      label: 'Aerial RGB',      icon: FileImage, desc: 'JPEG/PNG flight imagery',         accept: 'image/jpeg,image/png,image/jpg' },
-  { value: 'thermal',     label: 'Thermal / IR',    icon: Zap,       desc: 'TIFF radiometric thermal images', accept: 'image/tiff,image/x-tiff,.tif,.tiff' },
-  { value: 'lbd',         label: 'LBD Scan',        icon: Layers,    desc: 'Line-By-Defect scan data',        accept: 'image/*,.csv,.xlsx,.zip,.tif,.tiff' },
-  { value: 'orthomosaic', label: 'Orthomosaic',     icon: BarChart3, desc: 'GeoTIFF orthomosaic output',      accept: '.tif,.tiff,image/tiff' },
-  { value: 'kml',         label: 'KML Flight Path', icon: FileText,  desc: 'KML/KMZ mission path files',      accept: '.kml,.kmz' },
+  { value: 'images',   label: 'Aerial RGB',      icon: FileImage, desc: 'JPEG/PNG flight imagery',         accept: 'image/jpeg,image/png,image/jpg' },
+  { value: 'thermal',  label: 'Thermal / IR',    icon: Zap,       desc: 'TIFF radiometric thermal images', accept: 'image/tiff,image/x-tiff,.tif,.tiff' },
+  { value: 'lbd',      label: 'LBD Scan',        icon: Layers,    desc: 'Line-By-Defect scan data',        accept: 'image/*,.csv,.xlsx,.zip,.tif,.tiff' },
+  { value: 'kml',      label: 'KML Flight Path', icon: FileText,  desc: 'KML/KMZ mission path files',      accept: '.kml,.kmz' },
 ];
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -148,11 +150,13 @@ function MissionPicker({ value, onChange }: {
 }
 
 const ANALYSIS_TYPES = [
-  { value: 'thermal_fault',   label: 'Thermal Fault Detection',   desc: 'Identify heat anomalies & hotspots' },
-  { value: 'lbd_defect',      label: 'LBD Defect Scan',           desc: 'Line-by-defect structural analysis' },
-  { value: 'rgb_anomaly',     label: 'RGB Anomaly Detection',     desc: 'Visual defects in aerial imagery' },
-  { value: 'solar_panel',     label: 'Solar Panel Inspection',    desc: 'PV cell fault & soiling detection' },
-  { value: 'full_inspection', label: 'Full Inspection Suite',     desc: 'All analysis types combined' },
+  { value: 'thermal_fault',          label: 'Thermal Fault Detection',   desc: 'Identify heat anomalies & hotspots' },
+  { value: 'lbd_defect',             label: 'LBD Defect Scan',           desc: 'Line-by-defect structural analysis' },
+  { value: 'rgb_anomaly',            label: 'RGB Anomaly Detection',     desc: 'Visual defects in aerial imagery' },
+  { value: 'solar_panel',            label: 'Solar Panel Inspection',    desc: 'PV cell fault & soiling detection' },
+  { value: 'full_inspection',        label: 'Full Inspection Suite',     desc: 'All analysis types combined' },
+  // ⚠️ orthomosaic_processing DEPRECATED — replaced by Mission Ingestion Engine
+  { value: 'mission_data',           label: '📡 Upload Mission Data',    desc: 'Enterprise chunked upload → GCS (10,000+ images, offline-first)' },
 ];
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -170,10 +174,23 @@ const UploadCenter: React.FC = () => {
   const [jobError, setJobError]       = useState('');
   const [uploading, setUploading]     = useState(false);
   const [reportUrl, setReportUrl]     = useState<string | null>(null);
+  // Orthomosaic-specific state
+  const [orthoJobId, setOrthoJobId]     = useState<string | null>(null);
+  const [orthoStatus, setOrthoStatus]   = useState<string | null>(null);
+  const [orthoJobData, setOrthoJobData] = useState<any>(null);  // live job detail
   const cancelRef   = useRef(false);
   const dropRef     = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const orthoPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentType = UPLOAD_TYPES.find(t => t.value === uploadType)!;
+  
+  // Auto-sync Analysis Type with Upload Type
+  useEffect(() => {
+    if (uploadType === 'images') setAnalysisType('solar_panel');
+    else if (uploadType === 'thermal') setAnalysisType('thermal_fault');
+    else if (uploadType === 'lbd') setAnalysisType('lbd_defect');
+    else if (uploadType === 'orthomosaic') setAnalysisType('full_inspection');
+  }, [uploadType]);
 
   // Load recent jobs
   useEffect(() => {
@@ -182,25 +199,38 @@ const UploadCenter: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  // Socket real-time updates
+  // Socket real-time updates via Socket.IO
   useEffect(() => {
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(window.location.origin.replace(/^http/, 'ws'));
-      ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          if (!['upload:processing', 'upload:complete'].includes(msg.event)) return;
-          const { fileName, aiResult, pix4dJobId } = msg.data;
-          setFiles(prev => prev.map(f => {
-            if (f.file.name !== fileName) return f;
-            return { ...f, status: msg.event === 'upload:complete' ? 'complete' : 'processing', aiResult: aiResult ?? f.aiResult, pix4dJob: pix4dJobId ?? f.pix4dJob };
-          }));
-        } catch (_) {}
-      };
-    } catch (_) {}
-    return () => ws?.close();
-  }, []);
+    const handler = (data: any) => {
+      if (currentJob && data.jobId === currentJob.id) {
+        setReportUrl(data.reportUrl || null);
+      }
+    };
+    socketService.on('report:ready', handler);
+    return () => socketService.off('report:ready', handler);
+  }, [currentJob]);
+
+  // Live polling for orthomosaic job status (every 5 s)
+  useEffect(() => {
+    if (orthoPollerRef.current) clearInterval(orthoPollerRef.current);
+    if (!orthoJobId) return;
+    const poll = async () => {
+      try {
+        const r = await apiClient.get(`/orthomosaic/jobs/${orthoJobId}`);
+        const job = r.data?.data;
+        if (!job) return;
+        setOrthoJobData(job);
+        setOrthoStatus(job.status);
+        // Stop polling once terminal state reached
+        if (['completed', 'failed', 'canceled'].includes(job.status)) {
+          if (orthoPollerRef.current) clearInterval(orthoPollerRef.current);
+        }
+      } catch { /* silent */ }
+    };
+    poll(); // immediate first fetch
+    orthoPollerRef.current = setInterval(poll, 5000);
+    return () => { if (orthoPollerRef.current) clearInterval(orthoPollerRef.current); };
+  }, [orthoJobId]);
 
   // Auto-detect upload type from file extensions
   const detectType = (files: File[]): UploadType | null => {
@@ -217,13 +247,26 @@ const UploadCenter: React.FC = () => {
     return null;
   };
 
-  // Create job
+  // Create job — orthomosaic_processing analysis type routes to the Axis Orthomosaic API
   const createJob = async () => {
     setJobError('');
     if (!missionId) return setJobError('Select a mission first.');
     if (uploadType === 'lbd' && !lbdBlock.trim()) return setJobError('LBD block identifier is required.');
-    if (['images', 'thermal', 'orthomosaic'].includes(uploadType) && !missionFolder.trim())
-      return setJobError('Mission folder label required.');
+    if (['images', 'thermal'].includes(uploadType) && !missionFolder.trim())
+      return setJobError('Mission folder / flight ID required.');
+    if (analysisType === 'orthomosaic_processing' && !missionFolder.trim())
+      return setJobError('Flight ID required for orthomosaic processing.');
+
+    // ── Mission Ingestion Engine intercept (replaces orthomosaic_processing) ──
+    if (analysisType === 'mission_data') {
+      // MissionUploader handles its own dataset lifecycle — just show its UI
+      setCurrentJob({ id: 'mission_data_engine', uploadType: 'orthomosaic', missionId, status: 'active', fileCount: 0, processedCount: 0, createdAt: new Date().toISOString() });
+      setFiles([]);
+      setJobError('');
+      return;
+    }
+
+    // ── Standard upload_jobs path (all other types) ───────────────────────
     try {
       const r = await apiClient.post('/pilot/upload-jobs', {
         missionId, uploadType, analysisType,
@@ -231,6 +274,8 @@ const UploadCenter: React.FC = () => {
         missionFolder: missionFolder || undefined,
       });
       setCurrentJob({ ...r.data.data, fileCount: 0, processedCount: 0 });
+      setOrthoJobId(null);
+      setOrthoStatus(null);
       setFiles([]);
       setJobError('');
     } catch (e: any) {
@@ -238,7 +283,7 @@ const UploadCenter: React.FC = () => {
     }
   };
 
-  // Upload files
+  // Upload files — orthomosaic type uses signed GCS URLs; all others use multipart
   const uploadFiles = useCallback(async (rawFiles: File[]) => {
     if (!currentJob) return;
     cancelRef.current = false;
@@ -255,6 +300,13 @@ const UploadCenter: React.FC = () => {
     }));
     setFiles(prev => [...prev, ...newFiles]);
 
+    // ── Mission Data — MissionUploader handles files directly (no legacy path) ──
+    if (analysisType === 'mission_data') {
+      setUploading(false);
+      return; // MissionUploader component manages this flow
+    }
+
+    // ── Standard multipart upload path (all other types) ──────────────────
     for (const uf of newFiles) {
       if (cancelRef.current) {
         setFiles(prev => prev.map(f => f.id === uf.id && f.status === 'pending' ? { ...f, status: 'failed', error: 'Cancelled' } : f));
@@ -298,7 +350,7 @@ const UploadCenter: React.FC = () => {
       await apiClient.patch(`/pilot/upload-jobs/${currentJob.id}/complete`).catch(() => {});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentJob, uploadType]);
+  }, [currentJob, uploadType, orthoJobId]);
 
   const pending   = files.filter(f => f.status === 'pending').length;
   const completed = files.filter(f => f.status === 'complete').length;
@@ -313,7 +365,7 @@ const UploadCenter: React.FC = () => {
       <div>
         <h2 className="text-xl font-black text-white uppercase tracking-tight">AI Upload Center</h2>
         <p className="text-[10px] text-slate-500 mt-0.5 uppercase tracking-widest font-bold">
-          Gemini AI Analysis · Pix4D Auto-Dispatch
+          Gemini AI Analysis · 3D Auto-Processing
         </p>
       </div>
 
@@ -425,10 +477,109 @@ const UploadCenter: React.FC = () => {
 
       {/* Job active confirmation */}
       {currentJob && (
-        <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-          <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-          <p className="text-xs text-emerald-300 font-bold">Job Active · {uploadType} · Drop files below</p>
+        <div style={{ background: analysisType === 'orthomosaic_processing' ? 'rgba(52,211,153,0.05)' : 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 12, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={14} style={{ color: '#34d399', flexShrink: 0 }} />
+            <p style={{ margin: 0, fontSize: 12, color: '#34d399', fontWeight: 700 }}>
+              {analysisType === 'orthomosaic_processing' ? 'Orthomosaic Job Active' : `Job Active · ${uploadType}`} · Drop files below
+            </p>
+          </div>
+
+          {/* ── Orthomosaic live processing tracker ── */}
+          {analysisType === 'orthomosaic_processing' && orthoJobId && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+              {/* Admin tracking banner */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 9, padding: '8px 12px' }}>
+                <span style={{ fontSize: 14 }}>👁</span>
+                <div>
+                  <p style={{ margin: 0, fontSize: 11, color: '#818cf8', fontWeight: 700 }}>Admin is monitoring this job in real-time</p>
+                  <p style={{ margin: '1px 0 0', fontSize: 9, color: '#334155' }}>
+                    Job ID: <span style={{ fontFamily: 'monospace', color: '#475569' }}>{orthoJobId.slice(0, 8)}…</span>
+                    {' · '}Visible in admin Orthomosaic → Live Jobs
+                  </p>
+                </div>
+              </div>
+
+              {/* Status row */}
+              <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {orthoJobData?.status === 'processing' && (
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#60a5fa', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+                    )}
+                    {orthoJobData?.status === 'completed' && <CheckCircle2 size={13} style={{ color: '#34d399' }} />}
+                    {orthoJobData?.status === 'failed'    && <AlertCircle size={13} style={{ color: '#f87171' }} />}
+                    <span style={{
+                      fontSize: 11, fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.08em',
+                      color: orthoJobData?.status === 'completed' ? '#34d399'
+                           : orthoJobData?.status === 'failed'    ? '#f87171'
+                           : orthoJobData?.status === 'processing' ? '#60a5fa'
+                           : '#a78bfa',
+                    }}>
+                      {orthoJobData?.status === 'queued'     ? 'Queued — awaiting engine'
+                     : orthoJobData?.status === 'processing' ? (orthoJobData?.pipeline_stage?.replace(/Running ODM /i,'').replace(/ Cell/i,'') || 'Processing…')
+                     : orthoJobData?.status === 'completed'  ? 'Processing complete ✓'
+                     : orthoJobData?.status === 'failed'     ? 'Processing failed'
+                     : orthoStatus || 'Submitting…'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 10, color: '#475569', fontWeight: 700 }}>
+                    {orthoJobData?.image_count || 0} images
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                {orthoJobData && ['queued','processing','generating_tiles'].includes(orthoJobData.status) && (
+                  <>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 3, overflow: 'hidden', marginBottom: 6 }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${orthoJobData.status === 'queued' ? 2 : (orthoJobData.progress_pct || 0)}%`,
+                        background: 'linear-gradient(90deg, #3b82f6, #6366f1)',
+                        borderRadius: 3, transition: 'width 0.8s ease',
+                      }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 10, color: '#475569' }}>
+                        {orthoJobData.status === 'queued' ? 'Waiting for engine…' : `${orthoJobData.progress_pct || 0}% complete`}
+                      </span>
+                    </div>
+                  </>
+                )}
+
+                {/* Completed */}
+                {orthoJobData?.status === 'completed' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span style={{ fontSize: 11, color: '#34d399', fontWeight: 700 }}>
+                      ✓ Orthomosaic, tiles &amp; elevation model generated — available in admin Deliverables
+                    </span>
+                  </div>
+                )}
+
+                {/* Failed */}
+                {orthoJobData?.status === 'failed' && orthoJobData?.error_message && (
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#f87171' }}>{orthoJobData.error_message}</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+
+      {/* Report ready banner */}
+      {reportUrl && (
+        <a
+          href={reportUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/20 transition-all"
+        >
+          <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+          <p className="text-xs text-emerald-300 font-bold flex-1">Report ready — tap to view</p>
+          <BrainCircuit size={12} className="text-emerald-400" />
+        </a>
       )}
 
       {/* No mission warning */}
@@ -478,7 +629,29 @@ const UploadCenter: React.FC = () => {
 
 
 
-      {/* Drop zone */}
+      {/* ── Mission Ingestion Engine ── swap in MissionUploader for mission_data type */}
+      {analysisType === 'mission_data' && missionId && (
+        <div className="bg-slate-900/60 border border-indigo-500/20 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-6 h-6 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+              <Upload size={12} className="text-indigo-400" />
+            </div>
+            <div>
+              <p className="text-xs font-black text-white uppercase tracking-widest">Mission Ingestion Engine</p>
+              <p className="text-[9px] text-slate-500">Enterprise · Chunked GCS · Offline-first · 10,000+ images</p>
+            </div>
+          </div>
+          <MissionUploader
+            missionId={missionId}
+            siteName={siteName}
+            onComplete={(dsId) => {
+              setOrthoStatus('queued');
+            }}
+          />
+        </div>
+      )}
+
+      {/* Drop zone for all other upload types */}
       <div className="space-y-2">
         <div
           ref={dropRef}
@@ -486,11 +659,11 @@ const UploadCenter: React.FC = () => {
           onDragLeave={() => setIsDragging(false)}
           onDrop={e => {
             e.preventDefault(); setIsDragging(false);
-            if (!currentJob) return;
+            if (!currentJob || analysisType === 'mission_data') return;
             uploadFiles(Array.from(e.dataTransfer.files));
           }}
           className={`border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center text-center transition-all
-            ${!currentJob ? 'opacity-40 pointer-events-none' : ''}
+            ${!currentJob || analysisType === 'mission_data' ? 'opacity-40 pointer-events-none' : ''}
             ${isDragging
               ? 'border-indigo-400 bg-indigo-500/10'
               : 'border-slate-700 hover:border-indigo-500/40 hover:bg-indigo-500/5'}`}
@@ -581,6 +754,20 @@ const UploadCenter: React.FC = () => {
                   {f.status === 'uploading' && (
                     <div className="h-0.5 bg-slate-800 rounded-full mx-8">
                       <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${f.progress}%` }} />
+                    </div>
+                  )}
+                  {/* AI result */}
+                  {aiSummary && (
+                    <div className={`flex items-center gap-1.5 ml-11 text-[10px] font-bold ${aiSummary.color}`}>
+                      <BrainCircuit size={10} />
+                      <span>{aiSummary.label}</span>
+                    </div>
+                  )}
+                  {/* Processing job */}
+                  {f.pix4dJob && (
+                    <div className="flex items-center gap-1.5 ml-11 text-[10px] text-sky-400 font-bold">
+                      <Rocket size={10} />
+                      <span>Processing Engine · {f.pix4dJob.slice(0, 10)}</span>
                     </div>
                   )}
                 </div>

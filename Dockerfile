@@ -3,9 +3,8 @@
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
-COPY package.json ./
-RUN rm -f package-lock.json
-RUN npm install --legacy-peer-deps
+COPY package.json package-lock.json* ./
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 COPY . .
 RUN npm run build
 
@@ -14,9 +13,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install production dependencies
-COPY package.json ./
-RUN rm -f package-lock.json
-RUN npm install --only=production --legacy-peer-deps
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev --legacy-peer-deps || npm install --omit=dev --legacy-peer-deps
 
 # Copy backend code (JavaScript only)
 COPY backend ./backend

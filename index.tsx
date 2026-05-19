@@ -4,8 +4,9 @@ import ReactDOM from 'react-dom/client';
 import './index.css'; // Global Styles
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
 import { GlobalProvider } from './src/context/GlobalContext';
+import './src/i18n'; // initialise i18next
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

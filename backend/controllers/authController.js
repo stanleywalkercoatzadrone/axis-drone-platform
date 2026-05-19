@@ -8,7 +8,10 @@ import jwt from 'jsonwebtoken';
 const COOKIE_OPTIONS = {
     httpOnly: true,              // Not accessible to JavaScript — prevents XSS token theft
     secure: process.env.NODE_ENV === 'production',  // HTTPS only in prod
-    sameSite: 'Strict',         // Blocks CSRF cross-site requests
+    // 'Lax' (not 'Strict') is required on Cloud Run: Google's Frontend proxy performs
+    // a cross-origin redirect on the first request which causes 'Strict' cookies to be
+    // silently dropped, producing a "No token provided" 401 immediately after login.
+    sameSite: 'Lax',
     path: '/',
 };
 
@@ -210,29 +213,35 @@ export const login = async (req, res, next) => {
 
 export const logout = async (req, res, next) => {
     try {
-        const authHeader = req.headers.authorization || '';
-        if (authHeader.startsWith('Bearer ')) {
-            const token = authHeader.slice(7);
+        // Read token from the same sources as the protect middleware:
+        // 1. HttpOnly cookie (primary — how the app authenticates)
+        // 2. Authorization: Bearer header (fallback for API clients)
+        const cookieToken = req.cookies?.access_token;
+        const headerToken = req.headers.authorization?.startsWith('Bearer ')
+            ? req.headers.authorization.slice(7)
+            : null;
+        const token = cookieToken || headerToken;
+
+        if (token) {
             const crypto = await import('crypto');
             const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
             try {
-                // Determine TTL from token remaining lifetime
                 const JWT_SECRET = process.env.JWT_SECRET
                     || (process.env.NODE_ENV !== 'production' ? 'dev-only-insecure-jwt-secret' : (() => { throw new Error('JWT_SECRET not set'); })());
                 const decoded = jwt.verify(token, JWT_SECRET);
                 const ttlSeconds = Math.max(1, decoded.exp - Math.floor(Date.now() / 1000));
-
                 await setCache(`blacklist:${tokenHash}`, true, ttlSeconds);
             } catch (err) {
-                // If token is already invalid/expired, we don't strictly need to blacklist, 
-                // but we could do a fallback TTL if desired.
+                // Token already expired or invalid — still proceed with logout
                 console.log('Logout token verification failed (likely expired):', err.message);
             }
         }
 
-        // Clear user cache
-        await deleteCache(`user:${req.user.id}`);
+        // Clear user cache so next login always fetches fresh role from DB
+        if (req.user?.id) {
+            await deleteCache(`user:${req.user.id}`);
+        }
 
         // Clear HttpOnly auth cookies
         clearAuthCookies(res);
@@ -241,7 +250,7 @@ export const logout = async (req, res, next) => {
         await query(
             `INSERT INTO audit_logs (user_id, action, resource_type)
        VALUES ($1, $2, $3)`,
-            [req.user.id, 'USER_LOGOUT', 'user']
+            [req.user?.id, 'USER_LOGOUT', 'user']
         );
 
         res.json({
@@ -252,6 +261,7 @@ export const logout = async (req, res, next) => {
         next(error);
     }
 };
+
 
 export const getMe = async (req, res, next) => {
     try {

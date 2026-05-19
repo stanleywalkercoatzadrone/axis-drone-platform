@@ -4,8 +4,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { useGlobalContext } from '../../../context/GlobalContext';
 import { getRoleDisplayName } from '../../../utils/roleUtils';
 import {
-    Menu, X, LayoutDashboard, CheckSquare, UploadCloud, AlertTriangle,
-    CloudRain, LogOut, Wifi, WifiOff, BrainCircuit
+    Menu, X, LayoutDashboard, UploadCloud,
+    CloudRain, LogOut, Wifi, WifiOff, ShieldCheck
 } from 'lucide-react';
 import { useOnlineStatus } from '../../../hooks/useOnlineStatus';
 
@@ -28,14 +28,43 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
     const currentPath = location.pathname.replace('/pilot/', '').split('/')[0] || 'dashboard';
 
     // PRODUCTION DIRECTIVE V2 - STRICT NAV MAPPING
-    const navItems = [
-        { id: 'dashboard',     label: 'Operations',      icon: LayoutDashboard },
-        { id: 'weather',       label: 'Weather & Skies',  icon: CloudRain },
-        { id: 'checklist',     label: 'Protocols',        icon: CheckSquare },
-        { id: 'uploads',       label: 'Mission Uploads',  icon: UploadCloud },
-        { id: 'upload-center', label: 'AI Upload',        icon: BrainCircuit },
-        { id: 'issues',        label: 'Report Issue',     icon: AlertTriangle },
+    // Only top-level routes that work without a mission ID.
+    // Weather, checklist, and issues require a mission ID — launched from mission cards.
+    const opsItems = [
+        { id: 'dashboard', label: 'Operations',     icon: LayoutDashboard },
+        { id: 'uploads',   label: 'Mission Uploads', icon: UploadCloud },
     ];
+
+    const personalItems = [
+        { id: 'compliance', label: 'Personal Hub', icon: ShieldCheck },
+    ];
+
+    const renderNavButton = (item: { id: string; label: string; icon: React.ElementType }) => {
+        const isActive = currentPath === item.id;
+        return (
+            <button
+                key={item.id}
+                onClick={() => {
+                    navigate(`/pilot/${item.id}`);
+                    onNavigate(item.id);
+                }}
+                className={`w-full flex items-center px-3 py-3.5 rounded-xl transition-all duration-200 group relative ${isActive
+                    ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-inner'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                    }`}
+            >
+                <item.icon className={`shrink-0 transition-transform duration-300 ${isActive ? 'scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'group-hover:scale-110'}`} size={20} />
+                {isSidebarOpen && (
+                    <span className={`ml-4 text-xs font-black uppercase tracking-wider ${isActive ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'}`}>
+                        {item.label}
+                    </span>
+                )}
+                {isActive && isSidebarOpen && (
+                    <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+                )}
+            </button>
+        );
+    };
 
     return (
         <>
@@ -78,42 +107,24 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
 
             {/* Primary Navigation */}
             <nav className="flex-1 py-6 px-3 overflow-y-auto space-y-2">
+                {/* ── Operations section ── */}
                 {isSidebarOpen && (
-                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] px-3 mb-4">
-                        Primary Systems
+                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] px-3 mb-3">
+                        Operations
                     </div>
                 )}
+                {opsItems.map(renderNavButton)}
 
-                {navItems.map(item => {
-                    // Extract root path
-                    const currentRoot = activeTab.split('/')[0];
-                    const isActive = currentRoot === item.id;
-                    return (
-                        <button
-                            key={item.id}
-                            onClick={() => {
-                                navigate(`/pilot/${item.id}`);
-                                onNavigate(item.id);
-                            }}
-                            className={`w-full flex items-center px-3 py-3.5 rounded-xl transition-all duration-200 group relative ${(currentPath === item.id)
-                                ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-inner'
-                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
-                                }`}
-                        >
-                            <item.icon className={`shrink-0 transition-transform duration-300 ${isActive ? 'scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'group-hover:scale-110'}`} size={20} />
+                {/* ── Divider ── */}
+                <div className={`my-3 ${isSidebarOpen ? 'mx-3 border-t border-slate-800' : 'mx-auto w-8 border-t border-slate-800'}`} />
 
-                            {isSidebarOpen && (
-                                <span className={`ml-4 text-xs font-black uppercase tracking-wider ${isActive ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'}`}>
-                                    {item.label}
-                                </span>
-                            )}
-
-                            {isActive && isSidebarOpen && (
-                                <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-                            )}
-                        </button>
-                    );
-                })}
+                {/* ── Personal section ── */}
+                {isSidebarOpen && (
+                    <div className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] px-3 mb-3">
+                        Personal
+                    </div>
+                )}
+                {personalItems.map(renderNavButton)}
             </nav>
 
             {/* Profile / Logout Section */}
@@ -148,7 +159,7 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
         </aside>
 
         {/* ── Mobile top bar ─────────────────────────────────────────── */}
-        <div style={{ display: isPWA ? 'flex' : 'none' }} className="fixed top-0 left-0 right-0 z-50 h-14 items-center px-4 bg-slate-950 border-b border-slate-800 gap-3">
+        <div className="flex md:hidden fixed top-0 left-0 right-0 z-50 h-14 items-center px-4 bg-slate-950 border-b border-slate-800 gap-3">
             <div className="bg-gradient-to-br from-blue-600 to-cyan-500 h-8 w-8 rounded-xl flex items-center justify-center shadow-lg border border-white/10">
                 <span className="font-black text-white text-base">A</span>
             </div>
@@ -169,8 +180,8 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
         </div>
 
         {/* ── Mobile bottom tab bar ────────────────────────────────── */}
-        <nav style={{ display: isPWA ? 'flex' : 'none' }} className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950 border-t border-slate-800 pb-safe">
-            {navItems.map(item => (
+        <nav className="flex md:hidden fixed bottom-0 left-0 right-0 z-50 bg-slate-950 border-t border-slate-800 pb-safe">
+            {[...opsItems, ...personalItems].map(item => (
                 <button
                     key={item.id}
                     onClick={() => { navigate(`/pilot/${item.id}`); onNavigate(item.id); }}

@@ -11,7 +11,7 @@ import React, { useState } from 'react';
 import { Layers, BrainCircuit, Upload, Map, ChevronRight, ChevronLeft, Activity, Box } from 'lucide-react';
 import MissionUploadEngine from '../components/MissionUploadEngine';
 import SystemAIView from '../../components/SystemAIView';
-import { SiteMapViewer } from '../../components/orthomosaic/SiteMapViewer';
+
 import IndustryReportsHub from '../../modules/ai-reporting/IndustryReportsHub';
 
 const MissionIntelligenceWorkspace: React.FC = () => {
@@ -29,7 +29,7 @@ const MissionIntelligenceWorkspace: React.FC = () => {
       {/* BACKGROUND LAYER: The Geospatial Map */}
       <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
         {/* Pass a fixed height to ensure Leaflet renders correctly before fullscreen trigger */}
-        <SiteMapViewer jobId={activeMissionOrthoId} />
+        <div className="flex items-center justify-center h-full w-full bg-slate-900 text-slate-500">Site Map Viewer Unavailable</div>
       </div>
 
       {/* GLOBAL HEADER CONTROLS (Floating Top Left) */}

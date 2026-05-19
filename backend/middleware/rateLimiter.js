@@ -35,16 +35,22 @@ export const standardLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 500, // Increased: SPA makes many parallel requests on each page load
     skip: (req) => {
-        // Skip in dev, or if explicitly disabled, or for health checks
-        // Also skip pilot upload routes — batch uploads fire many parallel requests
-        // from the same IP and are already protected by JWT auth
-        return process.env.NODE_ENV === 'development' ||
-               process.env.DISABLE_RATE_LIMIT === 'true' ||
+        // SECURITY: DISABLE_RATE_LIMIT must never bypass limits in production
+        const rateLimitDisabled = process.env.NODE_ENV !== 'production' &&
+                                  process.env.DISABLE_RATE_LIMIT === 'true';
+        return rateLimitDisabled ||
                req.path === '/health' ||
                req.path.includes('/pilot/upload-jobs') ||
-               req.path.includes('/uploads/');
+               req.path.includes('/orthomosaic/upload-url') ||
+               req.path.includes('/orthomosaic/upload-direct') ||
+               req.path.includes('/orthomosaic/upload-confirm') ||
+               // Axis mapping chunk uploads — many rapid requests per mission, must not be throttled
+               req.path.includes('/axis/chunk') ||
+               req.path.includes('/axis/init') ||
+               req.path.includes('/axis/commit');
     },
     standardHeaders: true,
+
     legacyHeaders: false,
     store: createStore(),
     message: {
@@ -65,15 +71,25 @@ export const standardLimiter = rateLimit({
 });
 
 /**
- * Permissive limiter for bulk file upload routes
- * 5000 requests per 15 minutes — allows large batch uploads without throttling
+ * Upload rate limiter — 150 requests per 15 minutes per IP
+ * Allows batch drone imagery uploads while preventing abuse.
+ * All upload routes require JWT auth — this is a secondary DoS guard.
  */
 export const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5000,
-    skip: () => true, // Effectively disabled — uploads are protected by JWT
+    max: 150,
+    skip: (req) => process.env.NODE_ENV !== 'production' && process.env.DISABLE_RATE_LIMIT === 'true',
     standardHeaders: true,
     legacyHeaders: false,
+    store: createStore(),
+    handler: (req, res) => {
+        logger.logSecurityEvent('Upload rate limit exceeded', {
+            ip: req.ip,
+            path: req.path,
+            userId: req.user?.id
+        });
+        res.status(429).json({ success: false, error: 'Upload rate limit exceeded. Please wait before uploading more files.' });
+    }
 });
 
 /**
@@ -81,29 +97,29 @@ export const uploadLimiter = rateLimit({
  * 15 requests per 15 minutes per IP+Email
  */
 export const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // Generous: /auth/me fires on every SPA navigation; login retries are not brute-force risk
+    windowMs: 15 * 60 * 1000,
+    max: 20, // SECURITY: 20 auth attempts per 15 min — stops brute force
     skip: (req) => {
-        // Skip rate limiting in development or if explicitly disabled
-        // Also skip /auth/me, /refresh, and /login — none are meaningful brute-force surfaces
-        // given the Cloud Run memory store resets on every instance restart anyway
-        return process.env.NODE_ENV === 'development' ||
-               process.env.DISABLE_RATE_LIMIT === 'true' ||
-               req.path === '/me' || req.path === '/refresh' || req.path === '/login';
+        // SECURITY: DISABLE_RATE_LIMIT must never work in production
+        const rateLimitDisabled = process.env.NODE_ENV !== 'production' &&
+                                  process.env.DISABLE_RATE_LIMIT === 'true';
+        // Only skip non-sensitive paths: /me (profile check) and /refresh (token rotation)
+        // /login is NOT skipped — it is the primary brute-force target
+        return rateLimitDisabled ||
+               req.path === '/me' ||
+               req.path === '/refresh';
     },
-    skipSuccessfulRequests: true, // Only count failed attempts toward the limit
+    // SECURITY: skipSuccessfulRequests removed — count all attempts including successful
+    // logins to prevent a slow-credential-stuffing pattern that succeeds every attempt.
     standardHeaders: true,
     legacyHeaders: false,
     store: createStore(),
-    message: {
-        success: false,
-        error: 'Too many authentication attempts, please try again later.'
-    },
+    message: { success: false, error: 'Too many authentication attempts, please try again later.' },
     handler: (req, res) => {
         logger.logSecurityEvent('Auth rate limit exceeded', {
             ip: req.ip,
             path: req.path,
-            email: req.body?.email
+            email: req.body?.email  // intentionally logged for abuse detection
         });
         res.status(429).json({
             success: false,

@@ -114,22 +114,20 @@ function buildPrintHTML(reports: FieldReport[], missionTitle: string) {
 }
 
 // ── Inject into current page and print (bypasses popup blockers) ───────────────
+// SECURITY: Use blob URL + new window instead of innerHTML injection to prevent stored XSS.
+// User-supplied data (pilotName, aiReport, incidentSummary) is interpolated into HTML
+// in buildPrintHTML. Injecting that into the parent DOM via innerHTML is an XSS vector.
+// Opening a sandboxed blob URL isolates execution from the parent page.
 function triggerPrint(reports: FieldReport[], missionTitle: string) {
-    const existing = document.getElementById('axis-print-root');
-    if (existing) existing.remove();
-
-    const el = document.createElement('div');
-    el.id = 'axis-print-root';
-    el.style.cssText = 'display:none;position:fixed;inset:0;background:#fff;z-index:99999;overflow:auto;';
-    el.innerHTML = buildPrintHTML(reports, missionTitle);
-    document.body.appendChild(el);
-
-    // Show the print div, trigger print, then remove
-    el.style.display = 'block';
-    window.print();
-    el.style.display = 'none';
-    // Clean up after a brief delay
-    setTimeout(() => el.remove(), 2000);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Field Reports</title></head><body id="axis-print-root">${buildPrintHTML(reports, missionTitle)}</body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const win  = window.open(url, '_blank');
+    if (win) {
+        win.addEventListener('load', () => { win.print(); });
+    }
+    // Revoke the blob URL after a short delay to free memory
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // ── PDF export (same as print — "Save as PDF" in browser dialog) ───────────────

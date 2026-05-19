@@ -14,7 +14,7 @@
  */
 import { query } from '../config/database.js';
 import { logger } from './logger.js';
-
+import { analyzeSolarImage, preprocessImage } from './solarAnalysisEngine.js';
 // ── Gemini Vision client ──────────────────────────────────────────────────────
 // Uses @google/genai (newer SDK) which supports the fileData/GCS URI part type.
 let genAI = null;
@@ -47,48 +47,230 @@ try {
 const GCS_BUCKET = process.env.GCS_BUCKET_NAME || 'axis-platform-uploads';
 const INLINE_LIMIT_BYTES = 20 * 1024 * 1024; // 20 MB
 
-// ── Pix4D Cloud API (optional) ────────────────────────────────────────────────
-const PIX4D_TOKEN   = process.env.PIX4D_API_TOKEN;
-const PIX4D_BASE    = 'https://api.pix4d.com/v2';
-const PIX4D_ENABLED = !!PIX4D_TOKEN;
-
-if (PIX4D_ENABLED) logger.info('[uploadProcessor] Pix4D auto-dispatch enabled');
-else logger.info('[uploadProcessor] PIX4D_API_TOKEN not set — Pix4D dispatch disabled');
+// Orthomosaic photogrammetry is handled by the dedicated AxisEngine pipeline
+// (orthomosaicQueue.js + photogrammetryEngine.js). No secondary Pix4D dispatch here.
 
 // ── Build prompt per analysis/upload type ────────────────────────────────────
+// All prompts embed US safety standards zero-shot (OSHA, NEC, IEC 62446, ASTM, ASCE)
+// Gemini requires no additional training for these standards.
 function buildPrompt(uploadType, analysisType) {
-    // analysisType takes priority if set
     const at = analysisType || uploadType;
+
+    // ── THERMAL / IR IMAGE ──────────────────────────────────────────────────
     if (at === 'thermal_fault' || at === 'thermal') {
-        return `You are a thermal inspection AI. Analyze this thermal/IR drone image and return ONLY valid JSON (no markdown fences):
-{ "faults": [{"type": string, "tempDelta": number, "location": string, "severity": "low|medium|high|critical", "confidence": number}],
-  "totalFaults": number, "maxTempDelta": number, "overallCondition": "good|degraded|critical",
-  "recommendations": [string], "summary": string }`;
+        return `You are a certified thermal imaging inspector with deep expertise in IEC 62446-3 (thermographic PV inspection), NFPA 70 (NEC Article 690), OSHA 29 CFR 1910 electrical safety, and ASTM E1933 IR measurement procedures. You require no additional training.
+
+Analyze this thermal/IR drone image with MAXIMUM fault sensitivity. Identify ALL of the following fault categories where present:
+- Cell hotspots: single-cell, cross, omega, full-cell patterns
+- Bypass diode failures (string-level elevated areas)
+- PID (Potential Induced Degradation): systematic column-level heat patterns
+- Shading-induced thermal signatures (distinguishable by uniformity)
+- Open-circuit/disconnected modules (anomalously cold)
+- Junction box overheating (fire hazard per NEC 690.31)
+- Soiling and bird droppings (localized ΔT elevation)
+- Delamination (diffuse heat maps)
+- String combiner box overheating
+- Electrical arc/burn marks (ΔT >30°C = OSHA immediate action required)
+- Mounting/tracker hardware thermal anomalies
+
+Report EVERY fault individually. Never aggregate. Never omit minor faults.
+NOTE: If this is a pseudo-color thermal image without a scale, estimate relative severity based on color intensity (e.g. bright white/red = severe hotspot, dark blue/purple = cold). Do NOT omit faults just because absolute temperatures are unknown; use null for temp values if necessary.
+
+Return ONLY valid JSON (no markdown, no prose outside JSON):
+{
+  "faults": [
+    {
+      "id": "F001",
+      "type": string,
+      "category": "hotspot|bypass_diode|pid|shading|open_circuit|junction_box|soiling|delamination|combiner|arc|hardware|other",
+      "tempDelta": "number or null",
+      "peakTempCelsius": "number or null",
+      "location": string,
+      "panelId": string,
+      "severity": "low|medium|high|critical",
+      "confidence": number,
+      "usStandardViolation": string,
+      "immediateActionRequired": boolean,
+      "description": string
     }
-    if (at === 'lbd_defect' || at === 'lbd') {
-        return `You are an LBD (Laser/Beam/Defect) scan expert. Analyze this scan image and return ONLY valid JSON (no markdown fences):
-{ "defects": [{"type": string, "severity": "low|medium|high|critical", "location": string, "confidence": number}],
-  "totalDefects": number, "overallSeverity": "low|medium|high|critical",
-  "recommendations": [string], "summary": string }`;
+  ],
+  "totalFaults": number,
+  "criticalFaults": number,
+  "maxTempDelta": "number or null",
+  "overallCondition": "good|degraded|critical|unsafe",
+  "estimatedPowerLossPercent": "number or null",
+  "complianceFlags": [string],
+  "recommendations": [string],
+  "summary": string
+}`;
     }
+
+    // ── SOLAR PANEL RGB IMAGE ───────────────────────────────────────────────
     if (at === 'solar_panel') {
-        return `You are a solar panel inspection AI. Analyze this drone image for PV cell faults and soiling and return ONLY valid JSON (no markdown fences):
-{ "faults": [{"type": string, "severity": "low|medium|high|critical", "location": string, "confidence": number}],
-  "totalFaults": number, "overallCondition": "good|degraded|critical",
-  "soilingPercent": number, "recommendations": [string], "summary": string }`;
+        return `You are a certified solar PV inspector with expertise in IEC 61215 (PV module qualification), IEC 62446 (PV system inspection), NEC Article 690 (Solar PV Systems), OSHA 29 CFR 1910 electrical safety, and ASTM E2848 (PV performance). You require no additional training.
+
+Analyze this RGB drone image of a solar field with MAXIMUM fault sensitivity. Identify ALL visible faults:
+- Physical damage: cracks (micro, snail trail, spiderweb), broken glass, frame deformation
+- Surface soiling: dust, bird droppings, debris, organic growth (estimate coverage %)
+- Discoloration: EVA yellowing/browning, backsheet degradation
+- Delamination: bubbling, moisture ingress, separation
+- Shading: vegetation, structural shadows, inter-row shading
+- Structural/mounting: loose frames, corrosion, broken clamps, sagging panels
+- Wiring/junction: cable damage, open/damaged junction boxes, unsecured conduit
+- Tracker faults: misalignment, stuck trackers, structural failure
+- Vegetation encroachment within 18 inches of array (fire risk)
+- Drainage/ponding water
+- Security/perimeter gaps
+
+Report EVERY fault individually. Never omit minor faults.
+
+Return ONLY valid JSON (no markdown, no prose outside JSON):
+{
+  "faults": [
+    {
+      "id": "F001",
+      "type": string,
+      "category": "physical_damage|soiling|discoloration|delamination|shading|structural|wiring|tracker|vegetation|drainage|security|other",
+      "location": string,
+      "affectedArea": string,
+      "severity": "low|medium|high|critical",
+      "confidence": number,
+      "usStandardViolation": string,
+      "immediateActionRequired": boolean,
+      "description": string
     }
+  ],
+  "totalFaults": number,
+  "criticalFaults": number,
+  "soilingPercent": number,
+  "overallCondition": "good|degraded|critical|unsafe",
+  "complianceFlags": [string],
+  "recommendations": [string],
+  "summary": string
+}`;
+    }
+
+    // ── LBD / LIDAR / STRUCTURAL SCAN ──────────────────────────────────────
+    if (at === 'lbd_defect' || at === 'lbd') {
+        return `You are a licensed structural inspection engineer with expertise in ACI 318 (concrete), AISC 360 (steel), OSHA 1926 Subpart R (steel erection), IBC (International Building Code), and ASCE 7 (structural loads). You require no additional training.
+
+Analyze this structural scan image and identify ALL defects:
+- Concrete: cracks (hairline, structural, map cracking), spalling, delamination, rebar exposure
+- Steel: corrosion (surface, section loss), weld failures, bolt loosening, buckling
+- Geometry: out-of-plumb, differential settlement, deflection beyond L/360 code limit
+- Surface: coating failure, efflorescence, staining (moisture ingress)
+- Joints: sealant failure, expansion joint damage
+- Drainage: blocked weeps, improper slope, ponding
+- Safety: handrail deficiency (OSHA 1926.502), fall exposure, structural instability
+
+Return ONLY valid JSON (no markdown, no prose outside JSON):
+{
+  "defects": [
+    {
+      "id": "D001",
+      "type": string,
+      "category": "crack|spalling|corrosion|geometry|surface|joint|drainage|safety|other",
+      "material": "concrete|steel|masonry|other",
+      "location": string,
+      "dimensions": string,
+      "severity": "low|medium|high|critical",
+      "confidence": number,
+      "usStandardViolation": string,
+      "immediateActionRequired": boolean,
+      "description": string
+    }
+  ],
+  "totalDefects": number,
+  "criticalDefects": number,
+  "overallSeverity": "low|medium|high|critical",
+  "structuralIntegrityRating": "sound|monitor|repair|urgent_repair|unsafe",
+  "complianceFlags": [string],
+  "recommendations": [string],
+  "summary": string
+}`;
+    }
+
+    // ── FULL INSPECTION (multi-system) ──────────────────────────────────────
     if (at === 'full_inspection') {
-        return `You are a comprehensive aerial inspection AI. Analyze this drone image for ALL fault types and return ONLY valid JSON (no markdown fences):
-{ "faults": [{"type": string, "severity": "low|medium|high|critical", "location": string, "confidence": number}],
-  "anomalies": [{"type": string, "severity": "low|medium|high", "confidence": number, "location": string}],
-  "totalFaults": number, "maxTempDelta": number, "overallCondition": "good|degraded|critical",
-  "imageQuality": "poor|fair|good|excellent", "recommendations": [string], "summary": string }`;
+        return `You are a multi-discipline certified drone inspection AI with expertise across: OSHA 1910 & 1926, NEC 2023, IEC 62446, NFPA 70E, ACI 318, AISC 360, and FAA AC 107-2. You require no additional training.
+
+Perform a comprehensive multi-system analysis inspecting ALL of the following simultaneously:
+ELECTRICAL: hotspots, arcing, exposed conductors, junction box damage, ground faults
+STRUCTURAL: cracks, corrosion, settlement, deflection, delamination, spalling
+PV SPECIFIC: cell faults, soiling, delamination, shading, tracker misalignment
+FIRE/SAFETY: vegetation within 30ft of electrical, fuel storage proximity, egress blockage
+ENVIRONMENTAL: drainage issues, erosion, standing water near electrical equipment
+SECURITY: perimeter breach, vandalism, unauthorized access indicators
+
+Report EVERY observed fault and anomaly. Do not omit anything.
+
+Return ONLY valid JSON (no markdown, no prose outside JSON):
+{
+  "faults": [
+    {
+      "id": "F001",
+      "type": string,
+      "system": "electrical|structural|pv|fire_safety|environmental|security|other",
+      "severity": "low|medium|high|critical",
+      "location": string,
+      "confidence": number,
+      "usStandardViolation": string,
+      "immediateActionRequired": boolean,
+      "description": string
     }
-    // Default: rgb_anomaly / images
-    return `You are a drone inspection AI. Analyze this aerial image and return ONLY valid JSON (no markdown fences):
-{ "anomalies": [{"type": string, "severity": "low|medium|high", "confidence": number, "location": string}],
-  "imageQuality": "poor|fair|good|excellent", "overallCondition": "normal|review|critical",
-  "recommendations": [string], "summary": string }`;
+  ],
+  "anomalies": [
+    {
+      "type": string,
+      "severity": "low|medium|high",
+      "confidence": number,
+      "location": string,
+      "description": string
+    }
+  ],
+  "totalFaults": number,
+  "criticalFaults": number,
+  "maxTempDelta": number,
+  "overallCondition": "good|degraded|critical|unsafe",
+  "imageQuality": "poor|fair|good|excellent",
+  "complianceFlags": [string],
+  "recommendations": [string],
+  "summary": string
+}`;
+    }
+
+    // ── DEFAULT: RGB AERIAL / GENERAL IMAGES ───────────────────────────────
+    return `You are a certified aerial inspection AI with comprehensive knowledge of OSHA safety standards, NEC electrical codes, IEC inspection standards, ASCE structural standards, and FAA UAS safety guidelines. You require no additional training.
+
+Analyze this aerial drone image and identify ALL anomalies, hazards, and maintenance items. Flag:
+- Subtle discoloration, staining, or weathering indicating hidden issues
+- Vegetation encroachment or organic growth
+- Any condition that would fail a US code inspection
+- Deferred maintenance indicators
+
+Return ONLY valid JSON (no markdown, no prose outside JSON):
+{
+  "anomalies": [
+    {
+      "id": "A001",
+      "type": string,
+      "category": "structural|electrical|vegetation|drainage|surface|safety|other",
+      "severity": "low|medium|high|critical",
+      "confidence": number,
+      "location": string,
+      "usStandardViolation": string,
+      "immediateActionRequired": boolean,
+      "description": string
+    }
+  ],
+  "totalAnomalies": number,
+  "criticalAnomalies": number,
+  "imageQuality": "poor|fair|good|excellent",
+  "overallCondition": "normal|monitor|review|critical|unsafe",
+  "complianceFlags": [string],
+  "recommendations": [string],
+  "summary": string
+}`;
 }
 
 // ── Parse Gemini response safely ──────────────────────────────────────────────
@@ -119,7 +301,7 @@ function toGCSUri(storageUrl) {
  * @param {string}      mimeType
  * @param {string}      uploadType
  */
-async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, analysisType) {
+export async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, analysisType) {
     if (!genAI) return null;
     const prompt = buildPrompt(uploadType, analysisType);
     const model  = 'gemini-2.0-flash';
@@ -140,6 +322,9 @@ async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, a
                         { fileData: { mimeType: mimeType || 'image/jpeg', fileUri: gcsUri } },
                     ],
                 }],
+                config: {
+                    responseMimeType: 'application/json'
+                }
             });
             return parseGeminiJSON(result.text || '{}');
         }
@@ -175,6 +360,9 @@ async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, a
                             { inlineData: { mimeType: mimeType || 'image/jpeg', data: effective.toString('base64') } },
                         ],
                     }],
+                    config: {
+                        responseMimeType: 'application/json'
+                    }
                 });
                 return parseGeminiJSON(result.text || '{}');
             }
@@ -189,31 +377,9 @@ async function analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, a
     }
 }
 
-// ── Pix4D: dispatch a photogrammetry job ──────────────────────────────────────
-async function dispatchToPix4D(jobId, missionTitle, fileUrls) {
-    if (!PIX4D_ENABLED || fileUrls.length === 0) return null;
-    try {
-        const resp = await fetch(`${PIX4D_BASE}/projects`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${PIX4D_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: `Axis-${missionTitle}-Job-${jobId.slice(0, 8)}`,
-                images: fileUrls.map(url => ({ url })),
-                processingOptions: { initialProcessing: true, pointCloud: true, mesh: false, dsm: true, orthomosaic: true },
-            }),
-        });
-        if (!resp.ok) {
-            logger.warn(`[uploadProcessor] Pix4D API error ${resp.status}: ${await resp.text()}`);
-            return null;
-        }
-        const data = await resp.json();
-        logger.info(`[uploadProcessor] Pix4D job created: ${data.id}`);
-        return data.id;
-    } catch (e) {
-        logger.warn('[uploadProcessor] Pix4D dispatch failed:', e.message);
-        return null;
-    }
-}
+
+
+import { geolocateAnomaly } from './geoProjection.js';
 
 // ── Main entry point ───────────────────────────────────────────────────────────
 /**
@@ -230,10 +396,11 @@ async function dispatchToPix4D(jobId, missionTitle, fileUrls) {
  * @param {string}  opts.fileName
  * @param {object}  opts.io           - Socket.io server instance
  * @param {string}  opts.userId       - pilotId (for scoped socket emit)
+ * @param {object}  opts.exifMeta     - extracted EXIF metadata
  */
 export async function processUpload({
     jobId, uploadFileId, missionId, uploadType, analysisType, storageUrl,
-    fileBuffer, mimeType, fileName, io, userId,
+    fileBuffer, mimeType, fileName, io, userId, exifMeta
 }) {
     const canAnalyze = ['images', 'thermal', 'lbd'].includes(uploadType);
     const gcsUri     = toGCSUri(storageUrl);
@@ -246,8 +413,7 @@ export async function processUpload({
 
     emit(io, userId, 'upload:processing', { jobId, missionId, fileName, uploadType });
 
-    let aiResult   = null;
-    let pix4dJobId = null;
+    let aiResult = null;
 
     // ── 1. Gemini AI analysis ─────────────────────────────────────────────────
     const hasData = Boolean(gcsUri || fileBuffer);
@@ -255,7 +421,31 @@ export async function processUpload({
 
     if (canAnalyze && hasData && genAI) {
         try {
-            aiResult = await analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, analysisType);
+            if (analysisType === 'solar_panel' || analysisType === 'thermal_fault') {
+                const siteConditions = await preprocessImage(fileBuffer);
+                aiResult = await analyzeSolarImage(fileBuffer, mimeType, siteConditions);
+            } else {
+                aiResult = await analyzeWithGemini(storageUrl, fileBuffer, mimeType, uploadType, analysisType);
+            }
+
+            // Geoprojection of AI faults
+            if (aiResult && exifMeta) {
+                const applyGeo = (items) => {
+                    if (!items) return;
+                    for (const item of items) {
+                        if (item.location) {
+                            const geo = geolocateAnomaly(item.location, exifMeta);
+                            if (geo) {
+                                item.geolocation = geo;
+                            }
+                        }
+                    }
+                };
+                applyGeo(aiResult.faults);
+                applyGeo(aiResult.defects);
+                applyGeo(aiResult.anomalies);
+            }
+
             logger.info(`[uploadProcessor] Gemini done for ${fileName} — ${JSON.stringify(aiResult)?.slice(0, 80)}`);
 
             if (uploadFileId) {
@@ -281,37 +471,7 @@ export async function processUpload({
         ).catch(() => {});
     }
 
-    // ── 2. Pix4D dispatch (aerial images only) ────────────────────────────────
-    if (PIX4D_ENABLED && ['images', 'thermal', 'orthomosaic'].includes(uploadType)) {
-        try {
-            const missionRes = await query(
-                `SELECT d.title FROM deployments d WHERE d.id = $1`,
-                [missionId]
-            );
-            const missionTitle = missionRes.rows[0]?.title || 'Mission';
-
-            const filesRes = await query(
-                `SELECT storage_url FROM upload_files WHERE job_id = $1 ORDER BY created_at DESC LIMIT 200`,
-                [jobId]
-            );
-            // For Pix4D, convert gs:// back to https or use public URLs
-            const fileUrls = filesRes.rows
-                .map(r => r.storage_url)
-                .filter(u => u?.startsWith('http'));
-
-            if (fileUrls.length >= 3) {
-                pix4dJobId = await dispatchToPix4D(jobId, missionTitle, fileUrls);
-                if (pix4dJobId) {
-                    await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS pix4d_job_id TEXT`).catch(() => {});
-                    await query(`UPDATE upload_jobs SET pix4d_job_id = $1 WHERE id = $2`, [pix4dJobId, jobId]).catch(() => {});
-                }
-            }
-        } catch (e) {
-            logger.warn('[uploadProcessor] Pix4D step failed:', e.message);
-        }
-    }
-
-    // ── 3. Persist AI result & mark complete ──────────────────────────────────
+    // ── 2. Persist AI result & mark complete ──────────────────────────────────
     try {
         await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS ai_result JSONB`).catch(() => {});
         await query(`ALTER TABLE upload_jobs ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ`).catch(() => {});
@@ -326,15 +486,46 @@ export async function processUpload({
              WHERE id = $2`,
             [aiResult ? JSON.stringify(aiResult) : null, jobId]
         );
+
+        // ── Phase 1: The Data Flywheel (Save to training dataset) ─────────────
+        if (aiResult) {
+            const hasFaults = (aiResult.faults && aiResult.faults.length > 0) || 
+                              (aiResult.defects && aiResult.defects.length > 0) || 
+                              (aiResult.anomalies && aiResult.anomalies.length > 0);
+            
+            if (hasFaults && storageUrl) {
+                // Ensure table exists
+                await query(`
+                    CREATE TABLE IF NOT EXISTS training_data_flywheel (
+                        id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        mission_id          UUID NOT NULL,
+                        image_url           TEXT NOT NULL,
+                        upload_type         TEXT NOT NULL,
+                        detected_faults     JSONB NOT NULL,
+                        human_verified      BOOLEAN DEFAULT false,
+                        created_at          TIMESTAMPTZ DEFAULT NOW()
+                    )
+                `).catch(() => {});
+
+                // Log the finding into our proprietary dataset
+                await query(
+                    `INSERT INTO training_data_flywheel (mission_id, image_url, upload_type, detected_faults)
+                     VALUES ($1, $2, $3, $4)`,
+                    [missionId, storageUrl, uploadType, JSON.stringify(aiResult)]
+                ).catch(e => logger.warn('[uploadProcessor] Failed to save to training flywheel:', e.message));
+                
+                logger.info(`[Data Flywheel] Saved image ${fileName} to proprietary training dataset.`);
+            }
+        }
     } catch (e) {
         logger.warn('[uploadProcessor] DB update failed:', e.message);
         await query(`UPDATE upload_jobs SET status = 'failed', updated_at = NOW() WHERE id = $1`, [jobId]).catch(() => {});
     }
 
-    // ── 4. Real-time emit ─────────────────────────────────────────────────────
+    // ── 3. Real-time emit ─────────────────────────────────────────────────────
     emit(io, userId, 'upload:complete', {
         jobId, missionId, fileName, uploadType,
-        aiResult, pix4dJobId,
+        aiResult,
         processedAt: new Date().toISOString(),
     });
 

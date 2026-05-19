@@ -26,14 +26,18 @@ export const verifyPilotMissionOwnership = async (req, res, next) => {
             throw new AppError('Mission access denied', 403);
         }
 
-        // Check assignment via deployment_personnel (PostgreSQL path)
+        // Check assignment via deployment_personnel — match by email since personnel has no user_id column
+        const userEmail = req.user?.email;
+        const userName = req.user?.fullName || req.user?.full_name;
         const personnelCheck = await query(
-            `SELECT dp.id
-             FROM deployment_personnel dp
-             INNER JOIN personnel p ON p.id = dp.personnel_id
-             WHERE dp.deployment_id = $1 AND p.user_id = $2
+            `SELECT 1
+             FROM personnel p
+             LEFT JOIN deployment_personnel dp ON p.id = dp.personnel_id AND dp.deployment_id = $1
+             LEFT JOIN pilot_work_assignments pwa ON p.id = pwa.personnel_id AND pwa.deployment_id = $1
+             WHERE (LOWER(p.email) = LOWER($2) OR ($3::text IS NOT NULL AND LOWER(p.full_name) = LOWER($3::text)))
+               AND (dp.deployment_id IS NOT NULL OR pwa.deployment_id IS NOT NULL)
              LIMIT 1`,
-            [missionId, userId]
+            [missionId, userEmail || '', userName || null]
         );
 
         if (personnelCheck.rows.length > 0) {
@@ -57,7 +61,7 @@ export const verifyPilotMissionOwnership = async (req, res, next) => {
         }
 
         // Access denied — log to console and security_events table (Phase 12)
-        console.warn(`[PILOT-ISOLATION] UNAUTHORIZED ACCESS ATTEMPT: user=${userId} role=${role} missionId=${missionId} ip=${req.ip}`);
+        console.warn(`[PILOT-ISOLATION] UNAUTHORIZED ACCESS ATTEMPT: user=${userId} email=${userEmail} role=${role} missionId=${missionId} ip=${req.ip}`);
         await logSecurityEvent({
             userId,
             eventType: SECURITY_EVENTS.UNAUTHORIZED_MISSION_ACCESS,

@@ -143,7 +143,7 @@ import { sendInvoiceEmail, sendAdminSummaryEmail, isMockTransporter } from '../s
 export const sendDeploymentInvoices = async (req, res) => {
     try {
         const { id: deploymentId } = req.params;
-        const { personnelIds, sendToPilots = true, adminNote } = req.body;
+        const { personnelIds, sendToPilots = true, adminNote, emailSubject, emailBody } = req.body;
 
         let queryText = `SELECT 
                 dl.technician_id,
@@ -269,7 +269,9 @@ export const sendDeploymentInvoices = async (req, res) => {
                     link,
                     parseFloat(summary.total_pay),
                     adminEmail, // CC
-                    adminNote || null // Note
+                    adminNote || null, // Note
+                    emailSubject || null, // Custom subject
+                    emailBody || null // Custom body template
                 );
             }
 
@@ -584,7 +586,7 @@ export const generatePartialInvoice = async (req, res) => {
  */
 export const getAllInvoices = async (req, res) => {
     try {
-        const { status, limit = 100, offset = 0 } = req.query;
+        const { status, search, limit = 100, offset = 0 } = req.query;
         const tenantId = req.user.tenantId;
         const params = [tenantId];
         let q = `SELECT i.id, i.amount, i.status, i.created_at, i.payment_days, i.token,
@@ -595,12 +597,26 @@ export const getAllInvoices = async (req, res) => {
                  JOIN personnel p ON i.personnel_id = p.id
                  WHERE d.tenant_id = $1`;
         if (status) { q += ` AND i.status = $${params.length + 1}`; params.push(status); }
+        // Search: match invoice ID prefix (invoice number), pilot name, or mission title
+        if (search && search.trim()) {
+            const s = `%${search.trim().toLowerCase()}%`;
+            q += ` AND (LOWER(CAST(i.id AS TEXT)) LIKE $${params.length + 1}
+                        OR LOWER(p.full_name) LIKE $${params.length + 1}
+                        OR LOWER(d.title) LIKE $${params.length + 1}
+                        OR LOWER(d.site_name) LIKE $${params.length + 1})`;
+            params.push(s);
+        }
         q += ` ORDER BY i.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(parseInt(limit), parseInt(offset));
         const result = await query(q, params);
         const countParams = [tenantId];
-        let countQ = 'SELECT COUNT(*) FROM invoices i JOIN deployments d ON i.deployment_id = d.id WHERE d.tenant_id = $1';
-        if (status) { countQ += ' AND i.status = $2'; countParams.push(status); }
+        let countQ = 'SELECT COUNT(*) FROM invoices i JOIN deployments d ON i.deployment_id = d.id JOIN personnel p ON i.personnel_id = p.id WHERE d.tenant_id = $1';
+        if (status) { countQ += ` AND i.status = $${countParams.length + 1}`; countParams.push(status); }
+        if (search && search.trim()) {
+            const s = `%${search.trim().toLowerCase()}%`;
+            countQ += ` AND (LOWER(CAST(i.id AS TEXT)) LIKE $${countParams.length + 1} OR LOWER(p.full_name) LIKE $${countParams.length + 1} OR LOWER(d.title) LIKE $${countParams.length + 1} OR LOWER(d.site_name) LIKE $${countParams.length + 1})`;
+            countParams.push(s);
+        }
         const countRes = await query(countQ, countParams);
         res.json({ success: true, data: result.rows, total: parseInt(countRes.rows[0].count) });
     } catch (err) {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import apiClient from '../src/services/apiClient';
+import apiClient from '../services/apiClient';
 import { InspectionReport, UserAccount } from '../types';
 import {
     BarChart,

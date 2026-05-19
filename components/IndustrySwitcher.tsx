@@ -1,5 +1,5 @@
 import React from 'react';
-import { useIndustry } from '../src/context/IndustryContext';
+import { useIndustry } from '../context/IndustryContext';
 import { ChevronDown, Globe } from 'lucide-react';
 import { IndustryKey } from '../src/config/industryConfig';
 

@@ -281,3 +281,91 @@ export async function getSiteIntelligence(locationName, industry, lat, lng) {
         };
     }
 }
+
+/**
+ * Generate a professional pilot interest inquiry email body using Gemini AI.
+ * Context-aware: understands drone flight vs LBD scanning vs combined roles,
+ * includes pay rate, and adapts language to the specific industry.
+ *
+ * @param {object} mission - Mission data including payRate, personnelRole
+ * @returns {Promise<{ subject: string, body: string }>}
+ */
+export async function generateMissionInquiryEmail(mission) {
+    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+
+    // Admin's explicit job type toggle takes full priority over heuristic detection
+    const explicitRole = (mission.personnelRole || '').toLowerCase().trim();
+
+    let workTypeContext;
+    if (explicitRole === 'both') {
+        workTypeContext = 'COMBINED ROLE: This mission requires BOTH drone flight operations AND terrestrial LBD (Load Balance Disconnect) ground scanning. The technician must be prepared for aerial UAV data capture as well as physically walking the site rows with handheld scanning equipment to inspect individual load balance disconnect units, connectors, and junction boxes on solar panels or electrical infrastructure.';
+    } else if (explicitRole === 'lbd') {
+        workTypeContext = 'TERRESTRIAL GROUND SCAN ROLE (LBD): This is a ground-based scanning mission — NO drone flying required. The technician will walk the site on foot with handheld scanning equipment, inspecting individual Load Balance Disconnect (LBD) units row by row across the array. Tasks include scanning panel connectors, junction boxes, and string combiner boxes. This is ground work only.';
+    } else {
+        // Default: drone pilot / flying role
+        workTypeContext = 'DRONE FLIGHT / AERIAL INSPECTION ROLE: This is a drone piloting mission. The pilot will operate UAV aircraft to capture aerial imagery, thermal data, or survey footage of the site. Responsibilities include pre-flight checks, flight operations, data capture (RGB/thermal), and post-flight data handoff. Ground scanning is NOT required for this role.';
+    }
+
+    const payContext = mission.payRate
+        ? `COMPENSATION: The daily pay rate for this mission is $${Number(mission.payRate).toLocaleString()} per day.`
+        : 'COMPENSATION: Competitive daily rate — will be confirmed based on pilot profile and scope.';
+
+    const missionContext = [
+        `Title: ${mission.title}`,
+        mission.type       && `Mission Type: ${mission.type}`,
+        mission.industry   && `Industry Sector: ${mission.industry}`,
+        mission.siteName   && `Site Name: ${mission.siteName}`,
+        mission.clientName && `Client: ${mission.clientName}`,
+        mission.date       && `Scheduled Date: ${mission.date}`,
+        mission.location   && `Location / Coordinates: ${mission.location}`,
+        mission.estimatedDurationDays && `Estimated Duration: ${mission.estimatedDurationDays} day(s)`,
+        mission.notes      && `Admin Notes / Scope Details: ${mission.notes}`,
+    ].filter(Boolean).join('\n');
+
+    const prompt = `
+You are the operations coordinator for Axis Drone Platform, a professional enterprise UAV inspection and ground-survey company. We dispatch both drone pilots and ground technicians (LBD scanners) to client sites.
+
+Your task: Write a professional, warm, and specific interest inquiry email to send to a pilot or technician to ask if they are available and interested in an upcoming mission.
+
+─── MISSION DETAILS ───────────────────────────────────────
+${missionContext}
+
+─── WORK TYPE CONTEXT ─────────────────────────────────────
+${workTypeContext}
+
+─── COMPENSATION ──────────────────────────────────────────
+${payContext}
+
+─── WRITING INSTRUCTIONS ──────────────────────────────────
+1. Open with "Hi [Name]," — this will be personalized automatically.
+2. In 1–2 sentences, clearly explain WHAT TYPE OF WORK this is (flying a drone, scanning LBDs on the ground, or both). Be direct — pilots need to know immediately whether this requires them to fly or scan.
+3. Describe the site and industry context. Explain what they'll physically be doing at the site (e.g., "you'll be capturing thermal imagery of solar panels from the air" OR "you'll walk the solar array rows with a scanner inspecting individual LBD units").
+4. Mention the scheduled date and estimated duration.
+5. ALWAYS include the daily pay rate clearly (e.g., "The daily rate for this mission is $XXX/day" or "Compensation will be discussed based on scope" if no rate is set).
+6. Ask if they're available and interested — keep it concise, one clear ask.
+7. Keep tone: professional, direct, human — NOT corporate-robotic.
+8. DO NOT include a subject line, signature, or sign-off — those are added automatically.
+9. Maximum 4 short paragraphs.
+10. Return plain text ONLY — no markdown, no HTML, no bullet points.
+
+Also write a short email subject line (under 10 words) that clearly states it's a mission opportunity and the type of work.
+`.trim();
+
+    const result = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: 'OBJECT',
+                properties: {
+                    subject: { type: 'STRING', description: 'Short professional email subject line, under 10 words' },
+                    body:    { type: 'STRING', description: 'Plain-text email body only, no subject, no signature' },
+                },
+                required: ['subject', 'body'],
+            },
+        },
+    });
+
+    return JSON.parse(result.text || '{}');
+}

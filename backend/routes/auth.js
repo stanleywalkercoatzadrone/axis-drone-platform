@@ -6,6 +6,15 @@ import { protect } from '../middleware/auth.js';
 const router = express.Router();
 
 router.post('/register', register);
+
+// Public self-service signup for clients — no admin secret required
+router.post('/client-register', async (req, res, next) => {
+    req.body.role = 'client';          // force client role
+    req.body.adminSecret = undefined;  // no admin secret needed
+    req.body.isClientSelfSignup = true;
+    next();
+}, register);
+
 router.post('/login', login);
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);

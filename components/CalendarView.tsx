@@ -2,50 +2,50 @@ import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, MapPin, User, Calendar as CalendarIcon } from 'lucide-react';
 import { Deployment, DeploymentStatus } from '../types';
 
+interface PilotReport {
+    id: string;
+    date: string;
+    is_incident?: boolean;
+    incident_severity?: string;
+    pilot_name?: string;
+    technician_name?: string;
+}
+
 interface CalendarViewProps {
     deployments: Deployment[];
     onDeploymentClick?: (deployment: Deployment) => void;
     onDayClick?: (date: string) => void;
-    dailyReportsByDate?: Record<string, number>;
+    pilotReports?: PilotReport[];
 }
 
-const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentClick, onDayClick, dailyReportsByDate = {} }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentClick, onDayClick, pilotReports = [] }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const monthStart = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1), [currentDate]);
     const daysInMonth = useMemo(() => new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate(), [currentDate]);
-    const startDayOfWeek = monthStart.getDay(); // 0 = Sunday
+    const startDayOfWeek = monthStart.getDay();
 
-    const handlePrevMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-    };
-
-    const handleNextMonth = () => {
-        setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-    };
+    const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
 
     const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-    // Helper to check if a deployment is active on a specific day
     const getDeploymentsForDay = (day: number) => {
         const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
         targetDate.setHours(0, 0, 0, 0);
-
         return deployments.filter(d => {
-            const start = new Date(d.date);
-            start.setHours(0, 0, 0, 0);
-
-            // Allow for timezone offset issues by adding a buffer or just treating strings as local YYYY-MM-DD
-            // Better approach for "YYYY-MM-DD": split and create date
             const [y, m, dayStr] = d.date.split('-').map(Number);
             const deployStart = new Date(y, m - 1, dayStr);
-
-            const daysOnSite = d.daysOnSite || 1;
             const deployEnd = new Date(deployStart);
-            deployEnd.setDate(deployStart.getDate() + daysOnSite - 1);
-
+            deployEnd.setDate(deployStart.getDate() + (d.daysOnSite || 1) - 1);
             return targetDate >= deployStart && targetDate <= deployEnd;
         });
+    };
+
+    const getPilotReportsForDay = (day: number) => {
+        const dateStr = new Date(currentDate.getFullYear(), currentDate.getMonth(), day)
+            .toLocaleDateString('en-CA');
+        return pilotReports.filter(r => String(r.date).split('T')[0] === dateStr);
     };
 
     const getStatusColor = (status: DeploymentStatus) => {
@@ -61,17 +61,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
     const renderDays = () => {
         const days = [];
 
-        // Empty cells for previous month
         for (let i = 0; i < startDayOfWeek; i++) {
-            days.push(<div key={`empty-${i}`} className="bg-slate-50/50 min-h-[120px] border-b border-r border-slate-200"></div>);
+            days.push(<div key={`empty-${i}`} className="bg-slate-50/50 min-h-[120px] border-b border-r border-slate-200" />);
         }
 
-        // Days of current month
         for (let i = 1; i <= daysInMonth; i++) {
             const dayDeployments = getDeploymentsForDay(i);
+            const dayReports = getPilotReportsForDay(i);
             const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), i).toDateString();
+            const dateString = new Date(currentDate.getFullYear(), currentDate.getMonth(), i).toLocaleDateString('en-CA');
 
-            const dateString = new Date(currentDate.getFullYear(), currentDate.getMonth(), i).toLocaleDateString('en-CA'); // YYYY-MM-DD local
+            const hasIncident = dayReports.some(r => r.is_incident);
+            const hasReport = dayReports.length > 0;
 
             days.push(
                 <div
@@ -79,25 +80,30 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
                     onClick={() => onDayClick?.(dateString)}
                     className={`min-h-[120px] bg-white border-b border-r border-slate-200 p-2 group hover:bg-slate-50 transition-colors cursor-pointer ${isToday ? 'bg-blue-50/30' : ''}`}
                 >
-                    <div className="flex justify-between items-start mb-2">
+                    <div className="flex justify-between items-start mb-1">
                         <span className={`text-sm font-semibold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>
                             {i}
                         </span>
-                        {dayDeployments.length > 0 && (
-                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                                {dayDeployments.length}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                            {hasIncident && (
+                                <span title="Incident reported" className="w-2 h-2 rounded-full bg-red-500 ring-1 ring-red-300" />
+                            )}
+                            {hasReport && !hasIncident && (
+                                <span title="Field report submitted" className="w-2 h-2 rounded-full bg-violet-400" />
+                            )}
+                            {dayDeployments.length > 0 && (
+                                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                    {dayDeployments.length}
+                                </span>
+                            )}
+                        </div>
                     </div>
 
                     <div className="space-y-1.5">
                         {dayDeployments.map(d => (
                             <div
                                 key={d.id}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDeploymentClick?.(d);
-                                }}
+                                onClick={(e) => { e.stopPropagation(); onDeploymentClick?.(d); }}
                                 className={`text-[10px] p-1.5 rounded border ${getStatusColor(d.status)} shadow-sm cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-blue-400 transition-all`}
                             >
                                 <div className="font-semibold truncate flex items-center gap-1">
@@ -116,13 +122,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
                                 )}
                             </div>
                         ))}
-                        {/* Daily field report indicator */}
-                        {(dailyReportsByDate[dateString] ?? 0) > 0 && (
-                            <div className="flex items-center gap-1 mt-1.5">
-                                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-                                <span className="text-[9px] font-bold text-green-700">
-                                    {dailyReportsByDate[dateString]} Field Report{dailyReportsByDate[dateString] !== 1 ? 's' : ''}
-                                </span>
+                        {hasReport && (
+                            <div className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${hasIncident ? 'bg-red-50 text-red-600' : 'bg-violet-50 text-violet-600'}`}>
+                                {hasIncident ? '⚠' : '🤖'} {dayReports.length} report{dayReports.length > 1 ? 's' : ''}
                             </div>
                         )}
                     </div>
@@ -137,24 +139,22 @@ const CalendarView: React.FC<CalendarViewProps> = ({ deployments, onDeploymentCl
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in duration-500">
             {/* Calendar Header */}
             <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
-                <button
-                    onClick={handlePrevMonth}
-                    className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-slate-600 transition-all border border-transparent hover:border-slate-200"
-                >
+                <button onClick={handlePrevMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-slate-600 transition-all border border-transparent hover:border-slate-200">
                     <ChevronLeft className="w-5 h-5" />
                 </button>
-
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <CalendarIcon className="w-5 h-5 text-slate-500" />
                     {monthName}
                 </h2>
-
-                <button
-                    onClick={handleNextMonth}
-                    className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-slate-600 transition-all border border-transparent hover:border-slate-200"
-                >
+                <button onClick={handleNextMonth} className="p-2 hover:bg-white hover:shadow-sm rounded-lg text-slate-600 transition-all border border-transparent hover:border-slate-200">
                     <ChevronRight className="w-5 h-5" />
                 </button>
+            </div>
+
+            {/* Legend */}
+            <div className="px-6 py-2 border-b border-slate-100 bg-slate-50/30 flex items-center gap-5 text-[10px] text-slate-500 font-medium">
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-violet-400 inline-block" />Field Report</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Incident Reported</span>
             </div>
 
             {/* Days Header */}
