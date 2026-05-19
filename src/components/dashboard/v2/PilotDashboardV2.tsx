@@ -872,7 +872,6 @@ const MissionCard: React.FC<{
                             </div>
                         )}
                     </div>
-                    </div>
                     {/* Operational Protocols */}
                     <PilotProtocolsPanel missionId={mission.id} />
 
