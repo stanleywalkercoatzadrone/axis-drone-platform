@@ -2,29 +2,39 @@
    Axis UI Shell — antiGravity design system
    ========================================== */
 :root {
-  --bg0: #070A0F;
-  --bg1: #0B0F17;
-  --panel: rgba(255, 255, 255, 0.06);
-  --panel2: rgba(255, 255, 255, 0.08);
-  --stroke: rgba(255, 255, 255, 0.10);
+  /* Ultra-Premium Dark Mode Palette */
+  --bg0: #020617; /* tailwind slate-950 */
+  --bg1: #0f172a; /* tailwind slate-900 */
+  
+  /* Glassmorphism Panels */
+  --panel: rgba(15, 23, 42, 0.4);
+  --panel2: rgba(30, 41, 59, 0.6);
+  --stroke: rgba(148, 163, 184, 0.1);
+  --stroke-glow: rgba(56, 189, 248, 0.2);
 
-  --text0: #FFFFFF;
-  --text1: rgba(255, 255, 255, 0.72);
-  --muted: rgba(255, 255, 255, 0.56);
+  /* Typography */
+  --text0: #f8fafc; /* slate-50 */
+  --text1: #cbd5e1; /* slate-300 */
+  --muted: #64748b; /* slate-500 */
 
-  --brand: #60A5FA;
-  --brand2: #4F46E5;
-  --ok: #34D399;
-  --warn: #FBBF24;
+  /* Accents */
+  --brand: #38bdf8; /* sky-400 */
+  --brand2: #818cf8; /* indigo-400 */
+  --ok: #10b981; /* emerald-500 */
+  --warn: #f59e0b; /* amber-500 */
+  --danger: #ef4444; /* red-500 */
 
-  --shadow: 0 12px 40px rgba(0, 0, 0, .55);
-  --radius: 14px;
+  /* Shadows & Radius */
+  --shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+  --glow: 0 0 20px -5px rgba(56, 189, 248, 0.3);
+  --radius: 16px;
 
-  --space-xs: 6px;
-  --space-sm: 10px;
-  --space-md: 16px;
-  --space-lg: 22px;
-  --space-xl: 34px;
+  /* Spacing */
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 20px;
+  --space-lg: 28px;
+  --space-xl: 40px;
 }
 
 .ag *        { box-sizing: border-box; }
@@ -65,18 +75,18 @@
 /* ── Sidebar ───────────────────────────────────────────────────────────────── */
 .ag .ag-sidebar {
   border-right: 1px solid var(--stroke);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
-    var(--bg1);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
   width: 280px;
   min-width: 280px;
-  padding: 20px 16px;
+  padding: 24px 16px;
   overflow-y: auto;
   overflow-x: hidden;
   height: 100%;
-  transition: width 0.25s ease, min-width 0.25s ease, padding 0.25s ease;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1), padding 0.25s ease;
 }
 .ag .ag-sidebar.sidebar-collapsed {
   width: 52px !important;
@@ -88,20 +98,18 @@
   .ag .ag-sidebar.mobile-open { display: flex; } /* mobile: drawer override */
 }
 
-.ag .ag-logo         { display: flex; align-items: center; gap: 12px; padding: 0 var(--space-sm); }
+.ag .ag-logo         { display: flex; align-items: center; gap: 14px; padding: 0 var(--space-sm); }
 .ag .ag-logo-mark    {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background:
-    radial-gradient(16px 16px at 30% 30%, rgba(255, 255, 255, 0.35), transparent),
-    linear-gradient(180deg, rgba(96, 165, 250, 1), rgba(79, 70, 229, 1));
-  box-shadow: var(--shadow);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
 }
-.ag .ag-logo-title   { font-weight: 850; letter-spacing: .2px; line-height: 1.05; color: var(--text0); }
-.ag .ag-logo-sub     { font-size: 12px; color: var(--muted); font-weight: 600; }
+.ag .ag-logo-title   { font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; color: var(--text0); font-size: 15px; }
+.ag .ag-logo-sub     { font-size: 11px; color: var(--brand); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
 
 .ag .ag-nav          { margin-top: var(--space-lg); padding: 0 var(--space-sm); }
 .ag .ag-nav-group    { margin-bottom: var(--space-md); }
@@ -167,9 +175,10 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background:
-    radial-gradient(1200px 600px at 70% 0%, rgba(96, 165, 250, 0.14), transparent 55%),
-    var(--bg0);
+  background: var(--bg0);
+  background-image: 
+    radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.08), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(129, 140, 248, 0.08), transparent 25%);
 }
 
 
@@ -396,5 +405,16 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* ── Mobile Nav Bars ───────────────────────────────────────────────────────── */
+.ag-mobile-topbar { display: none !important; }
+.ag-mobile-bottombar { display: none !important; }
+.ag-content-mobile-padding { padding-top: 0; padding-bottom: 0; }
+
+@media (max-width: 900px) {
+  .ag-mobile-topbar { display: flex !important; }
+  .ag-mobile-bottombar { display: flex !important; }
+  .ag-content-mobile-padding { padding-top: 56px !important; padding-bottom: 64px !important; }
 }
 

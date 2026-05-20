@@ -10,8 +10,9 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box
+  Map as MapIcon, Box, Globe
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 // ── Per-view error boundary — isolates crashes without killing the shell nav ──
 interface EBState { hasError: boolean; error?: Error }
@@ -54,107 +55,124 @@ import { useAuth } from './context/AuthContext';
 import { useIndustry } from './context/IndustryContext';
 
 // ── Existing view components ────────────────────────────────────────────────
-import DeploymentTracker from './components/DeploymentTracker';
+import DeploymentTracker from './src/components/DeploymentTracker';
 import { MissionControl } from './src/components/dashboard/MissionControl';
 import { SessionsView } from './src/components/dashboard/SessionsView';
 import { MissionTimelineView } from './src/components/dashboard/MissionTimelineView';
 import { useCountry } from './context/CountryContext';
 import { isoToFlag } from './src/utils/countryFlag';
-import WeatherDashboard from './components/WeatherDashboard';
+import WeatherDashboard from './src/components/WeatherDashboard';
+import { InvoicesDashboard } from './src/components/dashboard/InvoicesDashboard';
 import { ThermalFaultsView } from './src/components/dashboard/ThermalFaultsView';
 import { SolarCommandCenter } from './src/components/dashboard/SolarCommandCenter';
-import SystemAIView from './components/SystemAIView';
-import Pix4DView from './components/Pix4DView';
-import OrthomosaicView from './components/OrthomosaicView';
-import UploadCenter from './components/UploadCenter';
-import AIUploadsAdmin from './components/AIUploadsAdmin';
-import PersonnelTracker from './components/PersonnelTracker';
+import SystemAIView from './src/components/SystemAIView';
+import UploadCenter from './src/components/UploadCenter';
+import AIUploadsAdmin from './src/components/AIUploadsAdmin';
+import PersonnelTracker from './src/components/PersonnelTracker';
 import { PilotPerformanceView } from './src/components/dashboard/PilotPerformanceView';
-import ClientList from './components/ClientList';
-import ClientDetail from './components/ClientDetail';
-import SettingsView from './components/SettingsView';
-import UserManagement from './components/UserManagement';
-import WorkItemsDashboard from './components/WorkItemsDashboard';
-import MyWorkItems from './components/MyWorkItems';
-import { InvoicesDashboard } from './src/components/dashboard/InvoicesDashboard';
-import { VendorExpensesDashboard } from './src/components/dashboard/VendorExpensesDashboard';
-import { RevenueDashboard } from './src/components/dashboard/RevenueDashboard';
-import OperationalProtocolsView from './components/OperationalProtocolsView';
-import MediaGallery from './components/MediaGallery';
-import OrgOnboardingView from './components/OrgOnboardingView';
+import ClientList from './src/components/ClientList';
+import ClientDetail from './src/components/ClientDetail';
+import SettingsView from './src/components/SettingsView';
+import UserManagement from './src/components/UserManagement';
+import WorkItemsDashboard from './src/components/WorkItemsDashboard';
+import MyWorkItems from './src/components/MyWorkItems';
+import OperationalProtocolsView from './src/components/OperationalProtocolsView';
+import MediaGallery from './src/components/MediaGallery';
+import OrgOnboardingView from './src/components/OrgOnboardingView';
 import MissionIntelligenceWorkspace from './src/pages/MissionIntelligenceWorkspace';
-import IndustryReportsHub from './modules/ai-reporting/IndustryReportsHub';
+import IntelligenceHub from './src/components/IntelligenceHub';
+import ExpensesView from './src/components/ExpensesView';
+import PilotPayrollView from './src/components/PilotPayrollView';
+import PilotApplications from './src/components/PilotApplications';
+import { PilotNetworkAdmin } from './src/components/PilotNetworkAdmin';
+import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
-  | 'dashboard' | 'sessions' | 'mission-timeline' | 'weather' | 'upload-center'
-  | 'thermal-faults' | 'solar-command' | 'ai-studio' | 'pix4d'
+  | 'dashboard' | 'weather'
+  | 'intelligence' | 'mission-intelligence'
   | 'pilot-directory' | 'performance'
+  | 'payroll' | 'vendor-expenses'
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
-  | 'invoices' | 'vendor-expenses' | 'revenue'
-  | 'media' | 'ai-uploads' | 'orthomosaic'
-  | 'mission-intelligence' | 'reports';
+  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction';
 
-type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType };
+type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
 
 // ── Navigation definition ───────────────────────────────────────────────────
 const NAV: NavGroup[] = [
   {
-    title: 'Operations',
+    title: 'nav.operations',
     items: [
-      { key: 'dashboard',               label: 'Mission Terminal' },
-      { key: 'sessions',                label: 'Sessions' },
-      { key: 'mission-timeline',        label: 'Mission Timeline' },
-      { key: 'weather',                 label: 'Weather' },
+      { key: 'dashboard',  label: 'nav.missionTerminal' },
+      { key: 'weather',    label: 'nav.weather' },
     ],
   },
   {
-    title: 'Intelligence',
+    title: 'nav.intelligenceGroup',
     items: [
-      { key: 'mission-intelligence',     label: 'Intelligence Hub', icon: BrainCircuit },
-      { key: 'reports',          label: 'Enterprise Reports', icon: Box },
-      { key: 'thermal-faults',   label: 'Thermal Analysis', icon: Thermometer },
-      { key: 'solar-command',    label: 'Solar Command',    icon: Sun },
+      { key: 'intelligence',         label: 'nav.intelligence', icon: BrainCircuit },
+      { key: 'mission-intelligence', label: 'nav.missionIntelligence', icon: BrainCircuit },
+      // { key: 'construction',         label: 'Construction Monitoring', icon: Building },
     ],
   },
   {
-    title: 'Pilots',
+    title: 'nav.pilots',
     items: [
-      { key: 'pilot-directory',  label: 'Pilot Directory' },
-      { key: 'performance',      label: 'Performance' },
+      { key: 'pilot-network-admin',  label: 'Pilot Applications' },
+      { key: 'pilot-directory',      label: 'nav.pilotRoster' },
+      { key: 'performance',          label: 'nav.performance' },
     ],
   },
   {
-    title: 'Finance',
+    title: 'nav.pilotUploads',
     items: [
-      { key: 'invoices',         label: 'Invoices' },
-      { key: 'vendor-expenses',  label: 'Vendor Expenses' },
-      { key: 'revenue',          label: 'Revenue' },
+      { key: 'uploads', label: 'nav.pilotUploadsLabel' },
+      { key: 'media',   label: 'nav.mediaGallery' },
     ],
   },
   {
-    title: 'Settings',
+    title: 'nav.finance',
     items: [
-      { key: 'clients',          label: 'Clients' },
-      { key: 'org-onboarding',   label: 'Onboard Organization' },
-      { key: 'user-iam',         label: 'User IAM' },
-      { key: 'neural-ai',        label: 'Neural AI' },
-      { key: 'protocol-lists',   label: 'Operational Protocols' },
-      { key: 'checklist-items',  label: 'My Checklist Items' },
-      { key: 'system-settings',  label: 'System Settings' },
+      { key: 'payroll',         label: 'nav.pilotPayroll',   adminOnly: true },
+      { key: 'vendor-expenses', label: 'nav.expenses',         adminOnly: true },
+    ],
+  },
+  {
+    title: 'nav.settings',
+    items: [
+      { key: 'clients',         label: 'nav.clients' },
+      { key: 'org-onboarding',  label: 'nav.onboardOrg' },
+      { key: 'user-iam',        label: 'nav.userIAM' },
+      { key: 'neural-ai',       label: 'nav.neuralAI' },
+      { key: 'protocol-lists',  label: 'nav.operationalProtocols', adminOnly: true },
+      { key: 'checklist-items', label: 'nav.myChecklist' },
+      { key: 'system-settings', label: 'nav.systemSettings' },
     ],
   },
 ];
 
-// ── Mobile bottom tabs (5 primary sections) ─────────────────────────────────
+// ── Mobile bottom tabs ───────────────────────────────────────────────────────
 const MOBILE_TABS: { key: NavKey; label: string; Icon: React.FC<{ size?: number; style?: React.CSSProperties }> }[] = [
-  { key: 'dashboard',       label: 'Home',    Icon: LayoutDashboard },
-  { key: 'sessions',        label: 'Sessions',Icon: Radar },
-  { key: 'pilot-directory', label: 'Pilots',  Icon: Users },
-  { key: 'clients',         label: 'Clients', Icon: Building },
-  { key: 'media',           label: 'Media',   Icon: ImageIcon },
+  { key: 'dashboard',       label: 'Home',         Icon: LayoutDashboard },
+  { key: 'intelligence',    label: 'Intelligence', Icon: BrainCircuit },
+  { key: 'pilot-directory', label: 'Pilots',       Icon: Users },
+  { key: 'clients',         label: 'Clients',      Icon: Building },
+  { key: 'media',           label: 'Media',        Icon: ImageIcon },
+];
+
+const LANGUAGES = [
+  { code:'en', label:'English', flag:'🇺🇸' },
+  { code:'es', label:'Español', flag:'🇲🇽' },
+  { code:'pt', label:'Português', flag:'🇧🇷' },
+  { code:'fr', label:'Français', flag:'🇫🇷' },
+  { code:'de', label:'Deutsch', flag:'🇩🇪' },
+  { code:'ja', label:'日本語', flag:'🇯🇵' },
+  { code:'zh', label:'中文', flag:'🇨🇳' },
+  { code:'ar', label:'العربية', flag:'🇸🇦' },
+  { code:'hi', label:'हिंदी', flag:'🇮🇳' },
+  { code:'ko', label:'한국어', flag:'🇰🇷' },
 ];
 
 function cn(...parts: (string | false | null | undefined)[]) {
@@ -163,14 +181,31 @@ function cn(...parts: (string | false | null | undefined)[]) {
 
 // ── AppShell ────────────────────────────────────────────────────────────────
 export default function AppShell() {
+  const { t, i18n } = useTranslation();
+  const isRTL = i18n.language === 'ar';
   const { user, logout } = useAuth();
   const { tLabel } = useIndustry();
   const { countries, activeCountryId, setActiveCountryId, activeCountry } = useCountry();
+  const userRole = (user?.role || '').toLowerCase();
+  const userIsAdmin = userRole.includes('admin') || userRole.includes('superadmin');
+  const [langOpen, setLangOpen] = useState(false);
 
   const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
   const countryDropdownRef = React.useRef<HTMLDivElement>(null);
 
-  const [activeKey, setActiveKey]       = useState<NavKey>('dashboard');
+  const [activeKey, setActiveKey] = useState<NavKey>(() => {
+    const saved = localStorage.getItem('axis_active_nav');
+    const validKeys: NavKey[] = [
+      'dashboard', 'weather', 'media',
+      'intelligence', 'mission-intelligence',
+      'pilot-directory', 'performance',
+      'payroll', 'vendor-expenses',
+      'clients', 'org-onboarding', 'system-settings',
+      'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
+      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction'
+    ];
+    return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
+  });
   const [clientFilter, setClientFilter] = useState('All Clients');
   const [site, setSite]                 = useState('All Sites');
   const [search, setSearch]             = useState('');
@@ -192,6 +227,7 @@ export default function AppShell() {
 
   const navigate = (key: NavKey) => {
     setActiveKey(key);
+    localStorage.setItem('axis_active_nav', key);
     setMobileDrawerOpen(false);
     if (key !== 'clients') setSelectedClientId(null);
   };
@@ -199,7 +235,7 @@ export default function AppShell() {
   const handleCountrySelect = (id: string | null) => {
     setActiveCountryId(id);
     setIsCountryDropdownOpen(false);
-    navigate('dashboard');
+    // Stay on current view — country is a filter, not a nav action
   };
 
   // Close dropdown on outside click
@@ -214,20 +250,18 @@ export default function AppShell() {
   }, []);
 
   const pageLabel: Record<NavKey, string> = {
-    'upload-center':         'Upload Center',
-    'ai-uploads':            'AI Uploads Monitor',
-    'media':                 'Media Gallery',
     'dashboard':             'Mission Terminal',
-    'mission-intelligence':  'Mission Intelligence',
-    'reports':               'Enterprise Reports',
-    'sessions':              'Sessions',
-    'mission-timeline':      'Mission Timeline',
     'weather':               'Weather',
-    'thermal-faults':        'Thermal Faults',
-    'solar-command':         'Solar Command',
-    'ai-studio':             'AI Studio',
-    'pilot-directory':       'Pilot Directory',
+    'media':                 'Media Gallery',
+    'uploads':               'Pilot Uploads',
+    'pilot-applications':    'Pilot Applications',
+    'pilot-network-admin':   'Pilot Network Applications',
+    'intelligence':          'AI Intelligence Hub',
+    'mission-intelligence':  'Mission Intelligence',
+    'pilot-directory':       'Pilot Roster',
     'performance':           'Performance',
+    'payroll':               'Pilot Payroll',
+    'vendor-expenses':       'Vendor & Expenses',
     'clients':               'Clients',
     'org-onboarding':        'Onboard Organization',
     'system-settings':       'System Settings',
@@ -235,49 +269,42 @@ export default function AppShell() {
     'neural-ai':             'Neural AI',
     'protocol-lists':        'Operational Protocols',
     'checklist-items':       'My Checklist Items',
-    'invoices':              'Invoices',
-    'vendor-expenses':       'Vendor Expenses',
-    'revenue':               'Revenue',
-    'pix4d':                 '3D Engine',
-    'orthomosaic':           'Orthomosaic Processing',
+    'construction':          'Construction Monitoring',
   };
 
   function renderView() {
     switch (activeKey) {
+      case 'dashboard':            return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
+      case 'weather':              return <WeatherDashboard />;
+      case 'construction':         return <ConstructionDashboard />;
+      case 'media':                return <MediaGallery />;
+      case 'intelligence':         return <IntelligenceHub />;
       case 'mission-intelligence': return <MissionIntelligenceWorkspace />;
-      case 'reports':              return <IndustryReportsHub />;
-      case 'upload-center':  return <UploadCenter />;  /* deprecated — kept for deep links */
-      case 'ai-uploads':      return <AIUploadsAdmin />;  /* deprecated — kept for deep links */
-      case 'media':           return <MediaGallery />;
-      case 'dashboard':        return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
-      case 'sessions':         return <SessionsView />;
-      case 'mission-timeline': return <MissionTimelineView />;
-      case 'weather':          return <WeatherDashboard />;
-      case 'thermal-faults':   return <ThermalFaultsView />;
-      case 'solar-command':    return <SolarCommandCenter />;
-      case 'ai-studio':        return <SystemAIView />;
-      case 'pix4d':            return <Pix4DView />;
-      case 'orthomosaic':      return <OrthomosaicView />;
-
-      case 'neural-ai':
-        return (
-          <div style={{ padding: '2rem', color: '#94a3b8', textAlign: 'center', marginTop: '4rem' }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Neural AI</p>
-            <p style={{ fontSize: 12, color: '#64748b' }}>Neural inference module — coming soon. Use AI Studio for current AI analysis.</p>
-          </div>
-        );
-      case 'pilot-directory':  return <PersonnelTracker />;
-      case 'performance':      return <PilotPerformanceView />;
+      case 'pilot-directory':      return <PersonnelTracker />;
+      case 'performance':          return <PilotPerformanceView />;
+      case 'payroll':              return <PilotPayrollView />;
+      case 'vendor-expenses':      return <ExpensesView />;
+      case 'pilot-applications':   return <PilotApplications />;
+      case 'pilot-network-admin':  return <PilotNetworkAdmin />;
+      case 'uploads':             return <AIUploadsAdmin />;
+      case 'neural-ai':         return <SystemAIView />;
       case 'clients':
         if (selectedClientId) {
           return <ClientDetail clientId={selectedClientId} onBack={() => setSelectedClientId(null)} />;
         }
         return <ClientList onSelectClient={handleClientSelect} />;
       case 'org-onboarding':   return <OrgOnboardingView />;
-      case 'invoices':         return <InvoicesDashboard />;
-      case 'vendor-expenses':  return <VendorExpensesDashboard />;
-      case 'revenue':          return <RevenueDashboard />;
-      case 'protocol-lists':   return <OperationalProtocolsView />;
+      case 'protocol-lists':
+        if (!userIsAdmin) return (
+          <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 6 }}>Admin Access Required</p>
+            <p style={{ fontSize: 12, color: '#64748b', maxWidth: 280, margin: '0 auto' }}>
+              Managing operational protocols is restricted to admin users.
+            </p>
+          </div>
+        );
+        return <OperationalProtocolsView />;
       case 'checklist-items':  return <MyWorkItems />;
       case 'system-settings':  return <SettingsView />;
       case 'user-iam':         return <UserManagement />;
@@ -307,11 +334,10 @@ export default function AppShell() {
       <a href="#ag-main" className="ag-skip">Skip to content</a>
 
       {/* ── Mobile top bar ────────────────────────────────── */}
-      <div style={{
-        display: isPWA ? 'flex' : 'none',
+      <div className="ag-mobile-topbar" style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: 56,
         alignItems: 'center', padding: '0 16px', gap: 12,
-        background: '#0f172a', borderBottom: '1px solid #1e293b'
+        background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.05)'
       }}>
         {/* Hamburger — opens full nav drawer */}
         <button
@@ -372,10 +398,9 @@ export default function AppShell() {
       </div>
 
       {/* ── Mobile bottom tab bar (pilot-style) ─────────────────────────── */}
-      <nav style={{
-        display: isPWA ? 'flex' : 'none',
+      <nav className="ag-mobile-bottombar" style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: '#0f172a', borderTop: '1px solid #1e293b'
+        background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.05)'
       }}>
         {MOBILE_TABS.map(({ key, label, Icon }) => {
           const isActive = activeKey === key;
@@ -416,7 +441,7 @@ export default function AppShell() {
             onClick={e => e.stopPropagation()}
             style={{
               position: 'absolute', top: 0, left: 0, bottom: 0, width: 280,
-              background: '#0f172a', borderRight: '1px solid #1e293b',
+              background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(24px)', borderRight: '1px solid rgba(255,255,255,0.05)',
               overflowY: 'auto', display: 'flex', flexDirection: 'column',
               animation: 'slideInLeft 0.2s ease'
             }}
@@ -578,15 +603,15 @@ export default function AppShell() {
           {/* Nav — collapsed shows icon dots, expanded shows full labels */}
           {sidebarCollapsed ? (
             <nav style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', paddingTop: 4 }}>
-              {NAV.flatMap(g => g.items).map((item) => {
+              {NAV.flatMap(g => g.items).filter(item => !item.adminOnly || userIsAdmin).map((item) => {
                 const isActive = item.key === activeKey;
                 const Icon = (item as any).icon;
                 return (
                   <button
                     key={item.key}
                     onClick={() => navigate(item.key as NavKey)}
-                    title={item.label}
-                    aria-label={item.label}
+                    title={t(item.label)}
+                    aria-label={t(item.label)}
                     aria-current={isActive ? 'page' : undefined}
                     style={{
                       width: '100%', height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -606,9 +631,9 @@ export default function AppShell() {
             <nav className="ag-nav">
               {NAV.map((group) => (
                 <div key={group.title} className="ag-nav-group">
-                  <div className="ag-nav-title">{group.title}</div>
-                  <div className="ag-nav-list" role="group" aria-label={group.title}>
-                    {group.items.map((item) => {
+                  <div className="ag-nav-title">{t(group.title)}</div>
+                  <div className="ag-nav-list" role="group" aria-label={t(group.title)}>
+                    {group.items.filter(item => !item.adminOnly || userIsAdmin).map((item) => {
                       const isActive = item.key === activeKey;
                       return (
                         <button
@@ -619,7 +644,7 @@ export default function AppShell() {
                         >
                           <span className="ag-nav-left">
                             <span className={cn('ag-nav-dot', isActive && 'ag-nav-dot-active')} aria-hidden="true" />
-                            {item.label}
+                            {t(item.label)}
                           </span>
                           {item.badge && <span className="ag-badge">{item.badge}</span>}
                         </button>
@@ -631,9 +656,53 @@ export default function AppShell() {
             </nav>
           )}
 
-          {/* User footer */}
+          {/* User footer + Language picker */}
           {!sidebarCollapsed && (
             <div style={{ marginTop: 'auto', paddingTop: 'var(--space-lg)', borderTop: '1px solid var(--stroke)' }}>
+              {/* Language selector */}
+              <div style={{ padding: '0 var(--space-sm)', marginBottom: 10, position: 'relative' }}>
+                <button
+                  onClick={() => setLangOpen(o => !o)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '7px 10px', background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.09)', borderRadius: 8,
+                    color: '#94a3b8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                    textTransform: 'uppercase', letterSpacing: '0.08em'
+                  }}
+                >
+                  <Globe size={12} />
+                  {LANGUAGES.find(l => l.code === i18n.language)?.flag || '🌐'}&nbsp;
+                  {LANGUAGES.find(l => l.code === i18n.language)?.label || 'Language'}
+                  <span style={{ marginLeft: 'auto', fontSize: 9, opacity: 0.5 }}>▾</span>
+                </button>
+                {langOpen && (
+                  <div style={{
+                    position: 'absolute', bottom: '100%', left: 0, right: 0,
+                    background: 'rgba(30, 41, 59, 0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+                    overflow: 'hidden', zIndex: 100, marginBottom: 4,
+                    boxShadow: '0 -8px 24px rgba(0,0,0,0.4)'
+                  }}>
+                    {LANGUAGES.map(lang => (
+                      <button
+                        key={lang.code}
+                        onClick={() => { i18n.changeLanguage(lang.code); setLangOpen(false); localStorage.setItem('i18nextLng', lang.code); }}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '8px 12px', background: i18n.language === lang.code ? 'rgba(96,165,250,0.12)' : 'none',
+                          border: 'none', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                          color: i18n.language === lang.code ? '#60a5fa' : '#94a3b8',
+                          fontSize: 12, fontWeight: i18n.language === lang.code ? 700 : 500,
+                          cursor: 'pointer', textAlign: 'left'
+                        }}
+                      >
+                        <span>{lang.flag}</span> {lang.label}
+                        {i18n.language === lang.code && <span style={{ marginLeft: 'auto', fontSize: 10 }}>✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 var(--space-sm)' }}>
                 <div style={{ fontSize: 13, color: 'var(--text1)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {user?.email || 'Admin'}
@@ -641,8 +710,8 @@ export default function AppShell() {
                 <button
                   className="ag-icon-btn"
                   onClick={logout}
-                  aria-label="Log out"
-                  title="Log out"
+                  aria-label={t('common.logOut')}
+                  title={t('common.logOut')}
                   style={{ width: 32, height: 32, borderRadius: 8 }}
                 >
                   <LogOut size={14} />
@@ -653,14 +722,14 @@ export default function AppShell() {
         </aside>
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        <div className="ag-main">
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100">
           {/* Desktop topbar REMOVED from browser — page title bar below provides context */}
 
 
           {/* Page content — add top/bottom padding on mobile for bars */}
 
 
-          <main id="ag-main" className={`ag-content ${isPWA ? 'pt-14 pb-16 md:pt-0 md:pb-0' : ''}`} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <main id="ag-main" className="ag-content ag-content-mobile-padding" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             <div className="ag-content-inner">
               {renderContent()}
             </div>

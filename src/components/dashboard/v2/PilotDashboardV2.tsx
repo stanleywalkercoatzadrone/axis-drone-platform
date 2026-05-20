@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import apiClient from '../../../services/apiClient';
 import PilotProtocolsPanel from './PilotProtocolsPanel';
-import LBDDocumentGrid from '../../../../components/LBDDocumentGrid';
+import LBDDocumentGrid from '../../../components/LBDDocumentGrid';
 
 interface AssignedMission {
     id: string;
@@ -684,7 +684,7 @@ const MissionCard: React.FC<{
 
             {/* Expanded: Weather Panel + Mission Actions */}
             {expanded && (
-                <div className="border-t border-slate-700/60 bg-slate-900/80 px-5 py-4 space-y-4">
+                <div className="border-t border-slate-700/60 bg-slate-900/60 backdrop-blur-xl px-5 py-4 space-y-4">
                     {/* Expanded: Full Weather Panel — always shown */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -850,21 +850,21 @@ const MissionCard: React.FC<{
                         )}
                     </div>
                     {/* Assigned Work — Block Grid (replaces static LBD list) */}
-                    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl overflow-hidden">
                         <div 
-                            className="flex items-center justify-between p-3 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
+                            className="flex items-center justify-between p-3 bg-slate-800/60 cursor-pointer hover:bg-slate-700/60 transition-colors"
                             onClick={() => setIsGridCollapsed(!isGridCollapsed)}
                         >
                             <div className="flex items-center gap-2">
-                                <Grid3X3 className="w-4 h-4 text-orange-500" />
-                                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Block Grid</h4>
+                                <Grid3X3 className="w-4 h-4 text-orange-400" />
+                                <h4 className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Block Grid</h4>
                             </div>
-                            <button className="text-slate-400 hover:text-slate-600">
+                            <button className="text-[10px] uppercase font-bold tracking-widest text-slate-400 hover:text-slate-300">
                                 {isGridCollapsed ? 'Expand' : 'Collapse'}
                             </button>
                         </div>
                         {!isGridCollapsed && (
-                            <div className="p-4 border-t border-slate-100">
+                            <div className="p-4 border-t border-slate-700/60">
                                 <LBDDocumentGrid
                                     deploymentId={mission.id}
                                     userRole="pilot_technician"
@@ -877,7 +877,7 @@ const MissionCard: React.FC<{
 
                     <div>
                         <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Mission Actions</h4>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {/* Download KML */}
                         <button
                             onClick={handleKMLDownload}
@@ -912,7 +912,7 @@ const MissionCard: React.FC<{
                                 <FolderUp className="w-3.5 h-3.5" />
                                 {uploading ? 'Uploading...' : 'Upload Folder'}
                                 <input
-                                    type="file" webkitdirectory="" directory="" className="hidden"
+                                    type="file" {...({ webkitdirectory: "", directory: "" } as any)} className="hidden"
                                     disabled={uploading}
                                     onChange={handleUpload}
                                 />
@@ -1013,7 +1013,7 @@ const PilotCompliancePanel: React.FC = () => {
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl overflow-hidden shadow-sm">
+            <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl overflow-hidden shadow-sm">
                 <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <Banknote className="w-4 h-4 text-emerald-400" />
@@ -1055,7 +1055,7 @@ const PilotCompliancePanel: React.FC = () => {
                 </div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-700/60 rounded-xl overflow-hidden shadow-sm flex flex-col">
+            <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl overflow-hidden shadow-sm flex flex-col">
                 <div className="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-violet-400" />
@@ -1167,7 +1167,6 @@ const SubmittedReportsModal: React.FC<{
         </div>
     );
 };
-
 const PilotDashboardV2: React.FC = () => {
     const { user } = useAuth();
     const [missions, setMissions] = useState<AssignedMission[]>([]);
@@ -1215,7 +1214,7 @@ const PilotDashboardV2: React.FC = () => {
     return (
         <div className="min-h-screen bg-slate-950 pb-32 pt-14 md:pt-0 md:pb-24">
             {/* Header — matches admin dashboard page header style */}
-            <div className="bg-slate-900 border-b border-slate-700 px-6 py-5 shadow-2xl">
+            <div className="bg-slate-900/60 backdrop-blur-xl border-b border-slate-700/60 px-4 md:px-6 py-4 md:py-5 shadow-2xl">
                 <div className="flex items-center justify-between max-w-5xl mx-auto">
                     <div>
                         <div className="flex items-center gap-2 mb-1">
@@ -1253,7 +1252,7 @@ const PilotDashboardV2: React.FC = () => {
                     </div>
 
                     {missions.length === 0 ? (
-                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-10 text-center">
+                        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl p-10 text-center shadow-lg">
                             <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3">
                                 <CheckSquare className="w-6 h-6 text-slate-300" />
                             </div>
@@ -1285,7 +1284,7 @@ const PilotDashboardV2: React.FC = () => {
                     </div>
 
                     {perf ? (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {[
                                 { label: 'Total Assigned', value: perf.totalMissionsAssigned.toString(), icon: <Activity className="w-4 h-4" />, accent: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
                                 { label: 'Completed', value: perf.missionsCompleted.toString(), icon: <CheckCircle className="w-4 h-4" />, accent: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
@@ -1294,7 +1293,7 @@ const PilotDashboardV2: React.FC = () => {
                                 { label: 'Avg Daily Rate', value: perf.avgDailyCompletionRate > 0 ? `${perf.avgDailyCompletionRate}%` : '–', icon: <TrendingUp className="w-4 h-4" />, accent: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
                                 { label: 'Active Days', value: perf.totalActiveDays.toString(), icon: <Calendar className="w-4 h-4" />, accent: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
                             ].map(stat => (
-                                <div key={stat.label} className="bg-slate-900/80 border border-slate-700 rounded-xl p-4 shadow-sm">
+                                <div key={stat.label} className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl p-4 shadow-sm hover:border-sky-500/30 transition-colors">
                                     <div className={`inline-flex items-center gap-1.5 mb-3 px-2 py-1 rounded-lg ${stat.bg} border ${stat.border}`}>
                                         <span className={stat.accent}>{stat.icon}</span>
                                         <span className={`text-[9px] font-bold uppercase tracking-widest ${stat.accent}`}>{stat.label}</span>
@@ -1304,7 +1303,7 @@ const PilotDashboardV2: React.FC = () => {
                             ))}
                         </div>
                     ) : (
-                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-8 text-centerow-sm">
+                        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl p-8 text-center shadow-sm">
                             <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3">
                                 <BarChart3 className="w-6 h-6 text-slate-300" />
                             </div>
