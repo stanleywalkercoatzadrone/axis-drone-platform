@@ -50,7 +50,7 @@ import pilotMetricsRoutes from './routes/pilotMetrics.js';          // Pilot Per
 import missionsRoutes from './routes/missions.js';                   // RBAC Mission Management
 import lbdRoutes from './routes/lbd.js';                             // LBD Defect Tracking
 import clientPortalRoutes from './routes/clientPortal.js';           // Client Portal Scoped Views
-import vendorExpensesRoutes from './routes/vendorExpenses.js';        // Vendor & Expenses Ledger
+import vendorExpensesRoutes from './routes/expenses.js';        // Vendor & Expenses Ledger
 import migrationsRoutes from './routes/migrations.js';                // Emergency DB Migrations
 import aiRoutes from './routes/ai.js';                                // AI Bridge Routes
 import protocolRoutes from './routes/protocols.js';                   // Operational Protocols SOP library
