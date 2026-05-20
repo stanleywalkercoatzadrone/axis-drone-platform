@@ -55,36 +55,36 @@ import { useAuth } from './context/AuthContext';
 import { useIndustry } from './context/IndustryContext';
 
 // ── Existing view components ────────────────────────────────────────────────
-import DeploymentTracker from './components/DeploymentTracker';
+import DeploymentTracker from './src/components/DeploymentTracker';
 import { MissionControl } from './src/components/dashboard/MissionControl';
 import { SessionsView } from './src/components/dashboard/SessionsView';
 import { MissionTimelineView } from './src/components/dashboard/MissionTimelineView';
 import { useCountry } from './context/CountryContext';
 import { isoToFlag } from './src/utils/countryFlag';
-import WeatherDashboard from './components/WeatherDashboard';
+import WeatherDashboard from './src/components/WeatherDashboard';
 import { InvoicesDashboard } from './src/components/dashboard/InvoicesDashboard';
 import { ThermalFaultsView } from './src/components/dashboard/ThermalFaultsView';
 import { SolarCommandCenter } from './src/components/dashboard/SolarCommandCenter';
-import SystemAIView from './components/SystemAIView';
-import UploadCenter from './components/UploadCenter';
-import AIUploadsAdmin from './components/AIUploadsAdmin';
-import PersonnelTracker from './components/PersonnelTracker';
+import SystemAIView from './src/components/SystemAIView';
+import UploadCenter from './src/components/UploadCenter';
+import AIUploadsAdmin from './src/components/AIUploadsAdmin';
+import PersonnelTracker from './src/components/PersonnelTracker';
 import { PilotPerformanceView } from './src/components/dashboard/PilotPerformanceView';
-import ClientList from './components/ClientList';
-import ClientDetail from './components/ClientDetail';
-import SettingsView from './components/SettingsView';
-import UserManagement from './components/UserManagement';
-import WorkItemsDashboard from './components/WorkItemsDashboard';
-import MyWorkItems from './components/MyWorkItems';
-import OperationalProtocolsView from './components/OperationalProtocolsView';
-import MediaGallery from './components/MediaGallery';
-import OrgOnboardingView from './components/OrgOnboardingView';
+import ClientList from './src/components/ClientList';
+import ClientDetail from './src/components/ClientDetail';
+import SettingsView from './src/components/SettingsView';
+import UserManagement from './src/components/UserManagement';
+import WorkItemsDashboard from './src/components/WorkItemsDashboard';
+import MyWorkItems from './src/components/MyWorkItems';
+import OperationalProtocolsView from './src/components/OperationalProtocolsView';
+import MediaGallery from './src/components/MediaGallery';
+import OrgOnboardingView from './src/components/OrgOnboardingView';
 import MissionIntelligenceWorkspace from './src/pages/MissionIntelligenceWorkspace';
-import IntelligenceHub from './components/IntelligenceHub';
-import ExpensesView from './components/ExpensesView';
-import PilotPayrollView from './components/PilotPayrollView';
-import PilotApplications from './components/PilotApplications';
-import { PilotNetworkAdmin } from './components/PilotNetworkAdmin';
+import IntelligenceHub from './src/components/IntelligenceHub';
+import ExpensesView from './src/components/ExpensesView';
+import PilotPayrollView from './src/components/PilotPayrollView';
+import PilotApplications from './src/components/PilotApplications';
+import { PilotNetworkAdmin } from './src/components/PilotNetworkAdmin';
 import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ const NAV: NavGroup[] = [
     items: [
       { key: 'intelligence',         label: 'nav.intelligence', icon: BrainCircuit },
       { key: 'mission-intelligence', label: 'nav.missionIntelligence', icon: BrainCircuit },
-      { key: 'construction',         label: 'Construction Monitoring', icon: Building },
+      // { key: 'construction',         label: 'Construction Monitoring', icon: Building },
     ],
   },
   {
@@ -334,11 +334,10 @@ export default function AppShell() {
       <a href="#ag-main" className="ag-skip">Skip to content</a>
 
       {/* ── Mobile top bar ────────────────────────────────── */}
-      <div style={{
-        display: isPWA ? 'flex' : 'none',
+      <div className="ag-mobile-topbar" style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50, height: 56,
         alignItems: 'center', padding: '0 16px', gap: 12,
-        background: '#0f172a', borderBottom: '1px solid #1e293b'
+        background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.05)'
       }}>
         {/* Hamburger — opens full nav drawer */}
         <button
@@ -399,10 +398,9 @@ export default function AppShell() {
       </div>
 
       {/* ── Mobile bottom tab bar (pilot-style) ─────────────────────────── */}
-      <nav style={{
-        display: isPWA ? 'flex' : 'none',
+      <nav className="ag-mobile-bottombar" style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: '#0f172a', borderTop: '1px solid #1e293b'
+        background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.05)'
       }}>
         {MOBILE_TABS.map(({ key, label, Icon }) => {
           const isActive = activeKey === key;
@@ -443,7 +441,7 @@ export default function AppShell() {
             onClick={e => e.stopPropagation()}
             style={{
               position: 'absolute', top: 0, left: 0, bottom: 0, width: 280,
-              background: '#0f172a', borderRight: '1px solid #1e293b',
+              background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(24px)', borderRight: '1px solid rgba(255,255,255,0.05)',
               overflowY: 'auto', display: 'flex', flexDirection: 'column',
               animation: 'slideInLeft 0.2s ease'
             }}
@@ -681,7 +679,7 @@ export default function AppShell() {
                 {langOpen && (
                   <div style={{
                     position: 'absolute', bottom: '100%', left: 0, right: 0,
-                    background: '#1e293b', border: '1px solid #334155', borderRadius: 10,
+                    background: 'rgba(30, 41, 59, 0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
                     overflow: 'hidden', zIndex: 100, marginBottom: 4,
                     boxShadow: '0 -8px 24px rgba(0,0,0,0.4)'
                   }}>
@@ -724,14 +722,14 @@ export default function AppShell() {
         </aside>
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        <div className="ag-main">
+        <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100">
           {/* Desktop topbar REMOVED from browser — page title bar below provides context */}
 
 
           {/* Page content — add top/bottom padding on mobile for bars */}
 
 
-          <main id="ag-main" className={`ag-content ${isPWA ? 'pt-14 pb-16 md:pt-0 md:pb-0' : ''}`} style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          <main id="ag-main" className="ag-content ag-content-mobile-padding" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             <div className="ag-content-inner">
               {renderContent()}
             </div>
