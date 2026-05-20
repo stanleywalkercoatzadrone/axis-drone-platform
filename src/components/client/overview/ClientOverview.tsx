@@ -5,7 +5,7 @@ import {
     ChevronRight, Clock, Zap, BrainCircuit, FileText,
     ArrowRight, Flame, ShieldCheck, Info,
 } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
+import apiClient from '../../../../services/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { WeatherWidget } from '../../widgets/WeatherWidget';
 

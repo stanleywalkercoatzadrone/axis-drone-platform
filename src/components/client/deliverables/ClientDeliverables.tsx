@@ -2,8 +2,24 @@ import React, { useState, useEffect } from 'react';
 import {
     Download, Box, FileText, Image, ExternalLink,
     Loader2, CheckCircle, Package, AlertCircle,
+    Flame, AlertTriangle, ShieldAlert, BrainCircuit, Eye
 } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
+import apiClient from '../../../../services/apiClient';
+
+interface AIReportData {
+    riskLevel?: 'critical' | 'high' | 'medium' | 'low';
+    totalIssues?: number;
+    riskScore?: number;
+    maxTempDelta?: number;
+    summary?: string;
+}
+
+const RISK_STYLES: Record<string, string> = {
+    critical: 'bg-red-500/20 text-red-400 border-red-500/30',
+    high: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    low: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+};
 
 interface Deliverable {
     id: string; project_id: string; project_name: string;

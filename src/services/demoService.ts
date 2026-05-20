@@ -1,4 +1,4 @@
-import { UserAccount, UserRole, InspectionReport, Industry, ReportTheme, Severity } from '../../types';
+import { UserAccount, UserRole, InspectionReport, Industry, ReportTheme, Severity } from '../types';
 
 export const initializeDemoSession = async (): Promise<UserAccount> => {
     return new Promise((resolve) => {

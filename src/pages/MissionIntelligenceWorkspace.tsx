@@ -10,7 +10,7 @@
 import React, { useState } from 'react';
 import { Layers, BrainCircuit, Upload, Map, ChevronRight, ChevronLeft, Activity, Box } from 'lucide-react';
 import MissionUploadEngine from '../components/MissionUploadEngine';
-import SystemAIView from '../../components/SystemAIView';
+import SystemAIView from '../components/SystemAIView';
 
 import IndustryReportsHub from '../../modules/ai-reporting/IndustryReportsHub';
 

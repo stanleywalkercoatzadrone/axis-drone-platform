@@ -12,8 +12,8 @@ import {
     Wind, Sun, Cloud, CloudLightning, Zap, Eye,
     AlertTriangle, Activity, Radio,
 } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
-import LBDDocumentGrid from '../../../../components/LBDDocumentGrid';
+import apiClient from '../../../../services/apiClient';
+import LBDDocumentGrid from '../../../components/LBDDocumentGrid';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Mission {

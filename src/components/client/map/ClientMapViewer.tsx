@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Map, Loader2, Image, ChevronLeft, ChevronRight, X, MapPin, Calendar, ExternalLink } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
+import apiClient from '../../../../services/apiClient';
 
 interface MediaFile {
     id: string; name: string; url: string; type: string;

@@ -6,7 +6,7 @@ import { NeedsAttentionWidget } from '../widgets/NeedsAttentionWidget';
 import { UploadBatchesWidget } from '../widgets/UploadBatchesWidget';
 import { DetailsDrawer } from '../layout/DetailsDrawer';
 import { ArrowRight, AlertTriangle, Activity, Clock } from 'lucide-react';
-import GeographicCoverage from '../../../components/GeographicCoverage';
+import GeographicCoverage from '../../components/GeographicCoverage';
 import { WeatherWidget } from '../widgets/WeatherWidget';
 
 export const MissionControl: React.FC = () => {

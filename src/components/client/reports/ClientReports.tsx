@@ -4,8 +4,8 @@ import {
     ShieldAlert, Eye, Calendar, MapPin, Download, FileText,
     ChevronRight, Zap, CheckCircle, Clock,
 } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
-import { AIReportViewer, AIReportData } from '../../../../components/AIReportPage';
+import apiClient from '../../../../services/apiClient';
+import { AIReportViewer, AIReportData } from '../../../components/AIReportPage';
 
 interface AIReportRow {
     id: string;

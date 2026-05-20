@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../../src/context/AuthContext';
-import { useGlobalContext } from '../../../src/context/GlobalContext';
+import { useAuth } from '../../../context/AuthContext';
+import { useGlobalContext } from '../../../context/GlobalContext';
 import {
     LayoutDashboard,
     Download,

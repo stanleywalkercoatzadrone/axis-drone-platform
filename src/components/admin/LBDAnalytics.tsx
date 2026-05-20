@@ -3,7 +3,7 @@ import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { BarChart3, AlertTriangle, CheckCircle, Clock, Loader2, RefreshCw, Database } from 'lucide-react';
-import apiClient from '../../../src/services/apiClient';
+import apiClient from '../../../services/apiClient';
 
 interface AnalyticsData {
     statusCounts: { status: string; count: number }[];

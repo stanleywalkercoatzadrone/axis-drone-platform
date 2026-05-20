@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import apiClient from '../../../src/services/apiClient';
+import apiClient from '../../../services/apiClient';
 
 interface MissionFormData {
     mission_name: string; site: string; project_id: string;

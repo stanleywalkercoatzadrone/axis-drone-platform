@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     AlertTriangle, CheckCircle, Clock, Search, Loader2, BarChart3, Filter
 } from 'lucide-react';
-import apiClient from '../../../../src/services/apiClient';
+import apiClient from '../../../../services/apiClient';
 
 interface LBDIssue {
     id: string; block: string | null; row: string | null;

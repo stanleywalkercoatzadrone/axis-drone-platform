@@ -104,7 +104,7 @@ export const InvoicesDashboard: React.FC = () => {
                                     {card.icon}
                                 </div>
                                 <div>
-                                    <Text size="xs" className="text-slate-400 uppercase tracking-wider">{card.label}</Text>
+                                    <Text className="text-[10px] text-slate-400 uppercase tracking-wider">{card.label}</Text>
                                     <div style={{ fontSize: 22, fontWeight: 800, color: '#f8fafc', marginTop: 2 }}>{card.value}</div>
                                 </div>
                             </div>
@@ -155,17 +155,17 @@ export const InvoicesDashboard: React.FC = () => {
                     {loading ? (
                         <div style={{ padding: '60px 0', textAlign: 'center', color: '#64748b' }}>
                             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-3" />
-                            <Text size="sm">Loading invoices…</Text>
+                            <Text className="text-sm">Loading invoices…</Text>
                         </div>
                     ) : error ? (
                         <div style={{ padding: '60px 0', textAlign: 'center', color: '#ef4444' }}>
                             <AlertCircle className="w-6 h-6 mx-auto mb-3" />
-                            <Text size="sm">{error}</Text>
+                            <Text className="text-sm">{error}</Text>
                         </div>
                     ) : invoices.length === 0 ? (
                         <div style={{ padding: '60px 0', textAlign: 'center', color: '#64748b' }}>
                             <FileText className="w-8 h-8 mx-auto mb-3 opacity-30" />
-                            <Text size="sm">No invoices found</Text>
+                            <Text className="text-sm">No invoices found</Text>
                         </div>
                     ) : (
                         <div>
@@ -188,7 +188,7 @@ export const InvoicesDashboard: React.FC = () => {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         {statusIcon(inv.status)}
-                                        <Badge variant={statusBadge(inv.status)} size="sm">{inv.status}</Badge>
+                                        <Badge variant={statusBadge(inv.status)}>{inv.status}</Badge>
                                     </div>
                                     <div style={{ fontSize: 11, color: '#64748b' }}>
                                         {new Date(inv.created_at).toLocaleDateString()}

@@ -350,6 +350,7 @@ function UploadPane({
     const [lbdBlock, setLbdBlock] = useState('');
     const [missionFolder, setMissionFolder] = useState('');
     const [datasetId, setDatasetId] = useState<string | null>(null);
+    const [processingSpeed, setProcessingSpeed] = useState<'standard' | 'lightning'>('standard');
     const cancelRef = React.useRef(false);
 
     const currentType = types.find(t => t.key === activeType)!;
@@ -413,6 +414,7 @@ function UploadPane({
             const jobRes = await apiClient.post('/pilot/upload-jobs', {
                 missionId,
                 uploadType: activeType,
+                processingSpeed: activeType === 'orthomosaic' ? processingSpeed : undefined,
                 ...(isLBD    && { lbdBlock:       lbdBlock.trim() }),
                 ...(isAerial && { missionFolder:  missionFolder.trim() }),
             });
@@ -481,6 +483,46 @@ function UploadPane({
             </div>
 
             <p className="text-[11px] text-slate-500">{currentType.description}</p>
+
+            {/* Lightning Mode Toggle for Orthomosaic */}
+            {activeType === 'orthomosaic' && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col gap-2">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Processing Speed
+                    </label>
+                    <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+                        <button
+                            onClick={() => setProcessingSpeed('standard')}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${
+                                processingSpeed === 'standard'
+                                    ? 'bg-slate-800 text-white shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            Standard (Survey-Grade)
+                        </button>
+                        <button
+                            onClick={() => setProcessingSpeed('lightning')}
+                            className={`flex-1 py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition-all ${
+                                processingSpeed === 'lightning'
+                                    ? 'bg-amber-600 text-white shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-300'
+                            }`}
+                        >
+                            <Rocket size={12} /> Lightning (Same-Day)
+                        </button>
+                    </div>
+                    {processingSpeed === 'lightning' ? (
+                        <p className="text-[10px] text-amber-500/80">
+                            Lightning mode prioritizes speed over millimeter accuracy to guarantee a same-day cloud turnaround.
+                        </p>
+                    ) : (
+                        <p className="text-[10px] text-slate-500">
+                            Standard mode produces survey-grade quality but may take several hours to process.
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* Mission folder — shown for aerial (S3) uploads */}
             {isAerial && (
