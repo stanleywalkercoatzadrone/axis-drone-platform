@@ -3,7 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css'; // Global Styles
 import App from './App';
-import ErrorBoundary from './components/ErrorBoundary';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import { AuthProvider } from './context/AuthContext';
 import { GlobalProvider } from './src/context/GlobalContext';
 import './src/i18n'; // initialise i18next

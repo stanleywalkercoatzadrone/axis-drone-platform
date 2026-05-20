@@ -22,32 +22,32 @@ import {
   CheckSquare
 } from 'lucide-react';
 import { MissionControl } from './src/components/dashboard/MissionControl';
-import { PilotDashboard } from './components/dashboard/PilotDashboard';
+import { PilotDashboard } from './src/components/dashboard/PilotDashboard';
 import { WeatherWidget } from './src/components/widgets/WeatherWidget';
-import WeatherDashboard from './components/WeatherDashboard';
+import WeatherDashboard from './src/components/WeatherDashboard';
 import { UploadCenter } from './src/components/upload/UploadCenter';
-import Dashboard from './components/Dashboard'; // Archive view
-import ReportCreator from './components/ReportCreator';
-import SettingsView from './components/SettingsView';
-import Login from './components/Login';
-import PersonnelTracker from './components/PersonnelTracker';
-import AssetTracker from './components/AssetTracker';
-import DeploymentTracker from './components/DeploymentTracker';
-import ReportingSuite from './components/ReportingSuite';
-import InvoiceView from './components/InvoiceView';
-import OnboardingPortal from './components/OnboardingPortal';
+import Dashboard from './src/components/Dashboard'; // Archive view
+import ReportCreator from './src/components/ReportCreator';
+import SettingsView from './src/components/SettingsView';
+import Login from './src/components/Login';
+import PersonnelTracker from './src/components/PersonnelTracker';
+import AssetTracker from './src/components/AssetTracker';
+import DeploymentTracker from './src/components/DeploymentTracker';
+import ReportingSuite from './src/components/ReportingSuite';
+import InvoiceView from './src/components/InvoiceView';
+import OnboardingPortal from './src/components/OnboardingPortal';
 import CandidateUploadPortal from './src/components/CandidateUploadPortal';
-import UserManagement from './components/UserManagement';
-import SetPassword from './components/SetPassword';
-import ForcePasswordReset from './components/ForcePasswordReset';
-import SystemAIView from './components/SystemAIView';
-import WorkItemsDashboard from './components/WorkItemsDashboard';
-import MyWorkItems from './components/MyWorkItems';
-import { PilotFiles } from './components/PilotFiles';
-import ClientList from './components/ClientList';
-import ClientDetail from './components/ClientDetail';
-import AssetDashboard from './components/AssetGrid/AssetDashboard';
-import AssetGrid from './components/AssetGrid/AssetGrid';
+import UserManagement from './src/components/UserManagement';
+import SetPassword from './src/components/SetPassword';
+import ForcePasswordReset from './src/components/ForcePasswordReset';
+import SystemAIView from './src/components/SystemAIView';
+import WorkItemsDashboard from './src/components/WorkItemsDashboard';
+import MyWorkItems from './src/components/MyWorkItems';
+import { PilotFiles } from './src/components/PilotFiles';
+import ClientList from './src/components/ClientList';
+import ClientDetail from './src/components/ClientDetail';
+import AssetDashboard from './src/components/AssetGrid/AssetDashboard';
+import AssetGrid from './src/components/AssetGrid/AssetGrid';
 
 // Solar Intelligence Dashboards
 import { ThermalFaultDashboard } from './src/components/client/ThermalFaultDashboard';
@@ -64,18 +64,18 @@ import { SolarCommandCenter } from './src/components/dashboard/SolarCommandCente
 import { PilotPerformanceView } from './src/components/dashboard/PilotPerformanceView';
 
 
-import OnboardingStart from './components/onboarding/OnboardingStart';
-import OnboardingSetup from './components/onboarding/OnboardingSetup';
-import OnboardingStep1 from './components/onboarding/OnboardingStep1';
-import OnboardingStep2 from './components/onboarding/OnboardingStep2';
+import OnboardingStart from './src/components/onboarding/OnboardingStart';
+import OnboardingSetup from './src/components/onboarding/OnboardingSetup';
+import OnboardingStep1 from './src/components/onboarding/OnboardingStep1';
+import OnboardingStep2 from './src/components/onboarding/OnboardingStep2';
 
-import { Industry, InspectionReport, UserAccount, UserRole } from './types';
+import { Industry, InspectionReport, UserAccount, UserRole } from './src/types';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { IndustryProvider, useIndustry } from './context/IndustryContext';
 import { MissionProvider } from './src/context/MissionContext';
 import { GlobalProvider } from './src/context/GlobalContext';
 import { CountryProvider } from './context/CountryContext';
-import IndustrySwitcher from './components/IndustrySwitcher';
+import IndustrySwitcher from './src/components/IndustrySwitcher';
 import { isAdmin, isPilot, isClient, isInHouse } from './src/utils/roleUtils';
 
 // PRODUCTION DIRECTIVE V2 - STRICT PILOT COMPONENTS
@@ -85,12 +85,12 @@ import PilotWeatherV2 from './src/components/dashboard/v2/PilotWeatherV2';
 import PilotIssuesV2 from './src/components/dashboard/v2/PilotIssuesV2';
 import PilotChecklistV2 from './src/components/dashboard/v2/PilotChecklistV2';
 import PilotNavV2 from './src/components/layout/v2/PilotNavV2';
-import AIUploadCenter from './components/UploadCenter';
+import AIUploadCenter from './src/components/UploadCenter';
 import PilotComplianceView from './src/components/dashboard/v2/PilotComplianceView';
 import ClientApp from './src/components/client/ClientApp';
 import { usePilotLocale } from './src/hooks/usePilotLocale';
-import ClientSignup from './components/ClientSignup';
-import PilotNetworkApply from './components/PilotNetworkApply';
+import ClientSignup from './src/components/ClientSignup';
+import PilotNetworkApply from './src/components/PilotNetworkApply';
 
 import apiClient from './services/apiClient';
 import { RequireRole } from './src/components/auth/RequireRole';
