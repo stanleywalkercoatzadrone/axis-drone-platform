@@ -767,7 +767,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
     const [emailBody, setEmailBody] = useState('');
     const [emailModalTab, setEmailModalTab] = useState<'preview' | 'edit'>('preview');
 
-    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'assignments' | 'checklist' | 'ai-reports' | 'weather' | 'axis-intel' | 'forecast' | 'sessions' | 'solar' | 'thermal' | 'field-reports' | 'orthomosaic' | 'interest-inquiry' | 'blocks'>('logs');
+    const [activeModalTab, setActiveModalTab] = useState<'logs' | 'files' | 'financials' | 'team' | 'site-assets' | 'assignments' | 'checklist' | 'ai-reports' | 'weather' | 'axis-intel' | 'forecast' | 'sessions' | 'solar' | 'thermal' | 'field-reports' | 'orthomosaic' | 'blocks'>('logs');
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
     const [generatedLink, setGeneratedLink] = useState<string | null>(null);
@@ -2684,17 +2684,7 @@ If you have any questions, please reach out to operations.`;
                                                 </div>
                                             </button>
                                         )}
-                                        {isAdmin(user) && (
-                                            <button
-                                                onClick={() => setActiveModalTab('interest-inquiry')}
-                                                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeModalTab === 'interest-inquiry' ? 'border-violet-500 text-violet-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <Mail className="w-4 h-4" />
-                                                    Interest Inquiry
-                                                </div>
-                                            </button>
-                                        )}
+
                                         {/* Block Grid — visible to admin + pilots */}
                                         <button
                                             onClick={() => setActiveModalTab('blocks')}
@@ -3967,8 +3957,6 @@ If you have any questions, please reach out to operations.`;
                                             </div>
                                         )}
                                     </div>
-                                ) : activeModalTab === 'interest-inquiry' && isAdmin(user) ? (
-                                    <InterestInquiryPanel deployment={selectedDeployment} personnel={personnel} />
                                 ) : (
                                     <div className="p-6 flex items-center justify-center text-slate-500">
                                         Select a tab to view details

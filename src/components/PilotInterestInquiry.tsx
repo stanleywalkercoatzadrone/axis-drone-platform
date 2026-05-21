@@ -39,8 +39,21 @@ const MissionSelector: React.FC<{
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        apiClient.get('/deployments?limit=100&status=scheduled,active,review')
-            .then(r => setDeployments(r.data?.data || r.data?.deployments || []))
+        // Fetch all missions — the API only supports a single status value
+        // so we load all and display them sorted by date (newest first)
+        apiClient.get('/deployments')
+            .then(r => {
+                const all: Deployment[] = r.data?.data || r.data?.deployments || [];
+                // Sort: active/scheduled first, then by date descending
+                const priority = ['Active', 'Scheduled', 'Review', 'Draft'];
+                all.sort((a, b) => {
+                    const ai = priority.indexOf(a.status || '');
+                    const bi = priority.indexOf(b.status || '');
+                    if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                    return (b.date || '').localeCompare(a.date || '');
+                });
+                setDeployments(all);
+            })
             .catch(() => setDeployments([]))
             .finally(() => setLoading(false));
     }, []);
