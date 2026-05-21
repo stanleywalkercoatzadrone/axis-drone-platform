@@ -562,7 +562,7 @@ const SettingsView: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex gap-8">
+      <div className="flex gap-8 min-h-0">
         <div className="w-64 space-y-1 shrink-0">
           {[
             { id: 'profile', label: 'My Profile', icon: User },
