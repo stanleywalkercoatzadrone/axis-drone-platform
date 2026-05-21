@@ -244,10 +244,15 @@ export default function AppShell() {
         border-right: 1px solid rgba(255,255,255,0.06) !important;
       }
 
-      /* All panels — apply backdrop blur over background color via !important */
-      div[class*="bg-slate-900"], div[class*="bg-slate-800"],
-      section[class*="bg-slate-900"], section[class*="bg-slate-800"],
-      form[class*="bg-slate-900"], form[class*="bg-slate-800"] {
+      /* All panels — apply backdrop blur only to top-level panels, not deeply nested divs */
+      .ag-content > div > div[class*="bg-slate-900"],
+      .ag-content > div > div[class*="bg-slate-800"],
+      .ag-content > div[class*="bg-slate-900"],
+      .ag-content > div[class*="bg-slate-800"],
+      .ag-content-inner > div[class*="bg-slate-900"],
+      .ag-content-inner > div[class*="bg-slate-800"],
+      .ag-content-inner > section[class*="bg-slate-900"],
+      .ag-content-inner > section[class*="bg-slate-800"] {
         backdrop-filter: blur(20px) !important;
         -webkit-backdrop-filter: blur(20px) !important;
         box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.04) !important;

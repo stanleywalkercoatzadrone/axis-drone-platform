@@ -240,6 +240,7 @@
 }
 .ag .ag-content-inner {
   padding: var(--space-lg);
+  padding-bottom: calc(var(--space-lg) + 40px); /* extra breathing room at bottom */
 }
 
 /* ── Badges ────────────────────────────────────────────────────────────────── */
