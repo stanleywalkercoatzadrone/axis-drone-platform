@@ -123,104 +123,110 @@ const Login: React.FC<LoginProps> = ({ onLogin, defaultMode = 'signin' }) => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex overflow-hidden font-sans">
+    <div className="min-h-screen flex overflow-hidden font-sans" style={{ background: '#020617' }}>
       {/* Visual Side Panel */}
-      <div className="hidden lg:flex lg:w-1/2 bg-slate-900 relative p-20 flex-col justify-between overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-600 blur-[120px] rounded-full animate-pulse" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600 blur-[100px] rounded-full animate-pulse delay-700" />
-        </div>
+      <div className="hidden lg:flex lg:w-1/2 relative p-20 flex-col justify-between overflow-hidden" style={{ background: 'rgba(15,23,42,0.8)', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+        {/* Ambient glow orbs */}
+        <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full pointer-events-none" style={{ background: 'rgba(14,165,233,0.18)', filter: 'blur(120px)' }} />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full pointer-events-none" style={{ background: 'rgba(99,102,241,0.15)', filter: 'blur(100px)' }} />
+
         <div className="relative z-10">
-          <div className="flex items-center gap-4 mb-16 animate-in slide-in-from-top duration-700">
-            <div className="bg-blue-600 p-3 rounded-2xl shadow-2xl shadow-blue-500/30">
+          <div className="flex items-center gap-4 mb-16" style={{ animation: 'fadeIn 0.7s ease' }}>
+            <div className="p-3 rounded-2xl" style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)', boxShadow: '0 0 40px rgba(37,99,235,0.4)' }}>
               <Layout className="w-8 h-8 text-white" />
             </div>
             <div>
               <h1 className="text-3xl font-black text-white tracking-tighter uppercase leading-none">Axis</h1>
-              <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] mt-2">by CoatzadroneUSA</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] mt-2" style={{ color: '#38bdf8' }}>by CoatzadroneUSA</p>
             </div>
           </div>
           <h2 className="text-6xl font-black text-white leading-[1.05] tracking-tighter max-w-md">
-            The Standard in <span className="text-blue-500">Aerial Audit</span> Intelligence.
+            The Standard in <span style={{ color: '#3b82f6' }}>Aerial Audit</span> Intelligence.
           </h2>
         </div>
+
         <div className="relative z-10 space-y-4">
-          <div className="flex items-center gap-3 text-white/60 text-[10px] font-black uppercase tracking-widest">
-            <ShieldCheck className="w-5 h-5 text-blue-500" /> End-to-End Vaulting
+          <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <ShieldCheck className="w-5 h-5" style={{ color: '#3b82f6' }} /> End-to-End Vaulting
           </div>
-          <div className="flex items-center gap-3 text-white/60 text-[10px] font-black uppercase tracking-widest">
-            <Zap className="w-5 h-5 text-indigo-500" /> Neural Edge Inference
+          <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <Zap className="w-5 h-5" style={{ color: '#818cf8' }} /> Neural Edge Inference
           </div>
         </div>
       </div>
 
       {/* Identity Forms */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50/50 overflow-y-auto">
-        <div className="w-full max-w-md space-y-8 py-12 animate-in fade-in zoom-in duration-700">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 overflow-y-auto" style={{ background: 'rgba(2,6,23,0.6)' }}>
+        <div className="w-full max-w-md space-y-8 py-12">
           <div className="text-center lg:text-left mb-6">
-            <h3 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-none">
+            <h3 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">
               {mode === 'signin' ? 'Secure Portal' : 'Fleet Registration'}
             </h3>
-            <p className="text-slate-500 mt-3 font-medium uppercase text-[10px] tracking-widest opacity-60">
+            <p className="mt-3 font-medium uppercase text-[10px] tracking-widest" style={{ color: 'rgba(148,163,184,0.6)' }}>
               {mode === 'signin' ? 'Verify your system access credentials.' : 'Initialize your authorized corporate identity profile.'}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'signup' && (
-              <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-xl space-y-5 mb-6 animate-in slide-in-from-right-4 duration-500">
-                <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <UserPlus className="w-4 h-4 text-blue-600" />
+              <div className="p-6 rounded-[2rem] space-y-5 mb-6" style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
+                <div className="flex items-center gap-3 pb-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(37,99,235,0.2)' }}>
+                    <UserPlus className="w-4 h-4" style={{ color: '#60a5fa' }} />
                   </div>
-                  <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Enterprise Profile Data</span>
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Enterprise Profile Data</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" className="block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm" />
+                    <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Full Name</label>
+                    <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe"
+                      className="block w-full px-4 py-3 rounded-xl font-bold text-white text-sm outline-none transition-all"
+                      style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.08)', color: 'white' }} />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Company Entity</label>
-                    <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nexus Grid" className="block w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm" />
+                    <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Company Entity</label>
+                    <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Nexus Grid"
+                      className="block w-full px-4 py-3 rounded-xl font-bold text-white text-sm outline-none transition-all"
+                      style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.08)' }} />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Clearance Tier</label>
+                  <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Clearance Tier</label>
                   <div className="relative">
-                    <select
-                      value={role}
-                      onChange={(e) => setRole(e.target.value as UserRole)}
-                      className="block w-full appearance-none px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm"
-                    >
-                      {Object.values(UserRole).map(r => <option key={r} value={r}>{r}</option>)}
+                    <select value={role} onChange={(e) => setRole(e.target.value as UserRole)}
+                      className="block w-full appearance-none px-4 py-3 rounded-xl font-bold text-white text-sm outline-none transition-all"
+                      style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      {Object.values(UserRole).map(r => <option key={r} value={r} style={{ background: '#0f172a' }}>{r}</option>)}
                     </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style={{ color: '#64748b' }} />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Designation</label>
-                  <div className="relative"><Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="text" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Audit Lead" className="block w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm" />
+                  <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Designation</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#64748b' }} />
+                    <input type="text" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Audit Lead"
+                      className="block w-full pl-10 pr-4 py-3 rounded-xl font-bold text-white text-sm outline-none transition-all"
+                      style={{ background: 'rgba(30,41,59,0.6)', border: '1px solid rgba(255,255,255,0.08)' }} />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>
                     {role === UserRole.ADMIN ? 'Master Admin Passkey' : 'Master Access Token'}
                   </label>
                   <div className="relative">
-                    <Key className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 ${role === UserRole.ADMIN ? 'text-blue-500' : 'text-slate-400'}`} />
+                    <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: role === UserRole.ADMIN ? '#60a5fa' : '#64748b' }} />
                     <input
                       type={role === UserRole.ADMIN ? 'password' : 'text'}
                       value={accessToken}
                       onChange={(e) => setAccessToken(e.target.value)}
                       placeholder={role === UserRole.ADMIN ? '••••••••' : 'SKL-AUTH-V4'}
-                      className={`block w-full pl-10 pr-4 py-3 bg-slate-50 border ${role === UserRole.ADMIN ? 'border-blue-200' : 'border-slate-200'} rounded-xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all text-sm`}
-                    />
+                      className="block w-full pl-10 pr-4 py-3 rounded-xl font-bold text-white text-sm outline-none transition-all"
+                      style={{ background: 'rgba(30,41,59,0.6)', border: `1px solid ${role === UserRole.ADMIN ? 'rgba(96,165,250,0.3)' : 'rgba(255,255,255,0.08)'}` }} />
                   </div>
                 </div>
               </div>
@@ -228,54 +234,79 @@ const Login: React.FC<LoginProps> = ({ onLogin, defaultMode = 'signin' }) => {
 
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Identity</label>
-                <div className="relative group"><Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="email" value={email || ''} onChange={(e) => setEmail(e.target.value)} placeholder="operator@axis.ai" className="block w-full pl-10 pr-4 py-4 bg-white border border-slate-200 rounded-2xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" />
+                <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Email Identity</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#64748b' }} />
+                  <input type="email" value={email || ''} onChange={(e) => setEmail(e.target.value)} placeholder="operator@axis.ai"
+                    className="block w-full pl-10 pr-4 py-4 rounded-2xl font-bold text-white outline-none transition-all"
+                    style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(255,255,255,0.08)' }} />
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Access Passphrase</label>
-                <div className="relative group"><Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="password" value={password || ''} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="block w-full pl-10 pr-4 py-4 bg-white border border-slate-200 rounded-2xl font-bold text-slate-900 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all" />
+                <label className="text-[9px] font-black uppercase tracking-widest ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Access Passphrase</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#64748b' }} />
+                  <input type="password" value={password || ''} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
+                    className="block w-full pl-10 pr-4 py-4 rounded-2xl font-bold text-white outline-none transition-all"
+                    style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid rgba(255,255,255,0.08)' }} />
                 </div>
               </div>
             </div>
 
-            {error && <div className="p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-red-100 flex items-center gap-3"><ShieldAlert className="w-4 h-4" /> {error}</div>}
+            {error && (
+              <div className="p-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3"
+                style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', color: '#f87171' }}>
+                <ShieldAlert className="w-4 h-4" /> {error}
+              </div>
+            )}
 
             <button
               type="submit"
               disabled={isLoading || isDemoLoading}
-              className="w-full bg-slate-900 text-white py-6 rounded-[2.25rem] font-black uppercase tracking-[0.2em] text-sm hover:bg-slate-800 transition-all shadow-2xl flex items-center justify-center gap-4 disabled:opacity-70 active:scale-95 mt-6 border-4 border-slate-900 hover:border-blue-600"
+              className="w-full py-6 rounded-[2.25rem] font-black uppercase tracking-[0.2em] text-sm transition-all flex items-center justify-center gap-4 disabled:opacity-70 active:scale-95 mt-6"
+              style={{ background: 'linear-gradient(135deg, #2563eb, #4f46e5)', color: 'white', boxShadow: '0 0 40px rgba(37,99,235,0.35)', border: '1px solid rgba(255,255,255,0.1)' }}
             >
               {isLoading ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
               ) : mode === 'signin' ? (
                 <>Enter Admin Portal <LogIn className="w-6 h-6" /></>
               ) : (
-                <>Confirm Registration & Access <CheckCircle2 className="w-6 h-6" /></>
+                <>Confirm Registration &amp; Access <CheckCircle2 className="w-6 h-6" /></>
               )}
             </button>
           </form>
 
           <div className="text-center pt-2">
-            <button onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }} className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em] hover:text-blue-700 transition-colors">
+            <button
+              onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
+              className="text-[10px] font-black uppercase tracking-[0.3em] transition-colors"
+              style={{ color: '#60a5fa' }}
+            >
               {mode === 'signin' ? 'Provision New Corporate Identity' : 'Existing Operator Sign In'}
             </button>
           </div>
 
           <div className="relative py-6">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200"></div></div>
-            <div className="relative flex justify-center text-[9px] uppercase font-black tracking-[0.5em] text-slate-400">
-              <span className="bg-slate-50/50 px-4">Evaluation Bridge</span>
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />
+            </div>
+            <div className="relative flex justify-center text-[9px] uppercase font-black tracking-[0.5em]" style={{ color: 'rgba(148,163,184,0.4)' }}>
+              <span className="px-4" style={{ background: 'rgba(2,6,23,0.6)' }}>Evaluation Bridge</span>
             </div>
           </div>
-          <button onClick={handleDemoAccess} disabled={isLoading || isDemoLoading} className="w-full flex items-center justify-center gap-4 py-4 border border-slate-200 rounded-2xl bg-white hover:bg-slate-50 transition-all text-[10px] font-black uppercase tracking-widest text-slate-600 shadow-sm disabled:opacity-50 active:scale-95 group">
-            {isDemoLoading ? <Loader2 className="w-4 h-4 animate-spin text-indigo-600" /> : <Globe className="w-4 h-4 text-indigo-600 group-hover:rotate-12 transition-transform" />} Launch Evaluation Sandbox
+
+          <button
+            onClick={handleDemoAccess}
+            disabled={isLoading || isDemoLoading}
+            className="w-full flex items-center justify-center gap-4 py-4 rounded-2xl transition-all text-[10px] font-black uppercase tracking-widest disabled:opacity-50 active:scale-95 group"
+            style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(148,163,184,0.8)' }}
+          >
+            {isDemoLoading
+              ? <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#818cf8' }} />
+              : <Globe className="w-4 h-4 group-hover:rotate-12 transition-transform" style={{ color: '#818cf8' }} />}
+            Launch Evaluation Sandbox
           </button>
-
-
         </div>
       </div>
     </div>

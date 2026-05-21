@@ -58,6 +58,7 @@ import tenantRoutes from './routes/tenants.js';                       // SaaS Te
 import subscriptionInvoiceRoutes from './routes/subscriptionInvoices.js'; // SaaS Client Billing
 import chunkedUploadRoutes from './routes/chunkedUploads.js';              // §6 Resumable Upload Routes
 import pilotNetworkRoutes from './routes/pilotNetwork.js';                // Pilot Network Applications (public /join form)
+import orthomosaicRoutes from './routes/orthomosaic.js';                  // Orthomosaic Photogrammetry Pipeline
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -228,6 +229,7 @@ app.use('/api/uploads', pilotUploadRoutes);             // Upload jobs alias
 app.use('/api/uploads', chunkedUploadRoutes);           // §6 Chunked upload endpoints (flag-gated)
 app.use('/api/client', clientReportsRoutes);             // Client AI reports
 app.use('/api/pilot-network', pilotNetworkRoutes);       // Pilot Network Applications (public apply + admin review)
+app.use('/api/orthomosaic', orthomosaicRoutes);          // Orthomosaic Photogrammetry Pipeline
 
 // ── /api/documents — global document query (by personnelId) ──────────────────
 // Called from: DocumentExplorer.tsx and compliance.ts with ?personnelId=X

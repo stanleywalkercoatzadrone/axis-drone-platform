@@ -27,12 +27,12 @@ try {
  * @returns {Promise<object>}
  */
 export async function runOrthomosaic(imageSet, onProgress) {
-    const { datasetId, missionId, files, localTmpDir, gcsProcessedPrefix } = imageSet;
+    const { jobId, missionId, files, localTmpDir, gcsProcessedPrefix, fastMode = false } = imageSet;
     if (!files || files.length === 0) {
         throw new Error('No images provided for orthomosaic processing.');
     }
 
-    logger.info(`[Orthomosaic] Starting ODM processing for dataset ${datasetId} with ${files.length} images`);
+    logger.info(`[Orthomosaic] Starting ODM processing for job ${jobId} with ${files.length} images (fastMode=${fastMode})`); 
     
     // ── 1. Download images from GCS to local tmp dir ──
     await fs.mkdir(localTmpDir, { recursive: true });
@@ -49,8 +49,9 @@ export async function runOrthomosaic(imageSet, onProgress) {
     const options = {
         "auto-boundary": true,
         "dsm": true,
-        "fast-orthophoto": false, // use full quality
-        "feature-quality": "high"
+        "fast-orthophoto": fastMode,          // Lightning Mode = 20-40min, Standard = 2-4hr
+        "feature-quality": fastMode ? "low" : "high",
+        "min-num-features": fastMode ? 4000 : 8000,
     };
     formData.append('options', JSON.stringify(options));
 
@@ -73,8 +74,8 @@ export async function runOrthomosaic(imageSet, onProgress) {
     const { uuid: taskId } = await newTaskRes.json();
     logger.info(`[Orthomosaic] NodeODM task started with ID: ${taskId}`);
 
-    // Update DB with the engine job ID for recovery tracking
-    await query(`UPDATE orthomosaic_jobs SET engine_job_id = $1 WHERE dataset_id = $2`, [taskId, datasetId]).catch(() => {});
+    // Update DB with the engine job ID for recovery tracking (fixed: was dataset_id which doesn't exist)
+    await query(`UPDATE orthomosaic_jobs SET engine_job_id = $1, pipeline_stage = 'ODM Running', updated_at = NOW() WHERE id = $2`, [taskId, jobId]).catch(() => {});
 
     // ── 3. Poll for progress ──
     let isCompleted = false;
