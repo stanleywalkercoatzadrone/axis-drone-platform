@@ -708,7 +708,7 @@ const InterestInquiryPanel: React.FC<{ deployment: any; personnel: Personnel[] }
 const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFilter?: string; countryFilter?: string | null; countryIsoCode?: string | null }> = ({ forcedStatus, industryFilter, countryFilter, countryIsoCode }) => {
     const navigate = useNavigate();
     const { user, hasPermission } = useAuth();
-    const { mission } = useMission();
+    const { mission, setActiveMission } = useMission();
     const { currentIndustry } = useIndustry();
     const [deployments, setDeployments] = useState<Deployment[]>([]);
     const [personnel, setPersonnel] = useState<Personnel[]>([]);
@@ -1159,6 +1159,12 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus; industryFil
 
             setActiveModalTab(user?.role === 'pilot_technician' ? 'files' : 'financials');
             if (freshDeployment.id) fetchMissionExpenses(freshDeployment.id);
+            // Sync active mission context platform-wide
+            setActiveMission({
+                id: freshDeployment.id,
+                title: freshDeployment.title || freshDeployment.name || null,
+                status: freshDeployment.mission_status_v2 || freshDeployment.status || null,
+            });
             setIsLogModalOpen(true);
         } catch (err: any) {
             console.error('Error fetching deployment details:', err);

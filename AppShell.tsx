@@ -8,9 +8,9 @@
 import React, { useState, Component, useEffect } from 'react';
 import {
   LayoutDashboard, Radar, Users, Building,
-  Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight,
+  Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight, ChevronDown,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box, Globe
+  Map as MapIcon, Box, Globe, MapPin
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -53,6 +53,7 @@ class ViewErrorBoundary extends Component<{ viewKey: string; children: React.Rea
 import './src/styles/shell.css';
 import { useAuth } from './context/AuthContext';
 import { useIndustry } from './context/IndustryContext';
+import { useMission } from './src/context/MissionContext';
 
 // ── Existing view components ────────────────────────────────────────────────
 import DeploymentTracker from './src/components/DeploymentTracker';
@@ -113,9 +114,9 @@ const NAV: NavGroup[] = [
   {
     title: 'nav.intelligenceGroup',
     items: [
-      { key: 'intelligence',         label: 'nav.intelligence', icon: BrainCircuit },
       { key: 'mission-intelligence', label: 'nav.missionIntelligence', icon: BrainCircuit },
-      // { key: 'construction',         label: 'Construction Monitoring', icon: Building },
+      { key: 'intelligence',         label: 'nav.intelligence',         icon: BrainCircuit },
+      { key: 'neural-ai',            label: 'nav.neuralAI' },
     ],
   },
   {
@@ -140,22 +141,29 @@ const NAV: NavGroup[] = [
     title: 'nav.finance',
     items: [
       { key: 'payroll',         label: 'nav.pilotPayroll',   adminOnly: true },
-      { key: 'vendor-expenses', label: 'nav.expenses',         adminOnly: true },
+      { key: 'vendor-expenses', label: 'nav.expenses',       adminOnly: true },
     ],
   },
   {
-    title: 'nav.settings',
+    title: 'nav.administration',
     items: [
       { key: 'clients',         label: 'nav.clients' },
       { key: 'org-onboarding',  label: 'nav.onboardOrg' },
       { key: 'user-iam',        label: 'nav.userIAM' },
-      { key: 'neural-ai',       label: 'nav.neuralAI' },
       { key: 'protocol-lists',  label: 'nav.operationalProtocols', adminOnly: true },
       { key: 'checklist-items', label: 'nav.myChecklist' },
       { key: 'system-settings', label: 'nav.systemSettings' },
     ],
   },
 ];
+
+// Keys of groups that contain the active nav key (for auto-expand on load)
+const getGroupTitleForKey = (key: NavKey): string | null => {
+  for (const g of NAV) {
+    if (g.items.some(i => i.key === key)) return g.title;
+  }
+  return null;
+};
 
 // ── Mobile bottom tabs ───────────────────────────────────────────────────────
 const MOBILE_TABS: { key: NavKey; label: string; Icon: React.FC<{ size?: number; style?: React.CSSProperties }> }[] = [
@@ -190,6 +198,7 @@ export default function AppShell() {
   const { user, logout } = useAuth();
   const { tLabel } = useIndustry();
   const { countries, activeCountryId, setActiveCountryId, activeCountry } = useCountry();
+  const { activeMission, clearActiveMission } = useMission();
   const userRole = (user?.role || '').toLowerCase();
   const userIsAdmin = userRole.includes('admin') || userRole.includes('superadmin');
   const [langOpen, setLangOpen] = useState(false);
@@ -216,6 +225,27 @@ export default function AppShell() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // ── Collapsible group state — default all collapsed, auto-expand active group ─
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('axis-nav-expanded');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
+    // Default: expand only the group containing the active key
+    const saved = localStorage.getItem('axis_active_nav') as NavKey | null;
+    const activeGroup = saved ? getGroupTitleForKey(saved as NavKey) : getGroupTitleForKey('dashboard');
+    return activeGroup ? new Set([activeGroup]) : new Set();
+  });
+
+  const toggleGroup = (title: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      localStorage.setItem('axis-nav-expanded', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // ── Global glassmorphism injection ──────────────────────────────────────────
   useEffect(() => {
@@ -307,6 +337,17 @@ export default function AppShell() {
     localStorage.setItem('axis_active_nav', key);
     setMobileDrawerOpen(false);
     if (key !== 'clients') setSelectedClientId(null);
+    // Auto-expand the group containing the target key
+    const groupTitle = getGroupTitleForKey(key);
+    if (groupTitle) {
+      setExpandedGroups(prev => {
+        if (prev.has(groupTitle)) return prev;
+        const next = new Set(prev);
+        next.add(groupTitle);
+        localStorage.setItem('axis-nav-expanded', JSON.stringify([...next]));
+        return next;
+      });
+    }
   };
 
   const handleCountrySelect = (id: string | null) => {
@@ -710,36 +751,90 @@ export default function AppShell() {
             </nav>
           ) : (
             <nav className="ag-nav">
-              {NAV.map((group) => (
-                <div key={group.title} className="ag-nav-group">
-                  <div className="ag-nav-title">{t(group.title)}</div>
-                  <div className="ag-nav-list" role="group" aria-label={t(group.title)}>
-                    {group.items.filter(item => !item.adminOnly || userIsAdmin).map((item) => {
-                      const isActive = item.key === activeKey;
-                      return (
-                        <button
-                          key={item.key}
-                          className={cn('ag-nav-btn', isActive && 'ag-nav-btn-active')}
-                          onClick={() => navigate(item.key as NavKey)}
-                          aria-current={isActive ? 'page' : undefined}
-                        >
-                          <span className="ag-nav-left">
-                            <span className={cn('ag-nav-dot', isActive && 'ag-nav-dot-active')} aria-hidden="true" />
-                            {t(item.label)}
-                          </span>
-                          {item.badge && <span className="ag-badge">{item.badge}</span>}
-                        </button>
-                      );
-                    })}
+              {NAV.map((group) => {
+                const visibleItems = group.items.filter(item => !item.adminOnly || userIsAdmin);
+                if (visibleItems.length === 0) return null;
+                const isExpanded = expandedGroups.has(group.title);
+                const hasActive = visibleItems.some(item => item.key === activeKey);
+                return (
+                  <div key={group.title} className="ag-nav-group">
+                    <button
+                      onClick={() => toggleGroup(group.title)}
+                      className="ag-nav-group-header"
+                      aria-expanded={isExpanded}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '6px 10px 4px', background: 'none', border: 'none',
+                        cursor: 'pointer', borderRadius: 6,
+                      }}
+                    >
+                      <span className="ag-nav-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {hasActive && !isExpanded && (
+                          <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--brand)', display: 'inline-block', flexShrink: 0 }} />
+                        )}
+                        {t(group.title)}
+                      </span>
+                      <ChevronDown
+                        size={12}
+                        style={{
+                          color: 'var(--muted)', flexShrink: 0,
+                          transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s ease'
+                        }}
+                      />
+                    </button>
+                    {isExpanded && (
+                      <div className="ag-nav-list" role="group" aria-label={t(group.title)}>
+                        {visibleItems.map((item) => {
+                          const isActive = item.key === activeKey;
+                          return (
+                            <button
+                              key={item.key}
+                              className={cn('ag-nav-btn', isActive && 'ag-nav-btn-active')}
+                              onClick={() => navigate(item.key as NavKey)}
+                              aria-current={isActive ? 'page' : undefined}
+                            >
+                              <span className="ag-nav-left">
+                                <span className={cn('ag-nav-dot', isActive && 'ag-nav-dot-active')} aria-hidden="true" />
+                                {t(item.label)}
+                              </span>
+                              {item.badge && <span className="ag-badge">{item.badge}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </nav>
           )}
 
           {/* User footer + Language picker */}
           {!sidebarCollapsed && (
             <div style={{ marginTop: 'auto', paddingTop: 'var(--space-lg)', borderTop: '1px solid var(--stroke)' }}>
+              {/* Active Mission Context Indicator */}
+              {activeMission.id && (
+                <div style={{ padding: '0 var(--space-sm)', marginBottom: 8 }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '7px 10px',
+                    background: 'rgba(59,130,246,0.08)',
+                    border: '1px solid rgba(59,130,246,0.2)',
+                    borderRadius: 8,
+                  }}>
+                    <MapPin size={11} color="#60a5fa" style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {activeMission.title || 'Active Mission'}
+                    </span>
+                    <button
+                      onClick={clearActiveMission}
+                      title="Clear mission context"
+                      style={{ background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: '#475569', lineHeight: 1, flexShrink: 0 }}
+                    >✕</button>
+                  </div>
+                </div>
+              )}
               {/* Language selector */}
               <div style={{ padding: '0 var(--space-sm)', marginBottom: 10, position: 'relative' }}>
                 <button

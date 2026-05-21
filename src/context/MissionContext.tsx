@@ -8,10 +8,23 @@ export interface MissionState {
     industry: string | null;
 }
 
+// ── Active mission identity (separate from filter state) ──────────────────────
+export interface ActiveMission {
+    id: string | null;
+    title: string | null;
+    status: string | null;
+}
+
 interface MissionContextType {
     mission: MissionState;
     setMission: React.Dispatch<React.SetStateAction<MissionState>>;
+    // Active mission context — persists platform-wide
+    activeMission: ActiveMission;
+    setActiveMission: (mission: Partial<ActiveMission> | null) => void;
+    clearActiveMission: () => void;
 }
+
+const EMPTY_ACTIVE: ActiveMission = { id: null, title: null, status: null };
 
 const MissionContext = createContext<MissionContextType | undefined>(undefined);
 
@@ -24,7 +37,15 @@ export const MissionProvider = ({ children }: { children: ReactNode }) => {
         industry: null,
     });
 
-    // Load saved state
+    const [activeMission, setActiveMissionState] = useState<ActiveMission>(() => {
+        try {
+            const saved = localStorage.getItem("axis-active-mission");
+            if (saved) return { ...EMPTY_ACTIVE, ...JSON.parse(saved) };
+        } catch {}
+        return EMPTY_ACTIVE;
+    });
+
+    // Load saved filter state
     useEffect(() => {
         const saved = localStorage.getItem("axis-mission");
         if (saved) {
@@ -36,12 +57,30 @@ export const MissionProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []);
 
-    // Persist state
+    // Persist filter state
     useEffect(() => {
         localStorage.setItem("axis-mission", JSON.stringify(mission));
     }, [mission]);
 
-    const value = useMemo(() => ({ mission, setMission }), [mission, setMission]);
+    // Persist active mission
+    useEffect(() => {
+        localStorage.setItem("axis-active-mission", JSON.stringify(activeMission));
+    }, [activeMission]);
+
+    const setActiveMission = (update: Partial<ActiveMission> | null) => {
+        if (update === null) {
+            setActiveMissionState(EMPTY_ACTIVE);
+        } else {
+            setActiveMissionState(prev => ({ ...prev, ...update }));
+        }
+    };
+
+    const clearActiveMission = () => setActiveMissionState(EMPTY_ACTIVE);
+
+    const value = useMemo(() => ({
+        mission, setMission,
+        activeMission, setActiveMission, clearActiveMission,
+    }), [mission, activeMission]);
 
     return (
         <MissionContext.Provider value={value}>
@@ -57,3 +96,4 @@ export const useMission = () => {
     }
     return context;
 };
+

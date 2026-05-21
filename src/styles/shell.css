@@ -421,3 +421,26 @@
   .ag-content-mobile-padding { padding-top: 56px !important; padding-bottom: 64px !important; }
 }
 
+
+/* ── StatusBadge pulse animation (processing / uploading states) ──────────── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ── Collapsible nav group header ─────────────────────────────────────────── */
+.ag-nav-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 10px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.ag-nav-group-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}

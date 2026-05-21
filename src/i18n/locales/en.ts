@@ -16,7 +16,7 @@ const en = { translation: {
     clients:'Clients', onboardOrg:'Onboard Organization', userIAM:'User IAM',
     neuralAI:'Neural AI', operationalProtocols:'Operational Protocols',
     myChecklist:'My Checklist Items', systemSettings:'System Settings',
-    settings:'Settings', finance:'Finance', pilots:'Pilots',
+    settings:'Settings', finance:'Finance', pilots:'Pilots', administration:'Administration',
     globalOverview:'Global Overview',
   },
   hub: { title:'Personal Hub', subtitle:'Banking & document self-service portal',
