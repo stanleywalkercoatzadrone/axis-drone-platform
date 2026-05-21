@@ -56,7 +56,6 @@ import { useIndustry } from './context/IndustryContext';
 
 // ── Existing view components ────────────────────────────────────────────────
 import DeploymentTracker from './src/components/DeploymentTracker';
-import Dashboard from './src/components/Dashboard';
 import { MissionControl } from './src/components/dashboard/MissionControl';
 import { SessionsView } from './src/components/dashboard/SessionsView';
 import { MissionTimelineView } from './src/components/dashboard/MissionTimelineView';
@@ -275,7 +274,7 @@ export default function AppShell() {
 
   function renderView() {
     switch (activeKey) {
-      case 'dashboard':            return <Dashboard onNewReport={() => {}} onViewReport={() => {}} />;
+      case 'dashboard':            return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
       case 'weather':              return <WeatherDashboard />;
       case 'construction':         return <ConstructionDashboard />;
       case 'media':                return <MediaGallery />;
