@@ -87,6 +87,7 @@ import PilotApplications from './src/components/PilotApplications';
 import { PilotNetworkAdmin } from './src/components/PilotNetworkAdmin';
 import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
 import OrthomosaicView from './src/components/OrthomosaicView';
+import PilotInterestInquiry from './src/components/PilotInterestInquiry';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -96,7 +97,7 @@ type NavKey =
   | 'payroll' | 'vendor-expenses'
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
-  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic';
+  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -124,6 +125,7 @@ const NAV: NavGroup[] = [
       { key: 'pilot-network-admin',  label: 'Pilot Applications' },
       { key: 'pilot-directory',      label: 'nav.pilotRoster' },
       { key: 'performance',          label: 'nav.performance' },
+      { key: 'interest-inquiry',     label: 'Interest Inquiry', adminOnly: true },
     ],
   },
   {
@@ -204,7 +206,7 @@ export default function AppShell() {
       'payroll', 'vendor-expenses',
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
-      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic'
+      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry'
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -363,6 +365,7 @@ export default function AppShell() {
       case 'pilot-network-admin':  return <PilotNetworkAdmin />;
       case 'uploads':             return <AIUploadsAdmin />;
       case 'orthomosaic':         return <OrthomosaicView />;
+      case 'interest-inquiry':    return <PilotInterestInquiry />;
       case 'neural-ai':         return <SystemAIView />;
       case 'clients':
         if (selectedClientId) {
