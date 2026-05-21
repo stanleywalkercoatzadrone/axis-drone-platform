@@ -140,7 +140,7 @@ const PilotNetworkApply: React.FC = () => {
             });
             setSubmitted(true);
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Submission failed. Please try again.');
+            setError(err.response?.data?.message || err.response?.data?.error || 'Submission failed. Please try again.');
         } finally {
             setIsLoading(false);
         }

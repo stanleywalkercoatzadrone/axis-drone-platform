@@ -161,7 +161,7 @@ export const aiLimiter = rateLimit({
  */
 export const sensitiveLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3,
+    max: 10, // Raised from 3 — allows testing without lockout while still preventing spam
     standardHeaders: true,
     legacyHeaders: false,
     store: createStore(),
