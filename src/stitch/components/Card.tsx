@@ -9,8 +9,8 @@ export const Card = React.forwardRef<HTMLDivElement, CardProps>(
     ({ className, variant = 'default', children, ...props }, ref) => {
 
         const variants = {
-            default: 'bg-slate-900 border border-slate-800 shadow-card',
-            glass: 'bg-slate-900/60 backdrop-blur-md border border-slate-700/50 shadow-lg',
+            default: 'bg-slate-900/60 backdrop-blur-2xl border border-white/5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] shadow-card',
+            glass: 'bg-slate-900/40 backdrop-blur-3xl border border-white/10 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.1)] shadow-glow',
             plain: 'bg-transparent border-none shadow-none',
         };
 

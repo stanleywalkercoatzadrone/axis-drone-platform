@@ -21,9 +21,9 @@ export default {
                     500: '#64748b',
                     600: '#475569',
                     700: '#334155',
-                    800: '#1e293b',  // Secondary Surface
-                    900: '#0f172a',  // Primary Surface
-                    950: '#020617',  // Canvas / Sidebar (Darkest)
+                    800: 'rgba(30, 41, 59, 0.5)',  // Secondary Surface (Glass)
+                    900: 'rgba(15, 23, 42, 0.4)',  // Primary Surface (Glass)
+                    950: 'rgba(2, 6, 23, 0)',  // Canvas / Sidebar (Transparent to show animated mesh)
                 },
                 // Semantic Roles
                 brand: {

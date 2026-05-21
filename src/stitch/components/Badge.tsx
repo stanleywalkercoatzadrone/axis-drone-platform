@@ -8,13 +8,13 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
     ({ className, variant = 'default', ...props }, ref) => {
         const variants = {
-            default: 'border-transparent bg-blue-600 text-white hover:bg-blue-600/80',
-            secondary: 'border-transparent bg-slate-800 text-slate-50 hover:bg-slate-800/80',
-            outline: 'text-slate-50 border-slate-700',
-            success: 'border-transparent bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border-emerald-500/20',
-            warning: 'border-transparent bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border-amber-500/20',
-            destructive: 'border-transparent bg-red-900/30 text-red-400 hover:bg-red-900/50 border-red-500/20',
-            info: 'border-transparent bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 border-blue-500/20',
+            default: 'border border-blue-500/30 bg-blue-500/10 text-blue-400 backdrop-blur-md hover:bg-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]',
+            secondary: 'border border-white/10 bg-white/5 text-slate-200 backdrop-blur-md hover:bg-white/10 shadow-[0_0_10px_rgba(255,255,255,0.05)]',
+            outline: 'text-slate-300 border-white/10 backdrop-blur-sm',
+            success: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 backdrop-blur-md hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]',
+            warning: 'border border-amber-500/30 bg-amber-500/10 text-amber-400 backdrop-blur-md hover:bg-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]',
+            destructive: 'border border-red-500/30 bg-red-500/10 text-red-400 backdrop-blur-md hover:bg-red-500/20 shadow-[0_0_10px_rgba(239,68,68,0.1)]',
+            info: 'border border-cyan-500/30 bg-cyan-500/10 text-cyan-400 backdrop-blur-md hover:bg-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.1)]',
         };
 
         return (
