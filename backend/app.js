@@ -57,6 +57,7 @@ import protocolRoutes from './routes/protocols.js';                   // Operati
 import tenantRoutes from './routes/tenants.js';                       // SaaS Tenant Registration & Management
 import subscriptionInvoiceRoutes from './routes/subscriptionInvoices.js'; // SaaS Client Billing
 import chunkedUploadRoutes from './routes/chunkedUploads.js';              // §6 Resumable Upload Routes
+import pilotNetworkRoutes from './routes/pilotNetwork.js';                // Pilot Network Applications (public /join form)
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -226,6 +227,7 @@ app.use('/api/pilot', pilotSecureRoutes);               // Pilot routes alias (f
 app.use('/api/uploads', pilotUploadRoutes);             // Upload jobs alias
 app.use('/api/uploads', chunkedUploadRoutes);           // §6 Chunked upload endpoints (flag-gated)
 app.use('/api/client', clientReportsRoutes);             // Client AI reports
+app.use('/api/pilot-network', pilotNetworkRoutes);       // Pilot Network Applications (public apply + admin review)
 
 // ── /api/documents — global document query (by personnelId) ──────────────────
 // Called from: DocumentExplorer.tsx and compliance.ts with ?personnelId=X
