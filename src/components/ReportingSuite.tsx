@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
-import { InspectionReport, UserAccount } from '../types';
+import { InspectionReport } from '../types';
 import {
     BarChart,
     Bar,
@@ -29,14 +29,9 @@ import {
 } from 'lucide-react';
 import { Industry, Severity } from '../types';
 
-// Mock Data
-const ASSET_HEALTH_DATA = [
-    { name: 'Optimal', value: 65, color: '#10b981' },
-    { name: 'Warning', value: 24, color: '#f59e0b' },
-    { name: 'Critical', value: 11, color: '#ef4444' }
-];
-
-const INSPECTION_TRENDS = [
+// Fallback data shown when no real reports exist yet.
+// TODO: INSPECTION_TRENDS_MOCK — wire to /api/reports/analytics/trends once backend aggregation exists.
+const INSPECTION_TRENDS_MOCK = [
     { month: 'Jan', completed: 12, issues: 45 },
     { month: 'Feb', completed: 19, issues: 52 },
     { month: 'Mar', completed: 15, issues: 38 },
@@ -45,11 +40,19 @@ const INSPECTION_TRENDS = [
     { month: 'Jun', completed: 34, issues: 55 }
 ];
 
-const COST_BY_TYPE = [
+// TODO: COST_BY_TYPE_MOCK — wire to /api/reports/analytics/costs once backend provides sector aggregation.
+const COST_BY_TYPE_MOCK = [
     { name: 'Solar', cost: 45000 },
     { name: 'Utilities', cost: 82000 },
     { name: 'Telecom', cost: 35000 },
     { name: 'Insurance', cost: 28000 }
+];
+
+// Fallback portfolio health distribution used only when reports list is empty.
+const ASSET_HEALTH_FALLBACK = [
+    { name: 'Optimal', value: 65, color: '#10b981' },
+    { name: 'Warning', value: 24, color: '#f59e0b' },
+    { name: 'Critical', value: 11, color: '#ef4444' }
 ];
 
 type ReportLevel = 'Executive' | 'Operational' | 'Asset';
@@ -68,31 +71,48 @@ const ReportingSuite: React.FC = () => {
             .finally(() => setLoading(false));
     }, []);
 
-    // Aggregate Data from real reports
-    const assetHealthData = [
-        { name: 'Optimal', value: reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length || 65, color: '#10b981' },
-        { name: 'Warning', value: reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length || 24, color: '#f59e0b' },
-        { name: 'Critical', value: 0, color: '#ef4444' } // Place holder until Rejected is added to types
-    ];
+    // Derived aggregations from GET /api/reports
+    const hasReports = reports.length > 0;
 
+    // Portfolio health: bucketed by approval status from real data.
+    const liveOptimal = reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length;
+    const liveWarning = reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length;
+    const assetHealthData = hasReports
+        ? [
+            { name: 'Optimal', value: liveOptimal, color: '#10b981' },
+            { name: 'Warning', value: liveWarning, color: '#f59e0b' },
+            // TODO: add 'Critical' bucket when a 'Rejected' approvalStatus is introduced
+            { name: 'Critical', value: 0, color: '#ef4444' }
+          ]
+        : ASSET_HEALTH_FALLBACK;
+
+    // Sector cost: derived from strategicAssessment.grandTotalEstimate per report.
     const sectorCostData = Object.values(Industry).map(ind => ({
         name: ind,
-        cost: reports.filter(r => r.industry === ind).reduce((acc, curr) => acc + (curr.strategicAssessment?.grandTotalEstimate || 5000), 0)
+        cost: reports
+            .filter(r => r.industry === ind)
+            .reduce((acc, curr) => acc + (curr.strategicAssessment?.grandTotalEstimate || 0), 0)
     })).filter(d => d.cost > 0);
 
+    // Inspection trends: grouped by calendar month from real report dates.
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const inspectionTrends = monthNames.map((month, idx) => {
         const monthReports = reports.filter(r => new Date(r.date).getMonth() === idx);
         return {
             month,
             completed: monthReports.length,
-            issues: monthReports.reduce((acc, curr) => acc + curr.images.reduce((imgAcc, img) => imgAcc + img.annotations.length, 0), 0)
+            issues: monthReports.reduce(
+                (acc, curr) => acc + curr.images.reduce((imgAcc, img) => imgAcc + img.annotations.length, 0),
+                0
+            )
         };
     }).filter(d => d.completed > 0 || d.issues > 0);
 
-    // If no reports yet, use a mix of mock and zeros to show something
-    const displayCostData = sectorCostData.length > 0 ? sectorCostData : COST_BY_TYPE;
-    const displayTrends = inspectionTrends.length > 0 ? inspectionTrends : INSPECTION_TRENDS;
+    const displayCostData = sectorCostData.length > 0 ? sectorCostData : COST_BY_TYPE_MOCK;
+    const displayTrends = inspectionTrends.length > 0 ? inspectionTrends : INSPECTION_TRENDS_MOCK;
+
+    // Operational KPIs derived from real report data
+    const pendingReviewCount = reports.filter(r => r.approvalStatus === 'Pending Review').length;
 
     const renderExecutiveView = () => (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -170,9 +190,13 @@ const ReportingSuite: React.FC = () => {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
+                    // TODO: wire to /api/deployments/analytics/utilization
                     { label: 'Pilot Utilization', value: '84%', sub: '+12% vs last week', icon: Users, color: 'blue' },
+                    // TODO: wire to /api/deployments/analytics/duration
                     { label: 'Avg Mission Time', value: '42m', sub: '-3m efficiency gain', icon: Calendar, color: 'emerald' },
-                    { label: 'Pending Reviews', value: '14', sub: 'Action required', icon: AlertCircle, color: 'amber' },
+                    // Derived from real reports via GET /api/reports
+                    { label: 'Pending Reviews', value: String(pendingReviewCount), sub: pendingReviewCount > 0 ? 'Action required' : 'All clear', icon: AlertCircle, color: 'amber' },
+                    // TODO: wire to /api/reports/analytics/turnaround
                     { label: 'Report Turnaround', value: '1.2d', sub: 'Within SLA', icon: CheckCircle2, color: 'indigo' },
                 ].map((stat, i) => (
                     <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">

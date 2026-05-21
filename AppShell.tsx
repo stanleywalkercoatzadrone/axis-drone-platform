@@ -88,6 +88,9 @@ import { PilotNetworkAdmin } from './src/components/PilotNetworkAdmin';
 import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
 import OrthomosaicView from './src/components/OrthomosaicView';
 import PilotInterestInquiry from './src/components/PilotInterestInquiry';
+import DispatchBoard from './src/components/DispatchBoard';
+import OrganizationsView from './src/components/OrganizationsView';
+import ReportingSuite from './src/components/ReportingSuite';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -97,7 +100,8 @@ type NavKey =
   | 'payroll' | 'vendor-expenses'
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
-  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry';
+  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry'
+  | 'dispatch' | 'reports' | 'organizations';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -109,6 +113,7 @@ const NAV: NavGroup[] = [
     items: [
       { key: 'dashboard',  label: 'nav.missionTerminal' },
       { key: 'weather',    label: 'nav.weather' },
+      { key: 'dispatch',   label: 'nav.dispatch' },
     ],
   },
   {
@@ -130,11 +135,12 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    title: 'nav.mediaUploads',
+    title: 'nav.mediaDeliverables',
     items: [
       { key: 'uploads',      label: 'nav.pilotUploadsLabel' },
       { key: 'orthomosaic',  label: 'nav.orthomosaic' },
       { key: 'media',        label: 'nav.mediaGallery' },
+      { key: 'reports',      label: 'nav.reports' },
     ],
   },
   {
@@ -148,6 +154,7 @@ const NAV: NavGroup[] = [
     title: 'nav.administration',
     items: [
       { key: 'clients',         label: 'nav.clients' },
+      { key: 'organizations',   label: 'nav.organizations' },
       { key: 'org-onboarding',  label: 'nav.onboardOrg' },
       { key: 'user-iam',        label: 'nav.userIAM' },
       { key: 'protocol-lists',  label: 'nav.operationalProtocols', adminOnly: true },
@@ -215,7 +222,8 @@ export default function AppShell() {
       'payroll', 'vendor-expenses',
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
-      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry'
+      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
+      'dispatch', 'reports', 'organizations',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -369,9 +377,11 @@ export default function AppShell() {
 
   const pageLabel: Record<NavKey, string> = {
     'dashboard':             'Mission Terminal',
-    'weather':               'Weather',
+    'weather':               'Weather & Skies',
+    'dispatch':              'Dispatch Center',
     'media':                 'Media Gallery',
     'uploads':               'Pilot Uploads',
+    'reports':               'Reports',
     'pilot-applications':    'Pilot Applications',
     'pilot-network-admin':   'Pilot Network Applications',
     'intelligence':          'AI Intelligence Hub',
@@ -381,6 +391,7 @@ export default function AppShell() {
     'payroll':               'Pilot Payroll',
     'vendor-expenses':       'Vendor & Expenses',
     'clients':               'Clients',
+    'organizations':         'Organizations',
     'org-onboarding':        'Onboard Organization',
     'system-settings':       'System Settings',
     'user-iam':              'User IAM',
@@ -389,15 +400,17 @@ export default function AppShell() {
     'checklist-items':       'My Checklist Items',
     'construction':          'Construction Monitoring',
     'orthomosaic':           'Orthomosaic',
-    'interest-inquiry':     'Interest Inquiry',
+    'interest-inquiry':      'Interest Inquiry',
   };
 
   function renderView() {
     switch (activeKey) {
       case 'dashboard':            return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
       case 'weather':              return <WeatherDashboard />;
+      case 'dispatch':             return <DispatchBoard />;
       case 'construction':         return <ConstructionDashboard />;
       case 'media':                return <MediaGallery />;
+      case 'reports':              return <ReportingSuite />;
       case 'intelligence':         return <IntelligenceHub />;
       case 'mission-intelligence': return <MissionIntelligenceWorkspace />;
       case 'pilot-directory':      return <PersonnelTracker />;
@@ -410,6 +423,7 @@ export default function AppShell() {
       case 'orthomosaic':         return <OrthomosaicView />;
       case 'interest-inquiry':    return <PilotInterestInquiry />;
       case 'neural-ai':         return <SystemAIView />;
+      case 'organizations':     return <OrganizationsView />;
       case 'clients':
         if (selectedClientId) {
           return <ClientDetail clientId={selectedClientId} onBack={() => setSelectedClientId(null)} />;
