@@ -86,6 +86,7 @@ import PilotPayrollView from './src/components/PilotPayrollView';
 import PilotApplications from './src/components/PilotApplications';
 import { PilotNetworkAdmin } from './src/components/PilotNetworkAdmin';
 import ConstructionDashboard from './modules/construction-monitoring/ConstructionDashboard';
+import OrthomosaicView from './src/components/OrthomosaicView';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -95,7 +96,7 @@ type NavKey =
   | 'payroll' | 'vendor-expenses'
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
-  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction';
+  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -128,8 +129,9 @@ const NAV: NavGroup[] = [
   {
     title: 'nav.pilotUploads',
     items: [
-      { key: 'uploads', label: 'nav.pilotUploadsLabel' },
-      { key: 'media',   label: 'nav.mediaGallery' },
+      { key: 'uploads',      label: 'nav.pilotUploadsLabel' },
+      { key: 'orthomosaic',  label: 'Orthomosaic' },
+      { key: 'media',        label: 'nav.mediaGallery' },
     ],
   },
   {
@@ -202,7 +204,7 @@ export default function AppShell() {
       'payroll', 'vendor-expenses',
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
-      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction'
+      'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic'
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -360,6 +362,7 @@ export default function AppShell() {
       case 'pilot-applications':   return <PilotApplications />;
       case 'pilot-network-admin':  return <PilotNetworkAdmin />;
       case 'uploads':             return <AIUploadsAdmin />;
+      case 'orthomosaic':         return <OrthomosaicView />;
       case 'neural-ai':         return <SystemAIView />;
       case 'clients':
         if (selectedClientId) {
