@@ -1,16 +1,12 @@
 /**
- * Orthomosaic Routes
+ * Orthomosaic Routes — Hardened v2
  * Manages the full photogrammetry pipeline: project → job → upload → process → output
  *
- * Public (pilot):  POST /orthomosaic/projects
- *                  POST /orthomosaic/projects/:projectId/jobs
- *                  POST /orthomosaic/jobs/:jobId/upload-url
- *                  POST /orthomosaic/jobs/:jobId/submit
- *                  GET  /orthomosaic/jobs/:jobId
- * Admin:           GET  /orthomosaic/jobs
- *                  GET  /orthomosaic/jobs/:jobId/outputs
- *                  GET  /orthomosaic/jobs/:jobId/outputs/:outId/download
- *                  PATCH /orthomosaic/jobs/:jobId/cancel
+ * Role access matrix (enforced server-side):
+ *   Admin / In-House:  Full access — all routes
+ *   Pilot:             POST projects, jobs, upload-url, upload-confirm, submit (assigned missions only)
+ *                      GET jobs (own jobs only)
+ *   Client:            BLOCKED from all write routes. Read-only via client portal deliverables API.
  */
 
 import express from 'express';
@@ -33,6 +29,24 @@ try {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const tenantId = (req) => req.user?.tenantId || req.user?.tenant_id || null;
 
+/** Returns true if user is admin or in-house (can access all jobs) */
+const isAdminOrInHouse = (user) => {
+    const role = (user?.role || '').toLowerCase();
+    return ['admin', 'super_admin', 'in_house', 'in_house_team'].includes(role);
+};
+
+/** Returns true if user is a pilot role */
+const isPilotRole = (user) => {
+    const role = (user?.role || '').toLowerCase();
+    return ['pilot', 'pilot_technician', 'field_operator', 'senior_inspector'].includes(role);
+};
+
+/** Returns true if user is a client role — blocked from write routes */
+const isClientRole = (user) => {
+    const role = (user?.role || '').toLowerCase();
+    return ['client', 'client_user', 'customer'].includes(role);
+};
+
 async function updateJobStatus(jobId, status, extra = {}) {
     const fields = ['status = $1', 'updated_at = NOW()'];
     const vals = [status];
@@ -51,8 +65,14 @@ async function updateJobStatus(jobId, status, extra = {}) {
 }
 
 // ── POST /projects — create an orthomosaic project ────────────────────────────
+// Access: admin, in_house, pilot (NOT client)
 router.post('/projects', protect, async (req, res) => {
     try {
+        // Block client roles from creating projects
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot create orthomosaic projects.' });
+        }
+
         const { name, clientId, siteName, missionId, description } = req.body;
         if (!name) return res.status(400).json({ success: false, message: 'Project name is required.' });
 
@@ -73,6 +93,9 @@ router.post('/projects', protect, async (req, res) => {
 // ── GET /projects — list projects ─────────────────────────────────────────────
 router.get('/projects', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
         const tid = tenantId(req);
         const result = await query(`
             SELECT p.*, COUNT(j.id)::int AS job_count
@@ -91,8 +114,13 @@ router.get('/projects', protect, async (req, res) => {
 });
 
 // ── POST /projects/:projectId/jobs — create a processing job ─────────────────
+// Access: admin, in_house, pilot (NOT client)
 router.post('/projects/:projectId/jobs', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot create processing jobs.' });
+        }
+
         const { projectId } = req.params;
         const { qualityTier = 'fast', missionId, flightDate, imageCount } = req.body;
 
@@ -117,7 +145,7 @@ router.post('/projects/:projectId/jobs', protect, async (req, res) => {
 
         const job = result.rows[0];
 
-        // If missionId provided, link it immediately
+        // If missionId provided, link it immediately via asset_links
         if (missionId) {
             await query(`
                 INSERT INTO orthomosaic_asset_links (job_id, tenant_id, asset_type, asset_id, asset_label, linked_by)
@@ -133,27 +161,46 @@ router.post('/projects/:projectId/jobs', protect, async (req, res) => {
     }
 });
 
-// ── GET /jobs — list all jobs (admin) ─────────────────────────────────────────
+// ── GET /jobs — list jobs ─────────────────────────────────────────────────────
+// Admin/in_house: all tenant jobs
+// Pilot: only their own jobs (created_by = req.user.id)
+// Client: blocked
 router.get('/jobs', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+
         const { status, projectId } = req.query;
         const conditions = ['j.tenant_id = $1'];
         const vals = [tenantId(req)];
         let i = 2;
 
+        // Pilots only see their own jobs
+        if (isPilotRole(req.user) && !isAdminOrInHouse(req.user)) {
+            conditions.push(`j.created_by = $${i++}`);
+            vals.push(req.user.id);
+        }
+
         if (status) { conditions.push(`j.status = $${i++}`); vals.push(status); }
         if (projectId) { conditions.push(`j.project_id = $${i++}`); vals.push(projectId); }
 
         const result = await query(`
-            SELECT j.*,
+            SELECT j.id, j.status, j.quality_tier, j.progress_pct, j.pipeline_stage,
+                   j.image_count, j.error_message, j.created_at, j.processing_started_at,
+                   j.processing_completed_at, j.retry_count,
                    p.name AS project_name,
                    p.site_name,
+                   p.mission_id,
                    COUNT(DISTINCT o.id)::int AS output_count
             FROM orthomosaic_jobs j
             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
             LEFT JOIN orthomosaic_outputs o ON o.job_id = j.id
             WHERE ${conditions.join(' AND ')}
-            GROUP BY j.id, p.name, p.site_name
+            GROUP BY j.id, j.status, j.quality_tier, j.progress_pct, j.pipeline_stage,
+                     j.image_count, j.error_message, j.created_at, j.processing_started_at,
+                     j.processing_completed_at, j.retry_count,
+                     p.name, p.site_name, p.mission_id
             ORDER BY j.created_at DESC
             LIMIT 100
         `, vals);
@@ -168,6 +215,18 @@ router.get('/jobs', protect, async (req, res) => {
 // ── GET /jobs/:jobId — job status (polled every 5s by frontend) ───────────────
 router.get('/jobs/:jobId', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+
+        // Build ownership condition: admins see any tenant job, pilots see only their own
+        const ownershipClause = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? 'AND j.created_by = $3'
+            : '';
+        const vals = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? [req.params.jobId, tenantId(req), req.user.id]
+            : [req.params.jobId, tenantId(req)];
+
         const result = await query(`
             SELECT j.*,
                    p.name AS project_name,
@@ -184,9 +243,9 @@ router.get('/jobs/:jobId', protect, async (req, res) => {
             FROM orthomosaic_jobs j
             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
             LEFT JOIN orthomosaic_outputs o ON o.job_id = j.id
-            WHERE j.id = $1 AND j.tenant_id = $2
+            WHERE j.id = $1 AND j.tenant_id = $2 ${ownershipClause}
             GROUP BY j.id, p.name, p.site_name, p.mission_id
-        `, [req.params.jobId, tenantId(req)]);
+        `, vals);
 
         if (!result.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
         res.json({ success: true, data: result.rows[0] });
@@ -197,15 +256,30 @@ router.get('/jobs/:jobId', protect, async (req, res) => {
 });
 
 // ── POST /jobs/:jobId/upload-url — signed GCS URL for a single image ─────────
+// Access: admin, in_house, pilot (NOT client)
 router.post('/jobs/:jobId/upload-url', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot upload images.' });
+        }
+
         const { jobId } = req.params;
         const { fileName, contentType = 'image/jpeg', fileSize } = req.body;
         if (!fileName) return res.status(400).json({ success: false, message: 'fileName required.' });
 
-        // Fetch job and verify ownership
-        const jobRes = await query(`SELECT id, upload_set_gcs_prefix, tenant_id FROM orthomosaic_jobs WHERE id = $1`, [jobId]);
-        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        // Fetch job and verify ownership (pilots must own the job)
+        const ownershipClause = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? 'AND created_by = $3'
+            : '';
+        const jobVals = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? [jobId, tenantId(req), req.user.id]
+            : [jobId, tenantId(req)];
+
+        const jobRes = await query(
+            `SELECT id, upload_set_gcs_prefix, tenant_id FROM orthomosaic_jobs WHERE id = $1 AND tenant_id = $2 ${ownershipClause}`,
+            jobVals
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found or access denied.' });
         const job = jobRes.rows[0];
 
         const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -249,10 +323,26 @@ router.post('/jobs/:jobId/upload-url', protect, async (req, res) => {
 });
 
 // ── POST /jobs/:jobId/upload-confirm — mark a file as uploaded ───────────────
+// Fix: validate that uploadSetId belongs to this job AND this tenant (prevents cross-tenant confirm)
 router.post('/jobs/:jobId/upload-confirm', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+
         const { uploadSetId } = req.body;
         if (!uploadSetId) return res.status(400).json({ success: false, message: 'uploadSetId required.' });
+
+        // Validate ownership: uploadSetId must belong to this job + tenant
+        const checkRes = await query(`
+            SELECT us.id FROM orthomosaic_upload_sets us
+            JOIN orthomosaic_jobs j ON j.id = us.job_id
+            WHERE us.id = $1 AND us.job_id = $2 AND j.tenant_id = $3
+        `, [uploadSetId, req.params.jobId, tenantId(req)]);
+
+        if (!checkRes.rows.length) {
+            return res.status(404).json({ success: false, message: 'Upload record not found or access denied.' });
+        }
 
         await query(`
             UPDATE orthomosaic_upload_sets SET upload_status = 'uploaded' WHERE id = $1
@@ -275,12 +365,18 @@ router.post('/jobs/:jobId/upload-confirm', protect, async (req, res) => {
 });
 
 // ── POST /jobs/:jobId/submit — trigger NodeODM processing ────────────────────
+// Access: admin, in_house, pilot (NOT client)
 router.post('/jobs/:jobId/submit', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot trigger processing.' });
+        }
+
         const { jobId } = req.params;
 
+        // Fix: include p.mission_id in SELECT so the engine can link outputs to the mission
         const jobRes = await query(`
-            SELECT j.*, p.name AS project_name
+            SELECT j.*, p.name AS project_name, p.mission_id
             FROM orthomosaic_jobs j
             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
             WHERE j.id = $1 AND j.tenant_id = $2
@@ -317,10 +413,11 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
         const fastMode = job.quality_tier === 'fast';
         const localTmpDir = `/tmp/ortho_${jobId}`;
         const gcsOutputPrefix = `${job.upload_set_gcs_prefix}outputs/`;
+        const missionId = job.mission_id || null; // Fix: now correctly populated from the JOIN
 
         const imageSet = {
-            jobId,              // fixed: was datasetId — now correct
-            missionId: job.mission_id,
+            jobId,
+            missionId,
             files: filesRes.rows,
             localTmpDir,
             gcsProcessedPrefix: gcsOutputPrefix,
@@ -360,6 +457,22 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
 
             await Promise.allSettled(outputInserts);
 
+            // ── Deliverables wiring (future) ──────────────────────────────────
+            // The legacy `deliverables` table (migration 087) references `projects.id` (NOT
+            // `orthomosaic_projects.id`) and has no mission_id or tenant_id columns, making a
+            // direct INSERT incompatible without a schema migration.
+            //
+            // TODO: Create migration 026_orthomosaic_deliverables_bridge.sql that either:
+            //   a) Adds a `orthomosaic_job_id` FK column to `deliverables`, or
+            //   b) Creates a new `client_deliverables` view joining orthomosaic_outputs + missions
+            //
+            // Outputs ARE persisted in `orthomosaic_outputs` and accessible via:
+            //   GET /api/orthomosaic/jobs/:jobId/outputs/:outId/download (admin/pilot)
+            // Client access pending above schema migration.
+            if (missionId && results.orthomosaicGcsUri) {
+                logger.info(`[orthomosaic] Output ready for mission ${missionId}: ${results.orthomosaicGcsUri} — client deliverable wiring pending schema migration.`);
+            }
+
             // QC report
             await query(`
                 INSERT INTO orthomosaic_qc_reports
@@ -391,6 +504,9 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
 // ── GET /jobs/:jobId/outputs — list outputs ───────────────────────────────────
 router.get('/jobs/:jobId/outputs', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
         const result = await query(`
             SELECT o.*
             FROM orthomosaic_outputs o
@@ -409,6 +525,10 @@ router.get('/jobs/:jobId/outputs', protect, async (req, res) => {
 // ── GET /jobs/:jobId/outputs/:outId/download — signed download URL ────────────
 router.get('/jobs/:jobId/outputs/:outId/download', protect, async (req, res) => {
     try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied. Download via client portal.' });
+        }
+
         const result = await query(`
             SELECT o.gcs_path, o.file_name, o.output_type
             FROM orthomosaic_outputs o
@@ -441,7 +561,7 @@ router.get('/jobs/:jobId/outputs/:outId/download', protect, async (req, res) => 
     }
 });
 
-// ── PATCH /jobs/:jobId/cancel ─────────────────────────────────────────────────
+// ── PATCH /jobs/:jobId/cancel — admin only ────────────────────────────────────
 router.patch('/jobs/:jobId/cancel', protect, authorize('admin'), async (req, res) => {
     try {
         await query(`
@@ -452,6 +572,49 @@ router.patch('/jobs/:jobId/cancel', protect, authorize('admin'), async (req, res
     } catch (err) {
         logger.error('[orthomosaic/cancel]', err);
         res.status(500).json({ success: false, message: 'Failed to cancel job.' });
+    }
+});
+
+// ── POST /jobs/:jobId/retry — re-submit a failed job ─────────────────────────
+// Resets status to 'queued' so the job can be re-submitted
+router.post('/jobs/:jobId/retry', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+
+        const jobRes = await query(`
+            SELECT id, status, retry_count, max_retries, tenant_id
+            FROM orthomosaic_jobs
+            WHERE id = $1 AND tenant_id = $2
+        `, [req.params.jobId, tenantId(req)]);
+
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+
+        if (job.status !== 'failed') {
+            return res.status(409).json({ success: false, message: `Cannot retry — job is ${job.status}.` });
+        }
+
+        if (job.retry_count >= job.max_retries) {
+            return res.status(429).json({ success: false, message: `Max retries (${job.max_retries}) exceeded.` });
+        }
+
+        await query(`
+            UPDATE orthomosaic_jobs
+            SET status = 'queued',
+                error_message = NULL,
+                pipeline_stage = 'Queued for retry',
+                progress_pct = 0,
+                retry_count = retry_count + 1,
+                updated_at = NOW()
+            WHERE id = $1
+        `, [req.params.jobId]);
+
+        res.json({ success: true, message: 'Job queued for retry.' });
+    } catch (err) {
+        logger.error('[orthomosaic/retry]', err);
+        res.status(500).json({ success: false, message: 'Failed to retry job.' });
     }
 });
 

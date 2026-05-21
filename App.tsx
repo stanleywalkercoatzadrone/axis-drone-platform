@@ -99,7 +99,7 @@ import AppShell from './AppShell';
 
 import { InspectionDashboard } from './src/components/dashboard/inspection/InspectionDashboard';
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 const PilotAppV2: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'pilot-dashboard' | 'pilot-checklists' | 'pilot-uploads' | 'weather' | 'pilot-issues'>('pilot-dashboard');
@@ -231,6 +231,13 @@ const AppContent: React.FC = () => {
   // Clients always route to the isolated Client Portal
   if (isClient(user)) {
     return <Navigate to="/client/overview" replace />;
+  }
+
+  // Fix: if an authenticated admin lands on /login (e.g. direct URL), redirect to / so
+  // the URL reflects the app state instead of showing /login while the platform is live.
+  const location = useLocation();
+  if (location.pathname === '/login') {
+    return <Navigate to="/" replace />;
   }
 
   return <AppShell />;

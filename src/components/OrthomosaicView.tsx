@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Map, Upload, Zap, Clock, CheckCircle2, XCircle, Loader2,
   CloudUpload, ImageIcon, ChevronDown, RefreshCw, Download,
-  Layers, AlertTriangle, Play, X
+  Layers, AlertTriangle, Play, X, RotateCcw, FileArchive, Satellite,
+  TrendingUp
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
 
@@ -14,6 +15,14 @@ interface Mission {
   location: string;
 }
 
+interface OrthoOutput {
+  id: string;
+  output_type: string;
+  file_name: string;
+  is_approved?: boolean;
+  file_size_bytes?: number;
+}
+
 interface OrthoJob {
   id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed' | 'canceled';
@@ -23,11 +32,15 @@ interface OrthoJob {
   image_count: number;
   project_name: string;
   site_name: string | null;
+  mission_id: string | null;
   error_message: string | null;
   created_at: string;
   processing_started_at: string | null;
   processing_completed_at: string | null;
-  outputs: { id: string; output_type: string; file_name: string }[] | null;
+  retry_count?: number;
+  max_retries?: number;
+  output_count?: number;
+  outputs?: OrthoOutput[] | null;
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -49,6 +62,19 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function outputTypeIcon(type: string) {
+  if (type === 'dsm') return <TrendingUp className="w-3.5 h-3.5" />;
+  if (type === 'report') return <FileArchive className="w-3.5 h-3.5" />;
+  return <Satellite className="w-3.5 h-3.5" />;
+}
+
+function outputTypeLabel(type: string) {
+  if (type === 'orthomosaic') return 'Orthomosaic (GeoTIFF)';
+  if (type === 'dsm') return 'DSM Elevation Model';
+  if (type === 'report') return 'Full Archive (ZIP)';
+  return type;
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 const OrthomosaicView: React.FC = () => {
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -61,8 +87,10 @@ const OrthomosaicView: React.FC = () => {
   const [activeJob, setActiveJob] = useState<OrthoJob | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [retrying, setRetrying] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -94,7 +122,7 @@ const OrthomosaicView: React.FC = () => {
             setActiveJob(job);
             if (['completed', 'failed', 'canceled'].includes(job.status)) {
               clearInterval(pollRef.current!);
-              loadJobs();
+              loadJobs(); // refresh history when job finishes
             }
           }
         })
@@ -116,11 +144,49 @@ const OrthomosaicView: React.FC = () => {
     setFiles(prev => [...prev, ...dropped]);
   }, []);
 
+  // ── Upload single file with retry ─────────────────────────────────────────
+  async function uploadFileWithRetry(
+    jobId: string,
+    file: File,
+    maxAttempts = 3
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const urlRes = await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-url`, {
+          fileName: file.name,
+          contentType: file.type || 'image/jpeg',
+          fileSize: file.size,
+        });
+        const { uploadSetId, signedUrl } = urlRes.data.data;
+
+        if (signedUrl) {
+          const putRes = await fetch(signedUrl, {
+            method: 'PUT',
+            body: file,
+            headers: { 'Content-Type': file.type || 'image/jpeg' },
+          });
+          if (!putRes.ok) {
+            throw new Error(`GCS PUT failed: ${putRes.status} ${putRes.statusText}`);
+          }
+        }
+
+        await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-confirm`, { uploadSetId });
+        return; // success — exit retry loop
+      } catch (err: any) {
+        if (attempt === maxAttempts) {
+          throw new Error(`File "${file.name}" failed after ${maxAttempts} attempts: ${err.message}`);
+        }
+        // Wait before retry (exponential backoff: 1s, 2s)
+        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      }
+    }
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit() {
     if (!selectedMission) { setError('Please select a mission.'); return; }
     if (files.length === 0) { setError('Please add at least 1 image.'); return; }
-    setError(''); setSuccess(''); setUploading(true); setUploadProgress(0);
+    setError(''); setSuccess(''); setUploading(true); setUploadProgress(0); setUploadStage('Creating project…');
 
     try {
       // 1. Create project
@@ -133,6 +199,7 @@ const OrthomosaicView: React.FC = () => {
       const projectId = projectRes.data.data.id;
 
       // 2. Create job
+      setUploadStage('Creating job…');
       const jobRes = await apiClient.post(`/orthomosaic/projects/${projectId}/jobs`, {
         qualityTier,
         missionId: selectedMission,
@@ -141,31 +208,31 @@ const OrthomosaicView: React.FC = () => {
       });
       const jobId = jobRes.data.data.id;
 
-      // 3. Upload each file via signed URL
+      // 3. Upload each file with per-file retry (3 attempts)
+      const failedFiles: string[] = [];
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const urlRes = await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-url`, {
-          fileName: file.name,
-          contentType: file.type || 'image/jpeg',
-          fileSize: file.size,
-        });
-        const { uploadSetId, signedUrl } = urlRes.data.data;
-
-        if (signedUrl) {
-          // Direct GCS upload
-          await fetch(signedUrl, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': file.type || 'image/jpeg' },
-          });
+        setUploadStage(`Uploading ${i + 1}/${files.length}: ${file.name}`);
+        try {
+          await uploadFileWithRetry(jobId, file, 3);
+        } catch (uploadErr: any) {
+          failedFiles.push(file.name);
+          // Log but don't halt — continue uploading remaining files
+          console.warn('[Orthomosaic upload]', uploadErr.message);
         }
-
-        // Confirm
-        await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-confirm`, { uploadSetId });
         setUploadProgress(Math.round(((i + 1) / files.length) * 100));
       }
 
+      if (failedFiles.length === files.length) {
+        throw new Error(`All ${files.length} files failed to upload. Check your connection and try again.`);
+      }
+
+      if (failedFiles.length > 0) {
+        setError(`⚠️ ${failedFiles.length} file(s) failed and will be skipped: ${failedFiles.slice(0, 3).join(', ')}${failedFiles.length > 3 ? '…' : ''}`);
+      }
+
       // 4. Submit for processing
+      setUploadStage('Starting processing engine…');
       await apiClient.post(`/orthomosaic/jobs/${jobId}/submit`);
 
       setActiveJobId(jobId);
@@ -174,9 +241,25 @@ const OrthomosaicView: React.FC = () => {
         ? '⚡ Lightning processing started — estimated 20–40 minutes.'
         : '🗺️ Standard quality processing started — estimated 2–4 hours.');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Upload failed. Please try again.');
+      setError(err.response?.data?.message || err.message || 'Upload failed. Please try again.');
     } finally {
       setUploading(false);
+      setUploadStage('');
+    }
+  }
+
+  // ── Retry failed job ───────────────────────────────────────────────────────
+  async function handleRetry(jobId: string) {
+    setRetrying(jobId);
+    try {
+      await apiClient.post(`/orthomosaic/jobs/${jobId}/retry`);
+      setActiveJobId(jobId);
+      setSuccess('Job queued for retry. Processing will resume shortly.');
+      loadJobs();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to retry job.');
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -334,13 +417,18 @@ const OrthomosaicView: React.FC = () => {
           {uploading && (
             <div className="p-4 rounded-xl space-y-2" style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>Uploading images…</span>
+                <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>
+                  {uploadStage || 'Uploading images…'}
+                </span>
                 <span className="text-xs font-black text-white">{uploadProgress}%</span>
               </div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
                 <div className="h-full rounded-full transition-all duration-300"
                   style={{ width: `${uploadProgress}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
               </div>
+              <p className="text-[10px]" style={{ color: '#475569' }}>
+                Each file is uploaded directly to secure cloud storage with 3 automatic retries.
+              </p>
             </div>
           )}
 
@@ -396,9 +484,9 @@ const OrthomosaicView: React.FC = () => {
               )}
 
               {/* Outputs */}
-              {activeJob.status === 'completed' && activeJob.outputs?.length ? (
+              {activeJob.status === 'completed' && activeJob.outputs && activeJob.outputs.filter(Boolean).length > 0 && (
                 <div className="space-y-2">
-                  {activeJob.outputs.map(out => (
+                  {activeJob.outputs.filter(Boolean).map(out => (
                     <button
                       key={out.id}
                       onClick={() => downloadOutput(activeJob.id, out.id, out.file_name || out.output_type)}
@@ -406,19 +494,33 @@ const OrthomosaicView: React.FC = () => {
                       style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}
                     >
                       <div className="flex items-center gap-2">
-                        <Map className="w-3.5 h-3.5" />
-                        {out.file_name || out.output_type}
+                        {outputTypeIcon(out.output_type)}
+                        {outputTypeLabel(out.output_type)}
                       </div>
                       <Download className="w-3.5 h-3.5" />
                     </button>
                   ))}
                 </div>
-              ) : null}
+              )}
 
+              {/* Failed state + retry */}
               {activeJob.status === 'failed' && (
-                <p className="text-xs rounded-lg px-3 py-2" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
-                  {activeJob.error_message || 'Processing failed. Please retry.'}
-                </p>
+                <div className="space-y-2">
+                  <p className="text-xs rounded-lg px-3 py-2" style={{ background: 'rgba(239,68,68,0.08)', color: '#f87171' }}>
+                    {activeJob.error_message || 'Processing failed. Please retry.'}
+                  </p>
+                  {(activeJob.retry_count ?? 0) < (activeJob.max_retries ?? 3) && (
+                    <button
+                      onClick={() => handleRetry(activeJob.id)}
+                      disabled={retrying === activeJob.id}
+                      className="flex items-center gap-2 w-full justify-center px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                      style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                    >
+                      {retrying === activeJob.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                      {retrying === activeJob.id ? 'Retrying…' : `Retry Job (attempt ${(activeJob.retry_count ?? 0) + 1} / ${activeJob.max_retries ?? 3})`}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -441,29 +543,63 @@ const OrthomosaicView: React.FC = () => {
                 <p className="text-[10px]" style={{ color: '#1e293b' }}>Upload images to get started</p>
               </div>
             ) : (
-              <div className="space-y-2 overflow-auto" style={{ maxHeight: 400 }}>
+              <div className="space-y-2 overflow-auto" style={{ maxHeight: 420 }}>
                 {jobs.map(job => (
                   <div key={job.id}
                     onClick={() => setActiveJobId(job.id === activeJobId ? null : job.id)}
-                    className="flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer transition-all hover:opacity-80"
+                    className="flex flex-col px-4 py-3 rounded-xl cursor-pointer transition-all hover:opacity-90"
                     style={{
                       background: job.id === activeJobId ? 'rgba(14,165,233,0.08)' : 'rgba(30,41,59,0.4)',
                       border: `1px solid ${job.id === activeJobId ? 'rgba(14,165,233,0.2)' : 'rgba(255,255,255,0.05)'}`,
                     }}>
-                    <div className="min-w-0">
-                      <p className="text-xs font-black text-white truncate">{job.project_name || job.site_name || 'Untitled'}</p>
-                      <p className="text-[10px] uppercase tracking-widest mt-0.5" style={{ color: '#475569' }}>
-                        {job.image_count} img · {job.quality_tier === 'fast' ? '⚡' : '🗺️'} · {new Date(job.created_at).toLocaleDateString()}
-                      </p>
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black text-white truncate">{job.project_name || job.site_name || 'Untitled'}</p>
+                        <p className="text-[10px] uppercase tracking-widest mt-0.5" style={{ color: '#475569' }}>
+                          {job.image_count} img · {job.quality_tier === 'fast' ? '⚡' : '🗺️'} · {new Date(job.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 ml-2 shrink-0">
+                        {job.status === 'processing' && (
+                          <span className="text-[10px] font-black tabular-nums" style={{ color: '#38bdf8' }}>
+                            {job.progress_pct}%
+                          </span>
+                        )}
+                        {job.output_count != null && job.output_count > 0 && job.status === 'completed' && (
+                          <span className="text-[10px] font-black" style={{ color: '#4ade80' }}>
+                            {job.output_count} file{job.output_count !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        <StatusBadge status={job.status} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 ml-2">
-                      {job.status === 'processing' && (
-                        <span className="text-[10px] font-black tabular-nums" style={{ color: '#38bdf8' }}>
-                          {job.progress_pct}%
-                        </span>
-                      )}
-                      <StatusBadge status={job.status} />
-                    </div>
+
+                    {/* Inline error for failed jobs */}
+                    {job.status === 'failed' && job.error_message && (
+                      <div className="mt-2 flex items-start gap-2">
+                        <p className="text-[10px] leading-relaxed truncate" style={{ color: '#f87171' }}>
+                          ✗ {job.error_message}
+                        </p>
+                        {(job.retry_count ?? 0) < (job.max_retries ?? 3) && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleRetry(job.id); }}
+                            disabled={retrying === job.id}
+                            className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase transition-all"
+                            style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+                          >
+                            {retrying === job.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RotateCcw className="w-2.5 h-2.5" />}
+                            Retry
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Processing progress mini bar */}
+                    {job.status === 'processing' && job.progress_pct > 0 && (
+                      <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
+                        <div className="h-full rounded-full" style={{ width: `${job.progress_pct}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -479,6 +615,7 @@ const OrthomosaicView: React.FC = () => {
                 <p className="text-[10px] leading-relaxed" style={{ color: '#64748b' }}>
                   ⚡ <strong className="text-white">Lightning</strong> mode uses OpenDroneMap fast-orthophoto for 20–40 min turnarounds.
                   Perfect for same-day client reports. Standard mode delivers full resolution in 2–4 hours.
+                  All uploads use 3× auto-retry for upload resilience.
                 </p>
               </div>
             </div>
