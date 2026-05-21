@@ -695,7 +695,9 @@ export default function PilotUploadV2() {
     const [missionId, setMissionId] = useState('');
 
     return (
-        <div className="min-h-screen bg-slate-950 text-white">
+        // Phase 2 fix: h-full + overflow-y-auto, parent PilotAppV2 owns h-screen.
+        // pt-14 md:pt-0 clears the mobile top nav bar.
+        <div className="h-full overflow-y-auto bg-slate-950 text-white pt-14 md:pt-0">
         <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-5 pb-28">
             {/* Header */}
             <div>

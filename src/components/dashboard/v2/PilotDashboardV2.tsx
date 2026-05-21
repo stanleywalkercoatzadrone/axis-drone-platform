@@ -18,7 +18,8 @@ import {
     Download, Upload, FileText, BarChart3, Cloud, Wind, Sun,
     TrendingUp, TrendingDown, Minus, RefreshCw, ChevronRight,
     CheckCircle, Clock, Plane, Activity, Target, Loader2,
-    FolderUp, ShieldCheck, Banknote, Building, CheckCircle2, UploadCloud, Grid3X3
+    FolderUp, ShieldCheck, Banknote, Building, CheckCircle2, UploadCloud, Grid3X3,
+    Navigation, LifeBuoy, Flag, Gauge, TriangleAlert, Eye
 } from 'lucide-react';
 import apiClient from '../../../services/apiClient';
 import PilotProtocolsPanel from './PilotProtocolsPanel';
@@ -118,11 +119,58 @@ const uvLabel = (uv: number) => {
     return { label: 'Extreme', color: 'text-purple-600' };
 };
 
-const STATUS_COLORS: Record<string, string> = {
-    assigned: 'bg-blue-50 text-blue-700 border-blue-200',
-    in_progress: 'bg-amber-50 text-amber-700 border-amber-200',
-    completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    on_hold: 'bg-slate-100 text-slate-500 border-slate-200',
+// ── Enterprise 9-state mission status system ────────────────────────────────
+const MISSION_STATUS: Record<string, {
+    label: string; badge: string; icon: React.ElementType; dot: string;
+}> = {
+    assigned:       { label: 'Assigned',       badge: 'bg-blue-500/15 text-blue-300 border-blue-500/30',    icon: CheckSquare,  dot: 'bg-blue-400' },
+    accepted:       { label: 'Accepted',       badge: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',     icon: CheckCircle2, dot: 'bg-cyan-400' },
+    in_transit:     { label: 'In Transit',     badge: 'bg-violet-500/15 text-violet-300 border-violet-500/30', icon: Navigation, dot: 'bg-violet-400' },
+    in_progress:    { label: 'Active',         badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30', icon: Activity,     dot: 'bg-amber-400' },
+    uploading:      { label: 'Uploading',      badge: 'bg-sky-500/15 text-sky-300 border-sky-500/30',       icon: UploadCloud,  dot: 'bg-sky-400' },
+    pending_review: { label: 'Pending Review', badge: 'bg-orange-500/15 text-orange-300 border-orange-500/30', icon: Eye,       dot: 'bg-orange-400' },
+    completed:      { label: 'Completed',      badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: CheckCircle, dot: 'bg-emerald-400' },
+    blocked:        { label: 'Blocked',        badge: 'bg-red-500/15 text-red-300 border-red-500/30',       icon: TriangleAlert, dot: 'bg-red-400' },
+    escalated:      { label: 'Escalated',      badge: 'bg-rose-500/15 text-rose-300 border-rose-500/30',    icon: Flag,         dot: 'bg-rose-400' },
+    on_hold:        { label: 'On Hold',        badge: 'bg-slate-500/15 text-slate-400 border-slate-500/30', icon: Clock,        dot: 'bg-slate-500' },
+};
+
+const getMissionStatus = (raw: string) => {
+    const key = (raw || 'assigned').toLowerCase().replace(/[\s-]/g, '_');
+    return MISSION_STATUS[key] || MISSION_STATUS['assigned'];
+};
+
+// ── Flight risk score from existing weather fields ───────────────────────────
+const computeFlightRisk = (w: WeatherData): { score: number; label: string; recommendation: string; color: string } => {
+    let risk = 0;
+    const wind = w.wind_speed ?? 0;
+    const gusts = w.wind_gusts ?? wind;
+    const vis = w.visibility_mi ?? 10;
+    const precip = w.precipitation ?? 0;
+    const code = w.weather_code ?? 0;
+
+    if (wind > 35 || gusts > 45) risk += 50;
+    else if (wind > 20 || gusts > 30) risk += 25;
+    else if (wind > 12) risk += 10;
+
+    if (vis < 3) risk += 40;
+    else if (vis < 5) risk += 20;
+    else if (vis < 8) risk += 5;
+
+    if (precip > 2) risk += 30;
+    else if (precip > 0.5) risk += 15;
+    else if (precip > 0) risk += 5;
+
+    if (code >= 90) risk += 40; // thunderstorm / severe
+    else if (code >= 60) risk += 20; // rain/snow
+    else if (code >= 30) risk += 10; // drizzle
+
+    risk = Math.min(100, risk);
+
+    if (risk >= 70) return { score: risk, label: 'HIGH RISK', recommendation: 'Unsafe flight window — stand down', color: 'text-red-400' };
+    if (risk >= 40) return { score: risk, label: 'ELEVATED', recommendation: 'Proceed with caution — monitor closely', color: 'text-amber-400' };
+    if (risk >= 20) return { score: risk, label: 'MODERATE', recommendation: 'Conditions marginal — review before takeoff', color: 'text-yellow-400' };
+    return { score: risk, label: 'LOW RISK', recommendation: 'Safe to deploy — conditions favorable', color: 'text-emerald-400' };
 };
 
 const DRAFT_KEY = (missionId: string) => `daily_report_draft_${missionId}`;
@@ -453,6 +501,7 @@ const MissionCard: React.FC<{
     onDailyReport: () => void;
     onViewReports: () => void;
 }> = ({ mission, onDailyReport, onViewReports }) => {
+    const navigate = useNavigate();
     const [weather, setWeather] = useState<WeatherData | null>(null);
     const [hourly, setHourly] = useState<HourlySlot[]>([]);
     const [weatherLocation, setWeatherLocation] = useState<{ city?: string; state?: string } | null>(null);
@@ -599,20 +648,28 @@ const MissionCard: React.FC<{
     const siteName = mission.site_name || mission.sites?.name || 'Unknown Site';
     const location = mission.location || mission.sites?.location || '';
     const cityOnly = location.split(',')[0]?.trim();
-    const statusColor = STATUS_COLORS[mission.status] || STATUS_COLORS['on_hold'];
+    const statusMeta = getMissionStatus(mission.status);
+    const StatusIcon = statusMeta.icon;
+    const flightRisk = weather ? computeFlightRisk(weather) : null;
 
     return (
-        <div className={`bg-slate-900 border rounded-xl overflow-hidden transition-all ${expanded ? 'border-blue-500/60' : 'border-slate-700'}`}>
+        <div className={`bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-200 shadow-lg ${
+            expanded ? 'border-blue-500/50 shadow-blue-500/5' : 'border-slate-700/60 hover:border-slate-600/60'
+        }`}>
             {/* Mission header */}
             <div
-                className="px-5 py-4 cursor-pointer hover:bg-slate-800/60 transition-colors"
+                className="px-5 py-4 cursor-pointer hover:bg-slate-800/40 transition-colors"
                 onClick={() => setExpanded(e => !e)}
             >
                 <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${statusColor}`}>
-                                {mission.status.replace('_', ' ').toUpperCase()}
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            {/* Enterprise status badge */}
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-full border ${
+                                statusMeta.badge
+                            }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${statusMeta.dot} inline-block`} />
+                                {statusMeta.label}
                             </span>
                             {mission.industry_key && (
                                 <span className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">{mission.industry_key}</span>
@@ -716,6 +773,53 @@ const MissionCard: React.FC<{
                         {/* Full weather panel */}
                         {!weatherLoading && weather && (
                             <>
+                            {/* ── Flight Risk Score (Phase 6) ─────────────── */}
+                            {(() => {
+                                const risk = computeFlightRisk(weather);
+                                const pct = risk.score;
+                                const barColor = pct >= 70 ? 'bg-red-500' : pct >= 40 ? 'bg-amber-500' : pct >= 20 ? 'bg-yellow-400' : 'bg-emerald-500';
+                                return (
+                                    <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <Gauge className={`w-3.5 h-3.5 ${risk.color}`} />
+                                                <span className={`text-[10px] font-black uppercase tracking-widest ${risk.color}`}>
+                                                    Flight Risk — {risk.label}
+                                                </span>
+                                            </div>
+                                            <span className={`text-xs font-black ${risk.color}`}>{pct}/100</span>
+                                        </div>
+                                        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-slate-400">{risk.recommendation}</p>
+                                        {/* Wind threshold alerts */}
+                                        {(weather.wind_speed ?? 0) > 35 && (
+                                            <div className="flex items-center gap-1.5 text-[10px] text-red-400 font-bold">
+                                                <TriangleAlert className="w-3 h-3" /> Wind {weather.wind_speed} mph — EXCEEDS PART 107 THRESHOLD
+                                            </div>
+                                        )}
+                                        {(weather.wind_speed ?? 0) > 20 && (weather.wind_speed ?? 0) <= 35 && (
+                                            <div className="flex items-center gap-1.5 text-[10px] text-amber-400 font-bold">
+                                                <TriangleAlert className="w-3 h-3" /> High wind caution — {weather.wind_speed} mph
+                                            </div>
+                                        )}
+                                        {(weather.visibility_mi ?? 10) < 3 && (
+                                            <div className="flex items-center gap-1.5 text-[10px] text-red-400 font-bold">
+                                                <Eye className="w-3 h-3" /> Visibility {weather.visibility_mi}mi — BELOW FAA MINIMUM
+                                            </div>
+                                        )}
+                                        {(weather.weather_code ?? 0) >= 90 && (
+                                            <div className="flex items-center gap-1.5 text-[10px] text-red-400 font-bold">
+                                                <CloudLightning className="w-3 h-3" /> Severe storm detected — no-fly
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                             {/* Flight Status Banner */}
                             {weather.flight_status && (
                                 <div className={`rounded-xl px-4 py-3 border flex items-start gap-3 ${
@@ -875,68 +979,105 @@ const MissionCard: React.FC<{
                     {/* Operational Protocols */}
                     <PilotProtocolsPanel missionId={mission.id} />
 
+                    {/* ── Quick Actions Grid (Phase 4) ─────────────────────── */}
                     <div>
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Mission Actions</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {/* Download KML */}
-                        <button
-                            onClick={handleKMLDownload}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-cyan-500/40 text-cyan-300 text-xs font-bold hover:bg-cyan-900/30 hover:border-cyan-400/60 transition-all shadow-sm"
-                        >
-                            <Download className="w-3.5 h-3.5" />
-                            Download KML
-                        </button>
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                            <Gauge className="w-3 h-3" /> Mission Quick Actions
+                        </h4>
+                        {/* Primary CTA row — 2 cols mobile, 4 cols tablet */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2">
+                            {/* Open Checklist */}
+                            <button
+                                onClick={() => navigate(`/pilot/checklist/${mission.id}`)}
+                                className="flex flex-col items-center justify-center gap-1.5 min-h-[56px] px-2 py-3 rounded-xl bg-blue-600/10 border border-blue-500/30 text-blue-300 text-[10px] font-black uppercase tracking-wide hover:bg-blue-600/20 hover:border-blue-400/50 active:scale-95 transition-all"
+                            >
+                                <CheckSquare className="w-4 h-4" />
+                                Checklist
+                            </button>
 
-                        {/* Download Parameters */}
-                        <button
-                            onClick={handleParamsDownload}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-violet-500/40 text-violet-300 text-xs font-bold hover:bg-violet-900/30 hover:border-violet-400/60 transition-all shadow-sm"
-                        >
-                            <FileText className="w-3.5 h-3.5" />
-                            Parameters
-                        </button>
+                            {/* Upload Media — navigates to dedicated upload page */}
+                            <button
+                                onClick={() => navigate(`/pilot/uploads/${mission.id}`)}
+                                className="flex flex-col items-center justify-center gap-1.5 min-h-[56px] px-2 py-3 rounded-xl bg-emerald-600/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-black uppercase tracking-wide hover:bg-emerald-600/20 hover:border-emerald-400/50 active:scale-95 transition-all"
+                            >
+                                <UploadCloud className="w-4 h-4" />
+                                Upload
+                            </button>
 
-                        {/* Upload Flight Data */}
-                        <div className="flex flex-col gap-2">
-                            <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-900/30 hover:border-emerald-400/60 transition-all shadow-sm ${uploading ? 'opacity-60' : ''}`}>
-                                <Upload className="w-3.5 h-3.5" />
-                                {uploading ? 'Uploading...' : 'Upload Files'}
-                                <input
-                                    type="file" multiple className="hidden"
-                                    disabled={uploading}
+                            {/* Weather — navigates to full weather view */}
+                            <button
+                                onClick={() => navigate(`/pilot/weather/${mission.id}`)}
+                                className="flex flex-col items-center justify-center gap-1.5 min-h-[56px] px-2 py-3 rounded-xl bg-sky-600/10 border border-sky-500/30 text-sky-300 text-[10px] font-black uppercase tracking-wide hover:bg-sky-600/20 hover:border-sky-400/50 active:scale-95 transition-all"
+                            >
+                                <Cloud className="w-4 h-4" />
+                                Weather
+                            </button>
+
+                            {/* Daily Report */}
+                            <button
+                                onClick={onDailyReport}
+                                className="flex flex-col items-center justify-center gap-1.5 min-h-[56px] px-2 py-3 rounded-xl bg-amber-600/10 border border-amber-500/30 text-amber-300 text-[10px] font-black uppercase tracking-wide hover:bg-amber-600/20 hover:border-amber-400/50 active:scale-95 transition-all"
+                            >
+                                <FileText className="w-4 h-4" />
+                                Report
+                            </button>
+                        </div>
+
+                        {/* Secondary action row */}
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {/* Download KML */}
+                            <button
+                                onClick={handleKMLDownload}
+                                className="flex items-center justify-center gap-2 min-h-[44px] px-3 py-2.5 rounded-xl bg-slate-800 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold hover:bg-cyan-900/20 hover:border-cyan-400/50 active:scale-95 transition-all"
+                            >
+                                <Download className="w-3.5 h-3.5" /> KML File
+                            </button>
+
+                            {/* Parameters */}
+                            <button
+                                onClick={handleParamsDownload}
+                                className="flex items-center justify-center gap-2 min-h-[44px] px-3 py-2.5 rounded-xl bg-slate-800 border border-violet-500/30 text-violet-300 text-[10px] font-bold hover:bg-violet-900/20 hover:border-violet-400/50 active:scale-95 transition-all"
+                            >
+                                <Navigation className="w-3.5 h-3.5" /> Parameters
+                            </button>
+
+                            {/* View Past Reports */}
+                            <button
+                                onClick={onViewReports}
+                                className="flex items-center justify-center gap-2 min-h-[44px] px-3 py-2.5 rounded-xl bg-slate-800 border border-blue-500/30 text-blue-300 text-[10px] font-bold hover:bg-blue-900/20 hover:border-blue-400/50 active:scale-95 transition-all col-span-2 md:col-span-1"
+                            >
+                                <Eye className="w-3.5 h-3.5" /> Past Reports
+                            </button>
+                        </div>
+
+                        {/* Inline upload shortcuts */}
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                            <label className={`flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 rounded-xl bg-slate-800/80 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold cursor-pointer hover:bg-emerald-900/20 hover:border-emerald-400/40 active:scale-95 transition-all ${
+                                uploading ? 'opacity-50 pointer-events-none' : ''
+                            }`}>
+                                <Upload className="w-3 h-3" />
+                                {uploading ? 'Uploading…' : 'Quick Files'}
+                                <input type="file" multiple className="hidden" disabled={uploading}
                                     accept=".jpg,.jpeg,.png,.webp,.tiff,.heic,.mp4,.mov,.kml,.kmz,.zip,.csv,.xls,.xlsx,.pdf,.las,.laz"
-                                    onChange={handleUpload}
-                                />
+                                    onChange={handleUpload} />
                             </label>
-                            <label className={`flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-emerald-500/40 text-emerald-300 text-xs font-bold cursor-pointer hover:bg-emerald-900/30 hover:border-emerald-400/60 transition-all shadow-sm ${uploading ? 'opacity-60' : ''}`}>
-                                <FolderUp className="w-3.5 h-3.5" />
-                                {uploading ? 'Uploading...' : 'Upload Folder'}
-                                <input
-                                    type="file" {...({ webkitdirectory: "", directory: "" } as any)} className="hidden"
-                                    disabled={uploading}
-                                    onChange={handleUpload}
-                                />
+                            <label className={`flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 rounded-xl bg-slate-800/80 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold cursor-pointer hover:bg-emerald-900/20 hover:border-emerald-400/40 active:scale-95 transition-all ${
+                                uploading ? 'opacity-50 pointer-events-none' : ''
+                            }`}>
+                                <FolderUp className="w-3 h-3" />
+                                {uploading ? 'Uploading…' : 'Quick Folder'}
+                                <input type="file" {...({ webkitdirectory: '', directory: '' } as any)} className="hidden" disabled={uploading}
+                                    onChange={handleUpload} />
                             </label>
                         </div>
 
-                        {/* Daily Report */}
+                        {/* Request Support — opens issues view */}
                         <button
-                            onClick={onDailyReport}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-amber-500/40 text-amber-300 text-xs font-bold hover:bg-amber-900/30 hover:border-amber-400/60 transition-all shadow-sm"
+                            onClick={() => navigate(`/pilot/issues/${mission.id}`)}
+                            className="mt-2 w-full flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 rounded-xl bg-slate-800/60 border border-rose-500/20 text-rose-400 text-[10px] font-bold hover:bg-rose-900/10 hover:border-rose-400/40 active:scale-95 transition-all"
                         >
-                            <FileText className="w-3.5 h-3.5" />
-                            Daily Report
+                            <LifeBuoy className="w-3.5 h-3.5" /> Request Support / Report Issue
                         </button>
-                        
-                        {/* View Submitted Reports */}
-                        <button
-                            onClick={onViewReports}
-                            className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 border border-blue-500/40 text-blue-300 text-xs font-bold hover:bg-blue-900/30 hover:border-blue-400/60 transition-all shadow-sm"
-                        >
-                            <CheckSquare className="w-3.5 h-3.5" />
-                            View Past Reports
-                        </button>
-                    </div>
                     </div>
                 </div>
             )}
@@ -1203,16 +1344,18 @@ const PilotDashboardV2: React.FC = () => {
     const firstName = (user as any)?.fullName?.split(' ')[0] || (user as any)?.full_name?.split(' ')[0] || 'Pilot';
 
     if (loading) return (
-        <div className="flex items-center justify-center min-h-screen bg-slate-950">
+        <div className="flex items-center justify-center h-full bg-slate-950">
             <div className="flex flex-col items-center gap-4">
                 <div className="w-8 h-8 border-4 border-slate-700 border-t-blue-400 rounded-full animate-spin" />
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Loading...</p>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Syncing missions...</p>
             </div>
         </div>
     );
 
     return (
-        <div className="min-h-screen bg-slate-950 pb-32 pt-14 md:pt-0 md:pb-24">
+        // Phase 2 fix: h-full + overflow-y-auto — parent PilotAppV2 already sets h-screen.
+        // Do NOT use min-h-screen here (causes visual double-shell / background repaint).
+        <div className="h-full overflow-y-auto bg-slate-950 pb-32 pt-14 md:pt-0 md:pb-24">
             {/* Header — matches admin dashboard page header style */}
             <div className="bg-slate-900/60 backdrop-blur-xl border-b border-slate-700/60 px-4 md:px-6 py-4 md:py-5 shadow-2xl">
                 <div className="flex items-center justify-between max-w-5xl mx-auto">
@@ -1260,7 +1403,7 @@ const PilotDashboardV2: React.FC = () => {
                             <p className="text-slate-500 text-xs mt-1">Await new dispatch from command</p>
                         </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             {missions.map(mission => (
                                 <MissionCard
                                     key={mission.id}
@@ -1284,31 +1427,62 @@ const PilotDashboardV2: React.FC = () => {
                     </div>
 
                     {perf ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                             {[
-                                { label: 'Total Assigned', value: perf.totalMissionsAssigned.toString(), icon: <Activity className="w-4 h-4" />, accent: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
-                                { label: 'Completed', value: perf.missionsCompleted.toString(), icon: <CheckCircle className="w-4 h-4" />, accent: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-                                { label: 'In Progress', value: perf.missionsInProgress.toString(), icon: <Clock className="w-4 h-4" />, accent: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
-                                { label: 'Completion Rate', value: `${perf.completionPercentage}%`, icon: <Target className="w-4 h-4" />, accent: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-                                { label: 'Avg Daily Rate', value: perf.avgDailyCompletionRate > 0 ? `${perf.avgDailyCompletionRate}%` : '–', icon: <TrendingUp className="w-4 h-4" />, accent: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-                                { label: 'Active Days', value: perf.totalActiveDays.toString(), icon: <Calendar className="w-4 h-4" />, accent: 'text-violet-600', bg: 'bg-violet-50', border: 'border-violet-100' },
+                                {
+                                    label: 'Assigned',
+                                    value: perf.totalMissionsAssigned > 0 ? perf.totalMissionsAssigned.toString() : '—',
+                                    sub: perf.totalMissionsAssigned === 0 ? 'Awaiting dispatch' : 'total missions',
+                                    icon: <Activity className="w-4 h-4" />, accent: 'text-violet-400', border: 'border-violet-500/20', glow: 'hover:border-violet-500/40'
+                                },
+                                {
+                                    label: 'Completed',
+                                    value: perf.missionsCompleted > 0 ? perf.missionsCompleted.toString() : '—',
+                                    sub: perf.missionsCompleted === 0 ? 'Awaiting completions' : 'missions done',
+                                    icon: <CheckCircle className="w-4 h-4" />, accent: 'text-emerald-400', border: 'border-emerald-500/20', glow: 'hover:border-emerald-500/40'
+                                },
+                                {
+                                    label: 'In Progress',
+                                    value: perf.missionsInProgress > 0 ? perf.missionsInProgress.toString() : '—',
+                                    sub: perf.missionsInProgress === 0 ? 'None active' : 'active now',
+                                    icon: <Clock className="w-4 h-4" />, accent: 'text-amber-400', border: 'border-amber-500/20', glow: 'hover:border-amber-500/40'
+                                },
+                                {
+                                    label: 'Completion Rate',
+                                    value: perf.missionsCompleted > 0 ? `${perf.completionPercentage}%` : '—',
+                                    sub: perf.missionsCompleted === 0 ? 'Data processing' : 'success rate',
+                                    icon: <Target className="w-4 h-4" />, accent: 'text-blue-400', border: 'border-blue-500/20', glow: 'hover:border-blue-500/40'
+                                },
+                                {
+                                    label: 'Daily Rate',
+                                    value: perf.avgDailyCompletionRate > 0 ? `${perf.avgDailyCompletionRate}%` : '—',
+                                    sub: perf.avgDailyCompletionRate === 0 ? 'Awaiting logs' : 'avg/day',
+                                    icon: <TrendingUp className="w-4 h-4" />, accent: 'text-emerald-400', border: 'border-emerald-500/20', glow: 'hover:border-emerald-500/40'
+                                },
+                                {
+                                    label: 'Active Days',
+                                    value: perf.totalActiveDays > 0 ? perf.totalActiveDays.toString() : '—',
+                                    sub: perf.totalActiveDays === 0 ? 'Awaiting activity' : 'days in field',
+                                    icon: <Calendar className="w-4 h-4" />, accent: 'text-violet-400', border: 'border-violet-500/20', glow: 'hover:border-violet-500/40'
+                                },
                             ].map(stat => (
-                                <div key={stat.label} className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl p-4 shadow-sm hover:border-sky-500/30 transition-colors">
-                                    <div className={`inline-flex items-center gap-1.5 mb-3 px-2 py-1 rounded-lg ${stat.bg} border ${stat.border}`}>
-                                        <span className={stat.accent}>{stat.icon}</span>
-                                        <span className={`text-[9px] font-bold uppercase tracking-widest ${stat.accent}`}>{stat.label}</span>
+                                <div key={stat.label} className={`bg-slate-900/60 backdrop-blur-xl border ${stat.border} ${stat.glow} rounded-2xl p-4 shadow-sm transition-all duration-200`}>
+                                    <div className={`flex items-center gap-1.5 mb-3 ${stat.accent}`}>
+                                        {stat.icon}
+                                        <span className="text-[9px] font-black uppercase tracking-widest opacity-80">{stat.label}</span>
                                     </div>
                                     <div className="text-2xl font-black text-white">{stat.value}</div>
+                                    <div className="text-[10px] text-slate-500 mt-0.5">{stat.sub}</div>
                                 </div>
                             ))}
                         </div>
                     ) : (
-                        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-xl p-8 text-center shadow-sm">
+                        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/60 rounded-2xl p-8 text-center shadow-sm">
                             <div className="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center mx-auto mb-3">
-                                <BarChart3 className="w-6 h-6 text-slate-300" />
+                                <BarChart3 className="w-6 h-6 text-slate-600 animate-pulse" />
                             </div>
-                            <p className="text-slate-300 text-sm font-medium">No performance data yet</p>
-                            <p className="text-slate-500 text-xs mt-1">Performance data will appear after your first mission logs are submitted.</p>
+                            <p className="text-slate-400 text-sm font-semibold">Awaiting mission data</p>
+                            <p className="text-slate-600 text-xs mt-1">Performance metrics will populate after your first completed mission.</p>
                         </div>
                     )}
 
