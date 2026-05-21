@@ -151,7 +151,7 @@ export const PilotNetworkAdmin: React.FC = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-950 overflow-hidden">
+        <div className="flex flex-col bg-slate-950" style={{ minHeight: '100%' }}>
             {/* Header */}
             <div className="px-6 py-5 border-b border-slate-800 bg-slate-900 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
@@ -584,5 +584,3 @@ const InfoCard: React.FC<{ title: string; icon: React.ReactNode; children: React
         <div className="p-4">{children}</div>
     </div>
 );
-
-export default PilotNetworkAdmin;
