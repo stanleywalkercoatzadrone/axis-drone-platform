@@ -5,7 +5,7 @@
  * Mobile: pilot-style fixed top bar + bottom tab bar (md:hidden).
  * Desktop: full sidebar layout (hidden md:flex).
  */
-import React, { useState, Component } from 'react';
+import React, { useState, Component, useEffect } from 'react';
 import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight,
@@ -212,6 +212,74 @@ export default function AppShell() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // ── Global glassmorphism injection ──────────────────────────────────────────
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.id = 'ag-glassmorphism';
+    style.textContent = `
+      @keyframes ag-mesh-drift {
+        0%   { background-position: 0% 0%; }
+        50%  { background-position: 100% 100%; }
+        100% { background-position: 0% 0%; }
+      }
+
+      html, body, #root {
+        background-color: #020617 !important;
+        background-image:
+          radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.18) 0px, transparent 50%),
+          radial-gradient(at 100% 0%, rgba(79, 70, 229, 0.18) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+          radial-gradient(at 0% 100%, rgba(79, 70, 229, 0.12) 0px, transparent 50%) !important;
+        background-size: 200% 200% !important;
+        animation: ag-mesh-drift 30s ease infinite !important;
+        background-attachment: fixed !important;
+      }
+
+      /* Sidebar glass */
+      .ag .ag-sidebar {
+        background: rgba(10, 16, 33, 0.55) !important;
+        backdrop-filter: blur(24px) !important;
+        -webkit-backdrop-filter: blur(24px) !important;
+        border-right: 1px solid rgba(255,255,255,0.06) !important;
+      }
+
+      /* All panels — apply backdrop blur over background color via !important */
+      div[class*="bg-slate-900"], div[class*="bg-slate-800"],
+      section[class*="bg-slate-900"], section[class*="bg-slate-800"],
+      form[class*="bg-slate-900"], form[class*="bg-slate-800"] {
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
+        box-shadow: inset 0 1px 0 0 rgba(255,255,255,0.04) !important;
+      }
+
+      /* Translate solid background-colors to semi-transparent */
+      div.bg-slate-900, section.bg-slate-900 { background-color: rgba(15,23,42,0.45) !important; }
+      div.bg-slate-800, section.bg-slate-800 { background-color: rgba(30,41,59,0.55) !important; }
+      div.bg-slate-950, section.bg-slate-950 { background-color: rgba(2,6,23,0.1) !important; }
+
+      /* Opacity variants */
+      [class$="bg-slate-900\/80"], [class*="bg-slate-900\/80 "] { background-color: rgba(15,23,42,0.65) !important; }
+      [class$="bg-slate-800\/80"], [class*="bg-slate-800\/80 "] { background-color: rgba(30,41,59,0.72) !important; }
+      [class$="bg-slate-900\/60"], [class*="bg-slate-900\/60 "] { background-color: rgba(15,23,42,0.40) !important; }
+      [class$="bg-slate-800\/60"], [class*="bg-slate-800\/60 "] { background-color: rgba(30,41,59,0.50) !important; }
+      [class$="bg-slate-900\/50"], [class*="bg-slate-900\/50 "] { background-color: rgba(15,23,42,0.30) !important; }
+      [class$="bg-slate-800\/50"], [class*="bg-slate-800\/50 "] { background-color: rgba(30,41,59,0.38) !important; }
+      [class$="bg-slate-800\/40"], [class*="bg-slate-800\/40 "] { background-color: rgba(30,41,59,0.28) !important; }
+
+      /* Glass borders */
+      [class*="border-slate-700"], [class*="border-slate-800"] {
+        border-color: rgba(255,255,255,0.07) !important;
+      }
+    `;
+    if (!document.getElementById('ag-glassmorphism')) {
+      document.head.appendChild(style);
+    }
+    return () => {
+      const el = document.getElementById('ag-glassmorphism');
+      if (el) el.remove();
+    };
+  }, []);
 
   // Detect PWA standalone mode — only show mobile bars when installed as PWA
   const [isPWA] = useState(() =>
