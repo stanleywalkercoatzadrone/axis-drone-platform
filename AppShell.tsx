@@ -261,7 +261,7 @@ export default function AppShell() {
       /* Translate solid background-colors to semi-transparent */
       div.bg-slate-900, section.bg-slate-900 { background-color: rgba(15,23,42,0.45) !important; }
       div.bg-slate-800, section.bg-slate-800 { background-color: rgba(30,41,59,0.55) !important; }
-      div.bg-slate-950, section.bg-slate-950 { background-color: rgba(2,6,23,0.1) !important; }
+      /* NOTE: bg-slate-950 is intentionally excluded — it wraps the scroll container */
 
       /* Opacity variants */
       [class$="bg-slate-900\/80"], [class*="bg-slate-900\/80 "] { background-color: rgba(15,23,42,0.65) !important; }
@@ -795,7 +795,7 @@ export default function AppShell() {
         </aside>
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 bg-slate-950 text-slate-100">
+        <div className="flex-1 flex flex-col min-w-0 text-slate-100" style={{ minHeight: 0 }}>
           {/* Desktop topbar REMOVED from browser — page title bar below provides context */}
 
 
