@@ -26,10 +26,34 @@ const MissionIntelligenceWorkspace: React.FC = () => {
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden', background: '#020617' }}>
       
-      {/* BACKGROUND LAYER: The Geospatial Map */}
-      <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-        {/* Pass a fixed height to ensure Leaflet renders correctly before fullscreen trigger */}
-        <div className="flex items-center justify-center h-full w-full bg-slate-900 text-slate-500">Site Map Viewer Unavailable</div>
+      {/* BACKGROUND LAYER: Spatial Intelligence Empty State */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(ellipse at 50% 60%, rgba(59,130,246,0.06) 0%, #020617 70%)' }}>
+        {/* Animated grid backdrop */}
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px)', backgroundSize: '48px 48px', opacity: 0.6 }} />
+        {/* Empty state card */}
+        <div style={{ position: 'relative', textAlign: 'center', maxWidth: 480, padding: '48px 40px', background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, boxShadow: '0 32px 80px rgba(0,0,0,0.5)' }}>
+          <div style={{ width: 72, height: 72, borderRadius: 20, background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(99,102,241,0.2))', border: '1px solid rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
+            <Map size={32} color="#818cf8" />
+          </div>
+          <h2 style={{ margin: '0 0 10px', fontSize: 20, fontWeight: 900, color: '#f1f5f9', letterSpacing: -0.5 }}>Mission Intelligence Console</h2>
+          <p style={{ margin: '0 0 8px', fontSize: 13, color: '#94a3b8', lineHeight: 1.6 }}>
+            Select a mission from the <strong style={{ color: '#60a5fa' }}>Mission Terminal</strong> to load its spatial intelligence layer — orthomosaic maps, defect overlays, and AI thermal analysis.
+          </p>
+          <p style={{ margin: '0 0 28px', fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
+            While you wait, use the <strong style={{ color: '#a78bfa' }}>Data Ingestion</strong> panel to upload new imagery, or open the <strong style={{ color: '#34d399' }}>AI Studio</strong> to review the training dataset.
+          </p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: '#818cf8' }}>
+              <Layers size={12} /> Orthomosaic Mapping
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: '#f87171' }}>
+              <Activity size={12} /> Thermal Detection
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8, fontSize: 11, fontWeight: 700, color: '#4ade80' }}>
+              <Box size={12} /> AI Defect Inspector
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* GLOBAL HEADER CONTROLS (Floating Top Left) */}

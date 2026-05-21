@@ -57,8 +57,7 @@ import { useIndustry } from './context/IndustryContext';
 // ── Existing view components ────────────────────────────────────────────────
 import DeploymentTracker from './src/components/DeploymentTracker';
 import { MissionControl } from './src/components/dashboard/MissionControl';
-import { SessionsView } from './src/components/dashboard/SessionsView';
-import { MissionTimelineView } from './src/components/dashboard/MissionTimelineView';
+
 import { useCountry } from './context/CountryContext';
 import { isoToFlag } from './src/utils/countryFlag';
 import WeatherDashboard from './src/components/WeatherDashboard';
@@ -122,17 +121,18 @@ const NAV: NavGroup[] = [
   {
     title: 'nav.pilots',
     items: [
-      { key: 'pilot-network-admin',  label: 'Pilot Applications' },
+      { key: 'pilot-network-admin',  label: 'nav.pilotNetworkAdmin' },
+      { key: 'pilot-applications',   label: 'nav.applicationPackets', adminOnly: true },
       { key: 'pilot-directory',      label: 'nav.pilotRoster' },
       { key: 'performance',          label: 'nav.performance' },
-      { key: 'interest-inquiry',     label: 'Interest Inquiry', adminOnly: true },
+      { key: 'interest-inquiry',     label: 'nav.interestInquiry', adminOnly: true },
     ],
   },
   {
-    title: 'nav.pilotUploads',
+    title: 'nav.mediaUploads',
     items: [
       { key: 'uploads',      label: 'nav.pilotUploadsLabel' },
-      { key: 'orthomosaic',  label: 'Orthomosaic' },
+      { key: 'orthomosaic',  label: 'nav.orthomosaic' },
       { key: 'media',        label: 'nav.mediaGallery' },
     ],
   },
@@ -347,6 +347,8 @@ export default function AppShell() {
     'protocol-lists':        'Operational Protocols',
     'checklist-items':       'My Checklist Items',
     'construction':          'Construction Monitoring',
+    'orthomosaic':           'Orthomosaic',
+    'interest-inquiry':     'Interest Inquiry',
   };
 
   function renderView() {

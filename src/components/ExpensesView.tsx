@@ -68,8 +68,8 @@ export default function ExpensesView() {
         setLoading(true);
         try {
             const [pp, me] = await Promise.all([
-                apiClient.get('/expenses/pilot-summary'),
-                apiClient.get('/expenses/manual'),
+                apiClient.get('/vendor-expenses/pilot-summary'),
+                apiClient.get('/vendor-expenses/manual'),
             ]);
             setPilotRows(pp.data.data || []);
             setManualRows(me.data.data || []);
@@ -98,7 +98,7 @@ export default function ExpensesView() {
         const fd = new FormData();
         fd.append('file', file);
         try {
-            const res = await apiClient.post('/expenses/upload-csv', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+            const res = await apiClient.post('/vendor-expenses/upload-csv', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
             setUploadResult(res.data);
             if (res.data.inserted > 0) fetchAll();
         } catch (e: any) {
@@ -134,7 +134,7 @@ export default function ExpensesView() {
     const handleAddExpense = async () => {
         if (!newExpense.description || !newExpense.amount) return;
         try {
-            await apiClient.post('/expenses/manual', {
+            await apiClient.post('/vendor-expenses/manual', {
                 ...newExpense, amount: parseFloat(newExpense.amount)
             });
             setShowAddForm(false);
@@ -145,7 +145,7 @@ export default function ExpensesView() {
 
     const handleDeleteManual = async (id: string) => {
         if (!confirm('Delete this expense?')) return;
-        await apiClient.delete(`/expenses/manual/${id}`);
+        await apiClient.delete(`/vendor-expenses/manual/${id}`);
         fetchAll();
     };
 

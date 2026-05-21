@@ -8,7 +8,7 @@ const es = { translation: {
     missionIntelligence:'Inteligencia de Misión', pilotRoster:'Lista de Pilotos',
     performance:'Rendimiento', pilotPayroll:'Nómina de Pilotos', expenses:'Gastos',
     pilotUploads:'Cargas de Pilotos', pilotUploadsLabel:'Centro de Cargas', mediaGallery:'Galería de Medios',
-    pilotApplications:'Solicitudes de Pilotos',
+    pilotNetworkAdmin:'Pilot Applications', applicationPackets:'Application Packets', interestInquiry:'Interest Inquiry', orthomosaic:'Orthomosaic', mediaUploads:'Media & Uploads', pilotApplications:'Solicitudes de Pilotos',
     clients:'Clientes', onboardOrg:'Incorporar Organización', userIAM:'Gestión de Usuarios',
     neuralAI:'IA Neural', operationalProtocols:'Protocolos Operacionales',
     myChecklist:'Mis Elementos de Lista', systemSettings:'Configuración del Sistema',

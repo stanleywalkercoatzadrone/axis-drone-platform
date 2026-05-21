@@ -48,7 +48,7 @@ export default function SystemAIView() {
   const flash = (text:string, ok:boolean) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),4000); };
 
   const loadStats = useCallback(async () => {
-    try { const r = await apiClient.get('/api/v1/training/stats'); setStats(r.data.data); } catch {}
+    try { const r = await apiClient.get('/v1/training/stats'); setStats(r.data.data); } catch {}
   }, []);
 
   const loadSamples = useCallback(async (page=1) => {
@@ -56,7 +56,7 @@ export default function SystemAIView() {
     try {
       const params: any = { page, limit:12 };
       if (filterVerified !== 'all') params.verified = filterVerified;
-      const r = await apiClient.get('/api/v1/training/flywheel', { params });
+      const r = await apiClient.get('/v1/training/flywheel', { params });
       setSamples(r.data.data || []);
       setPagination(r.data.pagination || { page:1, total:0, pages:1 });
     } catch { setSamples([]); } finally { setLoading(false); }
@@ -77,7 +77,7 @@ export default function SystemAIView() {
     if (!selected) return;
     setSaving(true);
     try {
-      await apiClient.put(`/api/v1/training/flywheel/${selected.id}/verify`, {
+      await apiClient.put(`/v1/training/flywheel/${selected.id}/verify`, {
         human_verified: verified,
         human_label: { faults: editFaults },
         human_notes: editNotes,
@@ -93,7 +93,7 @@ export default function SystemAIView() {
   const deleteSample = async (id:string) => {
     if (!confirm('Remove this record from the training dataset?')) return;
     try {
-      await apiClient.delete(`/api/v1/training/flywheel/${id}`);
+      await apiClient.delete(`/v1/training/flywheel/${id}`);
       flash('✓ Record removed', true);
       setSelected(null);
       loadSamples(pagination.page);
@@ -112,7 +112,7 @@ export default function SystemAIView() {
     if (!manualUrl) { flash('✗ Image URL is required', false); return; }
     setSaving(true);
     try {
-      await apiClient.post('/api/v1/training/flywheel/annotate', {
+      await apiClient.post('/v1/training/flywheel/annotate', {
         image_url: manualUrl, upload_type: manualType,
         detected_faults: manualFaults, human_notes: manualNotes,
       });
