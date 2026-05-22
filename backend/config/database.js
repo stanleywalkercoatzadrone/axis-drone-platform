@@ -12,7 +12,7 @@ const envPath = path.resolve(__dirname, '../../.env.local');
 dotenv.config({ path: envPath });
 
 // Fallback connection string from .env.local
-const DEFAULT_CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require";
+const DEFAULT_CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres: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@db.nkhiiwleyjsmvvdtkcud.supabase.co:5432/postgres";
 
 // Helper to parse connection string
 const parseConnectionString = (connectionString) => {
@@ -40,9 +40,10 @@ let poolConfig;
 if (process.env.DATABASE_URL) {
     poolConfig = {
         ...parseConnectionString(process.env.DATABASE_URL),
-        max: 20,
+        min: 0,
+        max: 3,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
+        connectionTimeoutMillis: 3000,
         keepAlive: true
     };
 } else {
@@ -52,9 +53,10 @@ if (process.env.DATABASE_URL) {
             rejectUnauthorized: false,
             require: true
         },
-        max: 20,
+        min: 0,
+        max: 3,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
+        connectionTimeoutMillis: 3000,
         keepAlive: true
     };
 }
