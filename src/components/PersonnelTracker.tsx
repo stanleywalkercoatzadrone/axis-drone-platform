@@ -148,6 +148,25 @@ const PersonnelTracker: React.FC = () => {
     const addFileInputRef = useRef<HTMLInputElement>(null);
     const photoInputRef = useRef<HTMLInputElement>(null);
 
+    // ── Bulk selection ───────────────────────────────────────────────────────
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [bulkDeleting, setBulkDeleting] = useState(false);
+    const toggleSelect = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    };
+    const toggleSelectAll = () => {
+        if (selectedIds.size === filteredPersonnel.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(filteredPersonnel.map(p => p.id)));
+        }
+    };
+
     // Fetch personnel on mount and country change
     useEffect(() => {
         fetchPersonnel();
@@ -382,6 +401,22 @@ const PersonnelTracker: React.FC = () => {
             if (selectedPerson?.id === id) setIsDetailModalOpen(false);
         } catch (err: any) {
             alert(err.response?.data?.message || err.message);
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        const ids = Array.from(selectedIds);
+        if (!confirm(`Permanently delete ${ids.length} pilot${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+        try {
+            setBulkDeleting(true);
+            await apiClient.delete('/personnel/bulk', { data: { ids } });
+            setPersonnel(prev => prev.filter(p => !selectedIds.has(p.id)));
+            if (selectedPerson && selectedIds.has(selectedPerson.id)) setIsDetailModalOpen(false);
+            setSelectedIds(new Set());
+        } catch (err: any) {
+            alert(err.response?.data?.message || err.message);
+        } finally {
+            setBulkDeleting(false);
         }
     };
 
@@ -675,9 +710,29 @@ const PersonnelTracker: React.FC = () => {
 
                     {/* Left — table */}
                     <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg backdrop-blur-sm">
-                        <div className="border-b border-white/10 px-6 py-4">
-                            <h2 className="text-base font-semibold text-white">Team Directory</h2>
-                            <p className="mt-0.5 text-xs text-slate-400">Click a row to preview. Click Open for the full profile.</p>
+                        <div className="border-b border-white/10 px-6 py-4 flex items-center justify-between gap-4">
+                            <div>
+                                <h2 className="text-base font-semibold text-white">Team Directory</h2>
+                                <p className="mt-0.5 text-xs text-slate-400">Click a row to preview. Click Open for the full profile.</p>
+                            </div>
+                            {/* Bulk action bar */}
+                            {selectedIds.size > 0 && (
+                                <div className="flex items-center gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 animate-in slide-in-from-right-4 duration-200">
+                                    <span className="text-sm font-semibold text-rose-300">{selectedIds.size} selected</span>
+                                    <button
+                                        onClick={() => setSelectedIds(new Set())}
+                                        className="text-xs text-slate-400 hover:text-slate-200 transition"
+                                    >Clear</button>
+                                    <button
+                                        onClick={handleBulkDelete}
+                                        disabled={bulkDeleting}
+                                        className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-500 disabled:opacity-50"
+                                    >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                        {bulkDeleting ? 'Deleting...' : `Delete ${selectedIds.size}`}
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {viewMode === 'list' ? (
@@ -704,6 +759,15 @@ const PersonnelTracker: React.FC = () => {
                                     <table className="min-w-full text-left">
                                         <thead className="sticky top-0 z-10 bg-slate-950/60 backdrop-blur-sm">
                                             <tr className="border-b border-white/10">
+                                                <th className="pl-5 pr-2 py-3.5 w-10">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={filteredPersonnel.length > 0 && selectedIds.size === filteredPersonnel.length}
+                                                        ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < filteredPersonnel.length; }}
+                                                        onChange={toggleSelectAll}
+                                                        className="h-4 w-4 rounded border-white/20 bg-white/10 accent-blue-500 cursor-pointer"
+                                                    />
+                                                </th>
                                                 <th className="px-6 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Name</th>
                                                 <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role</th>
                                                 <th className="px-4 py-3.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Status</th>
@@ -714,14 +778,24 @@ const PersonnelTracker: React.FC = () => {
                                         <tbody className="divide-y divide-white/5">
                                             {filteredPersonnel.map(person => {
                                                 const isSelected = selectedPerson?.id === person.id;
+                                                const isChecked = selectedIds.has(person.id);
                                                 return (
                                                     <tr
                                                         key={person.id}
                                                         onClick={() => setSelectedPerson(person)}
                                                         className={`cursor-pointer transition ${
+                                                            isChecked ? 'bg-rose-500/8 border-l-2 border-l-rose-500' :
                                                             isSelected ? 'bg-blue-600/10 border-l-2 border-l-blue-500' : 'hover:bg-white/5'
                                                         }`}
                                                     >
+                                                        <td className="pl-5 pr-2 py-4" onClick={e => toggleSelect(person.id, e)}>
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isChecked}
+                                                                onChange={() => {}}
+                                                                className="h-4 w-4 rounded border-white/20 bg-white/10 accent-rose-500 cursor-pointer"
+                                                            />
+                                                        </td>
                                                         <td className="px-6 py-4">
                                                             <div className="flex items-center gap-3">
                                                                 <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-700 text-sm font-semibold text-white shadow-sm overflow-hidden">

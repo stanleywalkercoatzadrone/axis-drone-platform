@@ -45,8 +45,29 @@ router.post('/', createPersonnel);
 // PUT /api/personnel/:id - Update personnel
 router.put('/:id', updatePersonnel);
 
+// DELETE /api/personnel/bulk - Bulk delete multiple personnel
+router.delete('/bulk', async (req, res) => {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ success: false, message: 'ids array is required' });
+    }
+    try {
+        const { query } = await import('../config/database.js');
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        const result = await query(
+            `DELETE FROM personnel WHERE id IN (${placeholders}) RETURNING id`,
+            ids
+        );
+        res.json({ success: true, deleted: result.rows.map(r => r.id), count: result.rowCount });
+    } catch (err) {
+        console.error('[personnel/bulk-delete]', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // DELETE /api/personnel/:id - Delete personnel
 router.delete('/:id', deletePersonnel);
+
 
 // POST /api/personnel/:id/provision - Provision account
 router.post('/:id/provision', provisionPilotAccount);
