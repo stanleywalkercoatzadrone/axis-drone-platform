@@ -426,9 +426,18 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
 
         runOrthomosaic(imageSet, async (pct) => {
             try {
+                const stage =
+                    pct < 8  ? 'Loading Dataset' :
+                    pct < 22 ? 'Feature Detection' :
+                    pct < 38 ? 'Feature Matching' :
+                    pct < 52 ? 'Structure from Motion' :
+                    pct < 66 ? 'Building Point Cloud' :
+                    pct < 78 ? 'DSM Generation' :
+                    pct < 90 ? 'Generating Orthophoto' :
+                               'Finalizing Outputs';
                 await updateJobStatus(jobId, 'processing', {
                     progress_pct: Math.round(pct),
-                    pipeline_stage: pct < 30 ? 'Feature Detection' : pct < 70 ? 'Point Cloud' : 'Generating Tiles',
+                    pipeline_stage: stage,
                 });
             } catch {}
         }).then(async (results) => {

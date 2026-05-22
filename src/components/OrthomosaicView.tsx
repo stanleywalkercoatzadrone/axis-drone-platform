@@ -279,6 +279,31 @@ const OrthomosaicView: React.FC = () => {
     ? Math.round((Date.now() - new Date(activeJob.processing_started_at).getTime()) / 60000)
     : null;
 
+  const etaMins = (() => {
+    if (!activeJob?.processing_started_at) return null;
+    const pct = activeJob.progress_pct;
+    if (pct < 3 || !elapsedMins) return null;
+    const remaining = Math.round((elapsedMins / pct) * (100 - pct));
+    return remaining > 0 ? remaining : null;
+  })();
+
+  const ODM_STAGES = [
+    'Loading Dataset',
+    'Feature Detection',
+    'Feature Matching',
+    'Structure from Motion',
+    'Building Point Cloud',
+    'DSM Generation',
+    'Generating Orthophoto',
+    'Finalizing Outputs',
+  ];
+
+  function stageIndex(stageName: string | null) {
+    if (!stageName) return -1;
+    const idx = ODM_STAGES.findIndex(s => s.toLowerCase() === (stageName || '').toLowerCase());
+    return idx;
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6 min-h-0" style={{ overflow: 'auto' }}>
       {/* ── Header ── */}
@@ -469,19 +494,67 @@ const OrthomosaicView: React.FC = () => {
                 {elapsedMins !== null && ` · ${elapsedMins}m elapsed`}
               </p>
 
-              {/* Progress bar */}
+              {/* Progress — rich stage indicator */}
               {activeJob.status === 'processing' && (
-                <div className="space-y-1.5 mb-4">
-                  <div className="flex justify-between text-[10px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>
-                    <span>{activeJob.pipeline_stage || 'Processing'}</span>
-                    <span>{activeJob.progress_pct}%</span>
+                <div className="mb-4 space-y-3">
+                  {/* Bar + pct */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#38bdf8' }}>
+                        {activeJob.pipeline_stage || 'Processing…'}
+                      </span>
+                      <span className="text-xs font-black text-white tabular-nums">{activeJob.progress_pct}%</span>
+                    </div>
+                    <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.9)' }}>
+                      <div className="h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${activeJob.progress_pct}%`, background: 'linear-gradient(90deg, #2563eb, #0ea5e9, #38bdf8)' }} />
+                      {/* shimmer */}
+                      <div className="absolute inset-0 rounded-full"
+                        style={{ background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%)', animation: 'shimmer 2s infinite', backgroundSize: '200% 100%' }} />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
-                    <div className="h-full rounded-full transition-all duration-1000"
-                      style={{ width: `${activeJob.progress_pct}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
+
+                  {/* Time row */}
+                  <div className="flex items-center justify-between text-[10px]" style={{ color: '#475569' }}>
+                    <span>{elapsedMins !== null ? `${elapsedMins}m elapsed` : 'Starting…'}</span>
+                    {etaMins !== null && (
+                      <span style={{ color: '#64748b' }}>~{etaMins}m remaining</span>
+                    )}
+                  </div>
+
+                  {/* Stage steps */}
+                  <div className="grid grid-cols-2 gap-1 pt-1">
+                    {ODM_STAGES.map((s, i) => {
+                      const current = stageIndex(activeJob.pipeline_stage);
+                      const done = i < current;
+                      const active = i === current;
+                      return (
+                        <div key={s} className="flex items-center gap-1.5">
+                          <div className="relative flex-shrink-0 w-3 h-3 flex items-center justify-center">
+                            {done && (
+                              <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none">
+                                <circle cx="6" cy="6" r="6" fill="rgba(34,197,94,0.25)" />
+                                <path d="M3 6l2 2 4-4" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                            {active && (
+                              <span className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" style={{ background: '#38bdf8', boxShadow: '0 0 6px #38bdf8' }} />
+                            )}
+                            {!done && !active && (
+                              <span className="w-2 h-2 rounded-full inline-block" style={{ background: 'rgba(100,116,139,0.4)' }} />
+                            )}
+                          </div>
+                          <span className="text-[9px] font-bold uppercase tracking-wider truncate"
+                            style={{ color: done ? '#4ade80' : active ? '#e2e8f0' : '#334155' }}>
+                            {s}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
+
 
               {/* Outputs */}
               {activeJob.status === 'completed' && activeJob.outputs && activeJob.outputs.filter(Boolean).length > 0 && (
