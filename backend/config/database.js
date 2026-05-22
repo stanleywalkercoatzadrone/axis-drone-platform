@@ -12,7 +12,7 @@ const envPath = path.resolve(__dirname, '../../.env.local');
 dotenv.config({ path: envPath });
 
 // Fallback connection string from .env.local
-const DEFAULT_CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:5432/postgres";
+const DEFAULT_CONNECTION_STRING = process.env.DATABASE_URL || "postgresql://postgres.nkhiiwleyjsmvvdtkcud:%21Qaz1976T%40ylor2008@aws-1-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require";
 
 // Helper to parse connection string
 const parseConnectionString = (connectionString) => {
