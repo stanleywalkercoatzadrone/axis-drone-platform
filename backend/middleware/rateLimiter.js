@@ -41,9 +41,10 @@ export const standardLimiter = rateLimit({
         return rateLimitDisabled ||
                req.path === '/health' ||
                req.path.includes('/pilot/upload-jobs') ||
-               req.path.includes('/orthomosaic/upload-url') ||
-               req.path.includes('/orthomosaic/upload-direct') ||
-               req.path.includes('/orthomosaic/upload-confirm') ||
+               // Upload routes — job-scoped paths e.g. /orthomosaic/jobs/:id/upload-url
+               req.path.endsWith('/upload-url') ||
+               req.path.endsWith('/upload-direct') ||
+               req.path.endsWith('/upload-confirm') ||
                // Axis mapping chunk uploads — many rapid requests per mission, must not be throttled
                req.path.includes('/axis/chunk') ||
                req.path.includes('/axis/init') ||

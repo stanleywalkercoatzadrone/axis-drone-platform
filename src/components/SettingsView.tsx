@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { getRoleDisplayName, isAdmin, isPilot } from '../utils/roleUtils';
 import {
@@ -42,7 +41,8 @@ import {
   FileText,
   BrainCircuit,
   Edit2,
-  Trash2
+  Trash2,
+  Share2
 } from 'lucide-react';
 
 import { UserAccount, UserRole, ROLE_DEFINITIONS, AuditLogEntry, Region, Country } from '../types';
@@ -58,6 +58,7 @@ import { useCountry } from '../context/CountryContext';
 import OrganizationPanel from './OrganizationPanel';
 
 import RegionConfig from './RegionConfig';
+import SocialMediaSettings from './SocialMediaSettings';
 
 const SettingsView: React.FC = () => {
   const { user: currentUser, logout, syncProfile } = useAuth();
@@ -576,6 +577,7 @@ const SettingsView: React.FC = () => {
             { id: 'system', label: 'System Check', icon: Server, admin: true },
             { id: 'team', label: 'User Management', icon: Users, admin: true },
             { id: 'performance', label: 'Performance Rules', icon: BarChart3, admin: true },
+            { id: 'social', label: 'Social Media', icon: Share2 },
             { id: 'my-performance', label: 'My Performance', icon: BarChart3, pilot: true }
           ].map(item => (
             (!item.admin || isAdmin(currentUser)) && (!(item as any).pilot || isPilot(currentUser) || isAdmin(currentUser)) && (
@@ -1123,6 +1125,10 @@ const SettingsView: React.FC = () => {
 
           {activeSection === 'performance' && (isAdmin(currentUser)) && (
             <PerformanceConfigPanel />
+          )}
+
+          {activeSection === 'social' && (
+            <SocialMediaSettings />
           )}
 
           {activeSection === 'my-performance' && (

@@ -421,6 +421,47 @@
   .ag-content-mobile-padding { padding-top: 56px !important; padding-bottom: 64px !important; }
 }
 
+/* ── iOS PWA / standalone safe-area insets ─────────────────────────────────── */
+/* Applies whenever the app is added to the Home Screen (standalone display mode) */
+@media (display-mode: standalone) {
+  .ag-mobile-topbar  { display: flex !important; }
+  .ag-mobile-bottombar { display: flex !important; }
+  .ag-content-mobile-padding {
+    padding-top:    calc(56px + env(safe-area-inset-top, 0px))  !important;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* Apply safe-area offsets to the bars whenever the browser supports them */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .ag-mobile-topbar {
+    /* Extend bar height to cover the status bar */
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+    align-items: flex-end !important;  /* keep icons at visual bottom of extended bar */
+    padding-bottom: 0 !important;
+  }
+
+  .ag-mobile-bottombar {
+    /* Push tab labels above the home indicator */
+    padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  }
+
+  /* Ensure content clears both bars in standalone mode */
+  @media (display-mode: standalone) {
+    .ag-content-mobile-padding {
+      padding-top:    calc(56px + env(safe-area-inset-top,    0px)) !important;
+      padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+  }
+}
+
+/* ── Mobile nav drawer safe-area ───────────────────────────────────────────── */
+.ag-mobile-drawer-inner {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 
 /* ── StatusBadge pulse animation (processing / uploading states) ──────────── */
 @keyframes status-pulse {

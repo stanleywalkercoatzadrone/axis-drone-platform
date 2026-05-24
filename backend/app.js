@@ -59,6 +59,7 @@ import subscriptionInvoiceRoutes from './routes/subscriptionInvoices.js'; // Saa
 import chunkedUploadRoutes from './routes/chunkedUploads.js';              // §6 Resumable Upload Routes
 import pilotNetworkRoutes from './routes/pilotNetwork.js';                // Pilot Network Applications (public /join form)
 import orthomosaicRoutes from './routes/orthomosaic.js';                  // Orthomosaic Photogrammetry Pipeline
+import socialMediaRoutes from './routes/socialMedia.js';                  // Social Media Blast
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -230,6 +231,7 @@ app.use('/api/uploads', chunkedUploadRoutes);           // §6 Chunked upload en
 app.use('/api/client', clientReportsRoutes);             // Client AI reports
 app.use('/api/pilot-network', pilotNetworkRoutes);       // Pilot Network Applications (public apply + admin review)
 app.use('/api/orthomosaic', orthomosaicRoutes);          // Orthomosaic Photogrammetry Pipeline
+app.use('/api/social', socialMediaRoutes);               // Social Media Blast
 
 // ── /api/documents — global document query (by personnelId) ──────────────────
 // Called from: DocumentExplorer.tsx and compliance.ts with ?personnelId=X
@@ -1374,3 +1376,56 @@ app.use(errorHandler);
 export { httpServer, app, io };
 
 console.log('✅ App Logic Loaded');
+
+// ── Social Media Module: Migration + Default Templates ────────────────────────
+(async () => {
+    try {
+        const { readFileSync } = await import('fs');
+        const { join, dirname } = await import('path');
+        const { fileURLToPath } = await import('url');
+        const __dir = dirname(fileURLToPath(import.meta.url));
+        const migrationSql = readFileSync(join(__dir, 'migrations/031_social_media.sql'), 'utf8');
+        await dbQuery(migrationSql);
+
+        const existing = await dbQuery(
+            `SELECT COUNT(*) FROM social_media_templates WHERE tenant_id = 'coatzadrone'`
+        );
+        if (parseInt(existing.rows[0].count) === 0) {
+            const defaults = [
+                {
+                    name: 'Pilot Assignment Announcement',
+                    trigger: 'pilot_assigned',
+                    platforms: ['linkedin', 'twitter'],
+                    template: '🚁 Our team is deploying to {site} for {client} in {location}. {type} inspection scheduled for {date}. #DroneInspection #SolarEnergy #CoatzaDrone',
+                    auto_post: false,
+                },
+                {
+                    name: 'Mission Active Update',
+                    trigger: 'mission_active',
+                    platforms: ['linkedin', 'twitter'],
+                    template: '🔥 Operations underway at {site}! Our drone team is conducting a {type} inspection for {client}. #DroneInspection #AxisPlatform #CoatzaDrone',
+                    auto_post: false,
+                },
+                {
+                    name: 'Mission Complete Celebration',
+                    trigger: 'mission_complete',
+                    platforms: ['linkedin', 'twitter'],
+                    template: '✅ Mission complete at {site} for {client}! Excellent work by our {pilot_count}-person team. #DroneInspection #SolarEnergy #CoatzaDrone',
+                    auto_post: false,
+                },
+            ];
+            for (const t of defaults) {
+                await dbQuery(
+                    `INSERT INTO social_media_templates (tenant_id, name, trigger, platforms, template, auto_post, is_active)
+                     VALUES ('coatzadrone',$1,$2,$3,$4,$5,true)`,
+                    [t.name, t.trigger, t.platforms, t.template, t.auto_post]
+                );
+            }
+            console.log('✅ Social media: seeded 3 default post templates');
+        } else {
+            console.log(`[social-media] ${existing.rows[0].count} templates already configured`);
+        }
+    } catch (e) {
+        console.warn('[social-media] startup skipped:', e.message);
+    }
+})();

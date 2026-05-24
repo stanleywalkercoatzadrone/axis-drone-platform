@@ -36,10 +36,13 @@ export const requestTracer = (req, res, next) => {
     // Hook into response finish to log duration
     res.on('finish', () => {
         const endTime = process.hrtime.bigint();
-        const durationMs = Number(endTime - startTime) / 1_000_000; // nanoseconds → ms
+        const durationMs = Number(endTime - startTime) / 1_000_000;
         const durationFormatted = `${durationMs.toFixed(2)}ms`;
 
-        res.setHeader('X-Response-Time', durationFormatted);
+        // Guard: headers already sent on streamed responses (proxy-tif etc.)
+        if (!res.headersSent) {
+            try { res.setHeader('X-Response-Time', durationFormatted); } catch { /* ignore */ }
+        }
 
         logger.logRequest(req, res, durationMs);
     });

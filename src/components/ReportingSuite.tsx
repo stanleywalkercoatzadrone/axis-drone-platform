@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import apiClient from '../services/apiClient';
 import { InspectionReport } from '../types';
+const ReportViewer = lazy(() => import('./viewers/ReportViewer'));
 import {
     BarChart,
     Bar,
@@ -25,7 +26,10 @@ import {
     Filter,
     Download,
     Building2,
-    Users
+    Users,
+    FileText,
+    Eye,
+    Loader2
 } from 'lucide-react';
 import { Industry, Severity } from '../types';
 
@@ -61,6 +65,14 @@ const ReportingSuite: React.FC = () => {
     const [activeLevel, setActiveLevel] = useState<ReportLevel>('Executive');
     const [reports, setReports] = useState<InspectionReport[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeReport, setActiveReport] = useState<InspectionReport | null>(null);
+
+    const openReport = async (reportId: string) => {
+        try {
+            const r = await apiClient.get(`/reports/${reportId}`);
+            setActiveReport(r.data?.data || r.data || null);
+        } catch { /* ignore */ }
+    };
 
     useEffect(() => {
         apiClient.get('/reports').then(res => {
@@ -224,6 +236,16 @@ const ReportingSuite: React.FC = () => {
 
     return (
         <div className="space-y-6">
+            {/* ── Inline Report Viewer ── */}
+            {activeReport && (
+                <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: '#020817' }}><Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} /></div>}>
+                    <ReportViewer
+                        report={activeReport as Parameters<typeof ReportViewer>[0]['report']}
+                        onClose={() => setActiveReport(null)}
+                    />
+                </Suspense>
+            )}
+
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                     <h2 className="text-lg font-semibold text-slate-900">Analytics Suite</h2>
@@ -239,7 +261,7 @@ const ReportingSuite: React.FC = () => {
                                 : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
-                            {level} Override
+                            {level} {level === 'Asset' ? 'Reports' : 'Override'}
                         </button>
                     ))}
                 </div>
@@ -248,12 +270,53 @@ const ReportingSuite: React.FC = () => {
             {activeLevel === 'Executive' && renderExecutiveView()}
             {activeLevel === 'Operational' && renderOperationalView()}
             {activeLevel === 'Asset' && (
-                <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
-                    <Building2 className="w-16 h-16 text-slate-200 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-slate-900">Asset Level Deep-Dive</h3>
-                    <p className="text-slate-500 max-w-md mx-auto mt-2">
-                        Select a specific asset from the Asset Tracker to view its comprehensive historical analysis and predictive maintenance model.
-                    </p>
+                <div>
+                    {loading ? (
+                        <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
+                    ) : reports.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+                            <Building2 className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                            <h3 className="text-lg font-medium text-slate-900">No Reports Yet</h3>
+                            <p className="text-slate-500 max-w-md mx-auto mt-2">
+                                Create your first inspection report using the Report Wizard on the Reports tab.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {reports.map(r => (
+                                <div key={r.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-slate-900 truncate">{r.title}</p>
+                                            {r.client && <p className="text-xs text-slate-500 mt-0.5">{r.client}</p>}
+                                        </div>
+                                        <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            r.approvalStatus === 'Approved' ? 'bg-emerald-50 text-emerald-700'
+                                            : r.approvalStatus === 'Pending Review' ? 'bg-amber-50 text-amber-700'
+                                            : 'bg-slate-100 text-slate-600'
+                                        }`}>
+                                            {r.approvalStatus || r.status || 'Draft'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                                        {r.industry && <span>{r.industry}</span>}
+                                        {r.date && <span>{new Date(r.date).toLocaleDateString()}</span>}
+                                        {r.images?.length > 0 && <span>{r.images.length} photos</span>}
+                                    </div>
+                                    {r.summary && (
+                                        <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{r.summary}</p>
+                                    )}
+                                    <button
+                                        onClick={() => openReport(r.id)}
+                                        className="mt-auto flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-xs font-bold transition-all hover:bg-blue-700"
+                                        style={{ background: '#2563eb', color: 'white' }}
+                                    >
+                                        <Eye className="w-3.5 h-3.5" /> Open Report
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

@@ -15,6 +15,11 @@ import { query } from '../config/database.js';
 import { protect, authorize } from '../middleware/auth.js';
 import { logger } from '../services/logger.js';
 import { runOrthomosaic } from '../services/orthomosaicEngine.js';
+import unzipper from 'unzipper';
+import { fromArrayBuffer as geotiffFromArrayBuffer } from 'geotiff';
+import proj4 from 'proj4';
+import { encode as pngEncode } from 'fast-png';
+
 
 const router = express.Router();
 
@@ -28,6 +33,56 @@ try {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const tenantId = (req) => req.user?.tenantId || req.user?.tenant_id || null;
+
+// ── Extract orthomosaic.tif + dsm.tif from all.zip in GCS ────────────────────
+// Supports two GCS layouts:
+//   Old: <prefix>outputs/all.zip  (outputs/ subdir)
+//   New: <prefix>all.zip          (zip at root of prefix)
+async function extractOrthoAssets(prefix) {
+    if (!gcs) { logger.warn('[extract] GCS unavailable'); return {}; }
+    const bucket = gcs.bucket(GCS_BUCKET);
+    const result = { tif: false, dsm: false };
+
+    // Detect which zip path exists
+    let zipPath = `${prefix}outputs/all.zip`;
+    const [hasOutputsZip] = await bucket.file(zipPath).exists().catch(() => [false]);
+    if (!hasOutputsZip) {
+        zipPath = `${prefix}all.zip`;
+        const [hasRootZip] = await bucket.file(zipPath).exists().catch(() => [false]);
+        if (!hasRootZip) {
+            logger.warn(`[extract] No zip found for prefix: ${prefix}`);
+            return result;
+        }
+    }
+    logger.info(`[extract] Using zip: ${zipPath}`);
+
+    const targets = {
+        'odm_orthophoto/odm_orthophoto.tif': `${prefix}outputs/orthomosaic.tif`,
+        'odm_dem/dsm.tif': `${prefix}outputs/dsm.tif`,
+    };
+
+    await new Promise((resolve, reject) => {
+        bucket.file(zipPath).createReadStream()
+            .pipe(unzipper.Parse())
+            .on('entry', (entry) => {
+                const dest = targets[entry.path];
+                if (dest) {
+                    const ws = bucket.file(dest).createWriteStream({ metadata: { contentType: 'image/tiff' }, resumable: false });
+                    entry.pipe(ws);
+                    ws.on('finish', () => {
+                        if (dest.includes('orthomosaic')) result.tif = true;
+                        if (dest.includes('dsm')) result.dsm = true;
+                        logger.info(`[extract] ✓ ${dest}`);
+                    });
+                    ws.on('error', e => logger.warn(`[extract] write error: ${e.message}`));
+                } else { entry.autodrain(); }
+            })
+            .on('finish', resolve)
+            .on('error', reject);
+    });
+    return result;
+}
+
 
 /** Returns true if user is admin or in-house (can access all jobs) */
 const isAdminOrInHouse = (user) => {
@@ -322,6 +377,135 @@ router.post('/jobs/:jobId/upload-url', protect, async (req, res) => {
     }
 });
 
+// ── POST /jobs/:jobId/upload-url-batch — batch signed URLs (up to 100 files) ──
+// Replaces 547 individual upload-url calls with ~6 batch calls
+router.post('/jobs/:jobId/upload-url-batch', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot upload images.' });
+        }
+        const { jobId } = req.params;
+        const { files } = req.body; // Array of { fileName, contentType, fileSize }
+        if (!Array.isArray(files) || files.length === 0) {
+            return res.status(400).json({ success: false, message: 'files array required.' });
+        }
+        if (files.length > 100) {
+            return res.status(400).json({ success: false, message: 'Maximum 100 files per batch.' });
+        }
+
+        const ownershipClause = isPilotRole(req.user) && !isAdminOrInHouse(req.user) ? 'AND created_by = $3' : '';
+        const jobVals = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? [jobId, tenantId(req), req.user.id] : [jobId, tenantId(req)];
+        const jobRes = await query(
+            `SELECT id, upload_set_gcs_prefix, tenant_id FROM orthomosaic_jobs WHERE id = $1 AND tenant_id = $2 ${ownershipClause}`,
+            jobVals
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found or access denied.' });
+        const job = jobRes.rows[0];
+
+        const results = await Promise.all(files.map(async ({ fileName, contentType = 'image/jpeg', fileSize }) => {
+            const safeName = (fileName || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+            if (!safeName) return { fileName, error: 'Invalid file name' };
+            const gcsPath = `${job.upload_set_gcs_prefix}${safeName}`;
+
+            const uploadSetRes = await query(`
+                INSERT INTO orthomosaic_upload_sets
+                    (job_id, tenant_id, file_name, gcs_path, file_size_bytes, content_type, upload_status)
+                VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+                RETURNING id
+            `, [jobId, job.tenant_id, fileName, gcsPath, fileSize || null, contentType]);
+
+            let signedUrl = null;
+            if (gcs) {
+                try {
+                    const [url] = await gcs.bucket(GCS_BUCKET).file(gcsPath).getSignedUrl({
+                        version: 'v4', action: 'write',
+                        expires: Date.now() + 60 * 60 * 1000, // 1 hour for batch
+                        contentType,
+                    });
+                    signedUrl = url;
+                } catch (e) {
+                    logger.warn('[orthomosaic] Batch signed URL failed:', e.message);
+                }
+            }
+            return { fileName, uploadSetId: uploadSetRes.rows[0].id, gcsPath, signedUrl };
+        }));
+
+        res.json({ success: true, data: { files: results } });
+    } catch (err) {
+        logger.error('[orthomosaic/upload-url-batch]', err);
+        res.status(500).json({ success: false, message: 'Failed to generate batch upload URLs.' });
+    }
+});
+
+// ── POST /jobs/:jobId/upload-direct — stream file body directly to GCS ────────
+// Browser sends the raw file body to Cloud Run; Cloud Run streams it to GCS.
+// Eliminates signed URLs, CORS issues, and browser PUT problems entirely.
+router.post('/jobs/:jobId/upload-direct', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+        const { jobId } = req.params;
+        const rawName = req.headers['x-file-name'];
+        const fileName = rawName ? decodeURIComponent(rawName) : null;
+        const contentType = req.headers['content-type'] || 'image/jpeg';
+        const fileSize = parseInt(req.headers['x-file-size'] || '0', 10) || null;
+
+        if (!fileName) return res.status(400).json({ success: false, message: 'X-File-Name header required.' });
+
+        const ownershipClause = isPilotRole(req.user) && !isAdminOrInHouse(req.user) ? 'AND created_by = $3' : '';
+        const jobVals = isPilotRole(req.user) && !isAdminOrInHouse(req.user)
+            ? [jobId, tenantId(req), req.user.id] : [jobId, tenantId(req)];
+        const jobRes = await query(
+            `SELECT id, upload_set_gcs_prefix, tenant_id FROM orthomosaic_jobs WHERE id = $1 AND tenant_id = $2 ${ownershipClause}`,
+            jobVals
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+
+        const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const gcsPath = `${job.upload_set_gcs_prefix}${safeName}`;
+
+        // Insert DB record (pending)
+        const uploadSetRes = await query(`
+            INSERT INTO orthomosaic_upload_sets
+                (job_id, tenant_id, file_name, gcs_path, file_size_bytes, content_type, upload_status)
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+            RETURNING id
+        `, [jobId, job.tenant_id, fileName, gcsPath, fileSize, contentType]);
+        const uploadSetId = uploadSetRes.rows[0].id;
+
+        if (!gcs) {
+            return res.status(503).json({ success: false, message: 'Storage not available.' });
+        }
+
+        // Stream request body directly to GCS — no in-memory buffering
+        const writeStream = gcs.bucket(GCS_BUCKET).file(gcsPath).createWriteStream({
+            metadata: { contentType },
+            resumable: false,
+        });
+
+        await new Promise((resolve, reject) => {
+            req.pipe(writeStream);
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+            req.on('error', reject);
+        });
+
+        // Mark uploaded
+        await query(
+            `UPDATE orthomosaic_upload_sets SET upload_status = 'uploaded' WHERE id = $1`,
+            [uploadSetId]
+        );
+
+        res.json({ success: true, data: { uploadSetId } });
+    } catch (err) {
+        logger.error(`[orthomosaic/upload-direct] ERROR: ${err?.message}`, { stack: err?.stack });
+        res.status(500).json({ success: false, message: `Upload failed: ${err?.message}` });
+    }
+});
+
 // ── POST /jobs/:jobId/upload-confirm — mark a file as uploaded ───────────────
 // Fix: validate that uploadSetId belongs to this job AND this tenant (prevents cross-tenant confirm)
 router.post('/jobs/:jobId/upload-confirm', protect, async (req, res) => {
@@ -466,21 +650,31 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
 
             await Promise.allSettled(outputInserts);
 
-            // ── Deliverables wiring (future) ──────────────────────────────────
-            // The legacy `deliverables` table (migration 087) references `projects.id` (NOT
-            // `orthomosaic_projects.id`) and has no mission_id or tenant_id columns, making a
-            // direct INSERT incompatible without a schema migration.
-            //
-            // TODO: Create migration 026_orthomosaic_deliverables_bridge.sql that either:
-            //   a) Adds a `orthomosaic_job_id` FK column to `deliverables`, or
-            //   b) Creates a new `client_deliverables` view joining orthomosaic_outputs + missions
-            //
-            // Outputs ARE persisted in `orthomosaic_outputs` and accessible via:
-            //   GET /api/orthomosaic/jobs/:jobId/outputs/:outId/download (admin/pilot)
-            // Client access pending above schema migration.
-            if (missionId && results.orthomosaicGcsUri) {
-                logger.info(`[orthomosaic] Output ready for mission ${missionId}: ${results.orthomosaicGcsUri} — client deliverable wiring pending schema migration.`);
+
+            // ── Auto-bridge to Media Gallery (deployment_files) ───────────────
+            // Inserts each output as a deployment_file so it immediately appears
+            // in the Media Gallery tab for the linked mission.
+            if (missionId) {
+                const outputsToLink = [];
+                if (results.archiveGcsUri) {
+                    outputsToLink.push({ name: 'Orthomosaic Output (All Files)', url: results.archiveGcsUri, type: 'application/zip', size: null });
+                }
+                if (results.orthomosaicGcsUri) {
+                    outputsToLink.push({ name: 'Orthomosaic GeoTIFF', url: results.orthomosaicGcsUri, type: 'image/tiff', size: null });
+                }
+                if (results.dsmGcsUri) {
+                    outputsToLink.push({ name: 'DSM Elevation Model (GeoTIFF)', url: results.dsmGcsUri, type: 'image/tiff', size: null });
+                }
+                await Promise.allSettled(outputsToLink.map(f =>
+                    query(`
+                        INSERT INTO deployment_files (deployment_id, name, url, type)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT DO NOTHING
+                    `, [missionId, f.name, f.url, f.type]).catch(() => {})
+                ));
+                logger.info(`[orthomosaic] Linked ${outputsToLink.length} outputs to mission ${missionId} in deployment_files.`);
             }
+
 
             // QC report
             await query(`
@@ -496,6 +690,13 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
             });
 
             logger.info(`[orthomosaic] Job ${jobId} completed successfully.`);
+
+            // Extract TIF + DSM from zip non-blocking (background)
+            const jobPrefix = job.upload_set_gcs_prefix || '';
+            extractOrthoAssets(jobPrefix)
+                .then(r => logger.info(`[orthomosaic] Assets extracted — tif:${r.tif} dsm:${r.dsm}`))
+                .catch(e => logger.warn('[orthomosaic] Asset extraction failed:', e.message));
+
         }).catch(async (err) => {
             logger.error(`[orthomosaic] Job ${jobId} failed:`, err.message);
             await updateJobStatus(jobId, 'failed', {
@@ -584,6 +785,54 @@ router.patch('/jobs/:jobId/cancel', protect, authorize('admin'), async (req, res
     }
 });
 
+// ── DELETE /jobs/:jobId — delete a single job from history ───────────────────
+router.delete('/jobs/:jobId', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+        const { jobId } = req.params;
+        // Only allow deleting jobs that aren't actively processing
+        const result = await query(
+            `DELETE FROM orthomosaic_jobs
+             WHERE id = $1 AND tenant_id = $2 AND status != 'processing'
+             RETURNING id`,
+            [jobId, tenantId(req)]
+        );
+        if (!result.rows.length) {
+            return res.status(400).json({ success: false, message: 'Job not found or cannot be deleted while processing.' });
+        }
+        res.json({ success: true, message: 'Job deleted.' });
+    } catch (err) {
+        logger.error('[orthomosaic/delete-job]', err);
+        res.status(500).json({ success: false, message: 'Failed to delete job.' });
+    }
+});
+
+// ── DELETE /jobs — bulk delete jobs by IDs ────────────────────────────────────
+router.delete('/jobs', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Access denied.' });
+        }
+        const { ids } = req.body; // array of job IDs
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, message: 'ids array required.' });
+        }
+        const placeholders = ids.map((_, i) => `$${i + 2}`).join(', ');
+        const result = await query(
+            `DELETE FROM orthomosaic_jobs
+             WHERE id IN (${placeholders}) AND tenant_id = $1 AND status != 'processing'
+             RETURNING id`,
+            [tenantId(req), ...ids]
+        );
+        res.json({ success: true, deleted: result.rows.length });
+    } catch (err) {
+        logger.error('[orthomosaic/bulk-delete-jobs]', err);
+        res.status(500).json({ success: false, message: 'Failed to delete jobs.' });
+    }
+});
+
 // ── POST /jobs/:jobId/retry — re-submit a failed job ─────────────────────────
 // Resets status to 'queued' so the job can be re-submitted
 router.post('/jobs/:jobId/retry', protect, async (req, res) => {
@@ -627,4 +876,452 @@ router.post('/jobs/:jobId/retry', protect, async (req, res) => {
     }
 });
 
+// ── GET /jobs/:jobId/preview — signed URL for orthomosaic preview PNG ────────
+router.get('/jobs/:jobId/preview', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix, j.processing_completed_at,
+                    j.image_count, j.quality_tier, j.pipeline_stage,
+                    EXTRACT(EPOCH FROM (j.processing_completed_at - j.processing_started_at))::INTEGER AS duration_s,
+                    p.name AS project_name, p.site_name, p.mission_id
+             FROM orthomosaic_jobs j
+             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+
+        // Check if preview PNG exists in GCS
+        let previewUrl = null;
+        const previewPath = `${job.upload_set_gcs_prefix}outputs/preview.png`;
+        try {
+            if (gcs) {
+                const file = gcs.bucket(GCS_BUCKET).file(previewPath);
+                const [exists] = await file.exists();
+                if (exists) {
+                    const [url] = await file.getSignedUrl({
+                        action: 'read', expires: Date.now() + 2 * 60 * 60 * 1000
+                    });
+                    previewUrl = url;
+                }
+            }
+        } catch { /* no preview, that's ok */ }
+
+        res.json({
+            success: true,
+            data: {
+                previewUrl,
+                hasPreview: !!previewUrl,
+                stats: {
+                    imageCount: job.image_count,
+                    qualityTier: job.quality_tier,
+                    durationS: job.duration_s,
+                    siteName: job.site_name || job.project_name,
+                    missionId: job.mission_id,
+                },
+            },
+        });
+    } catch (err) {
+        logger.error('[orthomosaic/preview]', err);
+        res.status(500).json({ success: false, message: 'Failed to get preview.' });
+    }
+});
+
+// ── GET /jobs/:jobId/linked-reports — reports linked to same mission ─────────
+router.get('/jobs/:jobId/linked-reports', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        // Get mission_id for this job
+        const jobRes = await query(
+            `SELECT p.mission_id FROM orthomosaic_jobs j
+             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.json({ success: true, data: { reports: [], files: [], mission: null } });
+        const missionId = jobRes.rows[0].mission_id;
+
+        // Always return recent tenant reports (fall back to all if no missionId)
+        const reportsRes = await query(
+            `SELECT id, title, status, approval_status, created_at
+             FROM reports
+             WHERE tenant_id = $1
+             ORDER BY created_at DESC LIMIT 10`,
+            [req.user.tenantId]
+        ).catch(() => ({ rows: [] }));
+
+        // Only query mission + files if we have a missionId
+        const filesRes = missionId ? await query(
+            `SELECT id, name, url, type, size, created_at
+             FROM deployment_files
+             WHERE deployment_id = $1
+             ORDER BY created_at DESC LIMIT 20`,
+            [missionId]
+        ).catch(() => ({ rows: [] })) : { rows: [] };
+
+        const missionRes = missionId ? await query(
+            `SELECT id, title, site_name, type, status, date, location
+             FROM deployments WHERE id = $1 AND tenant_id = $2`,
+            [missionId, req.user.tenantId]
+        ).catch(() => ({ rows: [] })) : { rows: [] };
+
+        res.json({
+            success: true,
+            data: {
+                missionId,
+                mission: missionRes.rows[0] || null,
+                reports: reportsRes.rows,
+                files: filesRes.rows,
+            },
+        });
+
+    } catch (err) {
+        logger.error('[orthomosaic/linked-reports]', err);
+        res.status(500).json({ success: false, message: 'Failed to get linked reports.' });
+    }
+});
+
+
+// ── GET /jobs/:jobId/geo-data — signed URLs for 2D + 3D viewers ──────────────
+router.get('/jobs/:jobId/geo-data', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix, j.quality_tier,
+                    j.image_count, j.processing_started_at, j.processing_completed_at,
+                    EXTRACT(EPOCH FROM (j.processing_completed_at - j.processing_started_at))::INTEGER AS duration_s,
+                    p.name AS project_name, p.site_name, p.mission_id
+             FROM orthomosaic_jobs j
+             LEFT JOIN orthomosaic_projects p ON p.id = j.project_id
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+        const prefix = job.upload_set_gcs_prefix || '';
+
+        // Check asset existence — support both GCS layout patterns
+        const findTif = async (p) => {
+            const paths = [`${p}outputs/orthomosaic.tif`, `${p}orthomosaic.tif`];
+            for (const path of paths) {
+                const [ex] = await gcs.bucket(GCS_BUCKET).file(path).exists().catch(() => [false]);
+                if (ex) return path;
+            }
+            return null;
+        };
+        const findObj = async (p) => {
+            const paths = [`${p}outputs/model.obj`, `${p}model.obj`];
+            for (const path of paths) {
+                const [ex] = await gcs.bucket(GCS_BUCKET).file(path).exists().catch(() => [false]);
+                if (ex) return path;
+            }
+            return null;
+        };
+        const signPreview = async (gcsPath) => {
+            if (!gcs) return null;
+            try {
+                const file = gcs.bucket(GCS_BUCKET).file(gcsPath);
+                const [exists] = await file.exists();
+                if (!exists) return null;
+                const [url] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 4 * 60 * 60 * 1000 });
+                return url;
+            } catch { return null; }
+        };
+
+        const [tifGcsPath, objGcsPath, previewUrl] = await Promise.all([
+            gcs ? findTif(prefix) : Promise.resolve(null),
+            gcs ? findObj(prefix) : Promise.resolve(null),
+            signPreview(`${prefix}outputs/preview.png`),
+        ]);
+
+        const hasTif = !!tifGcsPath;
+        const hasObj = !!objGcsPath;
+        logger.info(`[geo-data] job=${jobId} prefix="${prefix}" gcs=${!!gcs} tifPath=${tifGcsPath} hasTif=${hasTif}`);
+        // Proxy URLs — same-origin, no CORS issues
+        const tifUrl = hasTif ? `/api/orthomosaic/jobs/${jobId}/proxy-tif` : null;
+        const objUrl = hasObj ? `/api/orthomosaic/jobs/${jobId}/proxy-obj` : null;
+
+        // Never cache — polling must always get fresh data (prevents 304 stale response)
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.set('Pragma', 'no-cache');
+
+        res.json({
+            success: true,
+            data: {
+                tifUrl,
+                objUrl,
+                previewUrl,
+                hasTif,
+                hasObj,
+                hasPreview: !!previewUrl,
+                stats: {
+                    imageCount: job.image_count,
+                    qualityTier: job.quality_tier,
+                    durationS: job.duration_s,
+                    siteName: job.site_name || job.project_name,
+                    missionId: job.mission_id,
+                },
+            },
+        });
+    } catch (err) {
+
+        logger.error('[orthomosaic/geo-data]', err);
+        res.status(500).json({ success: false, message: 'Failed to load geo data.' });
+    }
+});
+
+// ── POST /jobs/:jobId/extract — on-demand TIF extraction from all.zip ─────────
+router.post('/jobs/:jobId/extract', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix, j.status
+             FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+        if (job.status !== 'completed') {
+            return res.status(400).json({ success: false, message: 'Job is not completed yet.' });
+        }
+
+        // Check if already extracted (check both path patterns)
+        if (gcs) {
+            const prefix = job.upload_set_gcs_prefix || '';
+            const [e1] = await gcs.bucket(GCS_BUCKET).file(`${prefix}outputs/orthomosaic.tif`).exists().catch(() => [false]);
+            const [e2] = await gcs.bucket(GCS_BUCKET).file(`${prefix}orthomosaic.tif`).exists().catch(() => [false]);
+            if (e1 || e2) {
+                return res.json({ success: true, message: 'Already extracted.', alreadyDone: true });
+            }
+        }
+
+        // Fire and forget — client polls geo-data for the result
+        extractOrthoAssets(job.upload_set_gcs_prefix || '')
+            .then(r => logger.info(`[extract endpoint] Done — tif:${r.tif} dsm:${r.dsm}`))
+            .catch(e => logger.warn('[extract endpoint] Failed:', e.message));
+
+        res.json({ success: true, message: 'Extraction started. Poll geo-data for status.' });
+    } catch (err) {
+        logger.error('[orthomosaic/extract]', err);
+        res.status(500).json({ success: false, message: 'Failed to start extraction.' });
+    }
+});
+
+// ── GET /jobs/:jobId/proxy-tif — stream orthomosaic.tif to browser ────────────
+router.get('/jobs/:jobId/proxy-tif', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.upload_set_gcs_prefix FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).end();
+        if (!gcs) return res.status(503).end();
+        const prefix = jobRes.rows[0].upload_set_gcs_prefix || '';
+        const bucket = gcs.bucket(GCS_BUCKET);
+
+        // Find TIF in either path pattern
+        let tifPath = null;
+        for (const candidate of [`${prefix}outputs/orthomosaic.tif`, `${prefix}orthomosaic.tif`]) {
+            const [ex] = await bucket.file(candidate).exists().catch(() => [false]);
+            if (ex) { tifPath = candidate; break; }
+        }
+        if (!tifPath) return res.status(404).json({ success: false, message: 'Not extracted yet.' });
+
+        const file = bucket.file(tifPath);
+        const [meta] = await file.getMetadata();
+        res.setHeader('Content-Type', 'image/tiff');
+        res.setHeader('Content-Length', meta.size);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        file.createReadStream().pipe(res);
+    } catch (err) {
+        logger.error('[orthomosaic/proxy-tif]', err);
+        res.status(500).end();
+    }
+});
+
+
+// ── GET /jobs/:jobId/proxy-ortho-png — render TIF → PNG (server-side, cached) ─
+router.get('/jobs/:jobId/proxy-ortho-png', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.upload_set_gcs_prefix FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).end();
+        if (!gcs) return res.status(503).end();
+
+        const prefix = jobRes.rows[0].upload_set_gcs_prefix || '';
+        const bucket = gcs.bucket(GCS_BUCKET);
+        const pngCachePath = `${prefix}outputs/orthomosaic_preview.png`;
+        const boundsCachePath = `${prefix}outputs/orthomosaic_bounds.json`;
+
+        // ── Serve cached PNG if available ────────────────────────────────────
+        const [pngExists] = await bucket.file(pngCachePath).exists().catch(() => [false]);
+        const [boundsExists] = await bucket.file(boundsCachePath).exists().catch(() => [false]);
+        if (pngExists && boundsExists) {
+            const [boundsData] = await bucket.file(boundsCachePath).download();
+            const bounds = JSON.parse(boundsData.toString());
+            const pngFile = bucket.file(pngCachePath);
+            const [meta] = await pngFile.getMetadata();
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Content-Length', meta.size);
+            res.setHeader('X-Ortho-Bounds', JSON.stringify(bounds));
+            res.setHeader('Access-Control-Expose-Headers', 'X-Ortho-Bounds');
+            res.setHeader('Cache-Control', 'private, max-age=86400');
+            return pngFile.createReadStream().pipe(res);
+        }
+
+        // ── Find TIF ─────────────────────────────────────────────────────────
+        let tifPath = null;
+        for (const c of [`${prefix}outputs/orthomosaic.tif`, `${prefix}orthomosaic.tif`]) {
+            const [ex] = await bucket.file(c).exists().catch(() => [false]);
+            if (ex) { tifPath = c; break; }
+        }
+        if (!tifPath) return res.status(404).json({ message: 'No TIF found' });
+
+        // ── Download TIF ──────────────────────────────────────────────────────
+        logger.info(`[proxy-ortho-png] downloading ${tifPath}`);
+        const [tifBuffer] = await bucket.file(tifPath).download();
+        logger.info(`[proxy-ortho-png] downloaded ${Math.round(tifBuffer.length/1024/1024)}MB`);
+
+        // ── Parse with geotiff (Node-native) ─────────────────────────────────
+        // Proper Buffer → ArrayBuffer (avoids pool byteOffset issues)
+        const ab = tifBuffer.buffer.slice(tifBuffer.byteOffset, tifBuffer.byteOffset + tifBuffer.byteLength);
+        logger.info(`[proxy-ortho-png] parsing TIF...`);
+        const tiff = await geotiffFromArrayBuffer(ab);
+        const image = await tiff.getImage();
+        const srcW = image.getWidth();
+        const srcH = image.getHeight();
+        const samplesPerPixel = image.getSamplesPerPixel();
+        logger.info(`[proxy-ortho-png] TIF: ${srcW}x${srcH} px, ${samplesPerPixel} bands`);
+
+        // Read pixel data (band-separated arrays)
+        const rasterData = await image.readRasters();
+        logger.info(`[proxy-ortho-png] pixel data read OK`);
+
+        // ── Extract bounds → WGS84 ────────────────────────────────────────────
+        // getBoundingBox returns [west, south, east, north] in the TIF's native CRS
+        const [bboxW, bboxS, bboxE, bboxN] = image.getBoundingBox();
+        const geoKeys = image.getGeoKeys();
+        const epsg = geoKeys?.ProjectedCSTypeGeoKey || geoKeys?.GeographicTypeGeoKey || 4326;
+        logger.info(`[proxy-ortho-png] bbox EPSG:${epsg} [${bboxW},${bboxS},${bboxE},${bboxN}]`);
+
+        let west = bboxW, south = bboxS, east = bboxE, north = bboxN;
+        if (epsg !== 4326) {
+            try {
+                const epsgKey = `EPSG:${epsg}`;
+                if (!proj4.defs(epsgKey)) {
+                    const defRes = await fetch(`https://epsg.io/${epsg}.proj4`);
+                    if (defRes.ok) {
+                        const def = (await defRes.text()).trim();
+                        if (def) proj4.defs(epsgKey, def);
+                    }
+                }
+                if (proj4.defs(epsgKey)) {
+                    [west, south] = proj4(epsgKey, 'EPSG:4326', [bboxW, bboxS]);
+                    [east, north] = proj4(epsgKey, 'EPSG:4326', [bboxE, bboxN]);
+                    logger.info(`[proxy-ortho-png] reprojected to WGS84: [${west},${south},${east},${north}]`);
+                }
+            } catch (projErr) {
+                logger.warn('[proxy-ortho-png] proj4 failed, using raw coords:', projErr.message);
+            }
+        }
+        const bounds = { west, south, east, north };
+
+        // ── Render to PNG (max 2048×2048) ─────────────────────────────────────
+        const MAX = 2048;
+        const scale = Math.min(1, MAX / srcW, MAX / srcH);
+        const dstW = Math.max(1, Math.round(srcW * scale));
+        const dstH = Math.max(1, Math.round(srcH * scale));
+        const nBands = Math.min(samplesPerPixel, 4);
+        const invS = 1 / scale;
+        const noData = image.getGDALNoData();
+        const nd = noData ?? null;
+        const data = new Uint8Array(dstW * dstH * 4);
+
+        // geotiff readRasters returns band arrays (rasterData[0]=R, [1]=G, [2]=B)
+        for (let row = 0; row < dstH; row++) {
+            const sRow = Math.min(Math.floor(row * invS), srcH - 1);
+            for (let col = 0; col < dstW; col++) {
+                const sCol = Math.min(Math.floor(col * invS), srcW - 1);
+                const srcIdx = sRow * srcW + sCol;
+                const i = (row * dstW + col) * 4;
+                if (nBands >= 3) {
+                    const r = rasterData[0][srcIdx] ?? 0;
+                    const g = rasterData[1][srcIdx] ?? 0;
+                    const b = rasterData[2][srcIdx] ?? 0;
+                    const a = nBands >= 4 ? (rasterData[3][srcIdx] ?? 255) : 255;
+                    data[i] = r; data[i + 1] = g; data[i + 2] = b;
+                    data[i + 3] = (nd !== null && r === nd && g === nd && b === nd) ? 0 : a;
+                } else {
+                    const v = rasterData[0][srcIdx] ?? 0;
+                    data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255;
+                }
+            }
+        }
+        logger.info(`[proxy-ortho-png] rendered ${srcW}×${srcH} → ${dstW}×${dstH}`);
+
+        // ── Encode PNG ────────────────────────────────────────────────────────
+        const pngBuffer = Buffer.from(pngEncode({ width: dstW, height: dstH, data, channels: 4 }));
+
+        // ── Cache PNG + bounds in GCS (async, don't block response) ──────────
+        const boundsJson = JSON.stringify(bounds);
+        Promise.all([
+            bucket.file(pngCachePath).save(pngBuffer, { metadata: { contentType: 'image/png' } }),
+            bucket.file(boundsCachePath).save(boundsJson, { metadata: { contentType: 'application/json' } }),
+        ]).then(() => logger.info('[proxy-ortho-png] cached PNG + bounds in GCS'))
+          .catch(e => logger.warn('[proxy-ortho-png] cache write failed:', e.message));
+
+        // ── Respond ───────────────────────────────────────────────────────────
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Content-Length', pngBuffer.length);
+        res.setHeader('X-Ortho-Bounds', boundsJson);
+        res.setHeader('Access-Control-Expose-Headers', 'X-Ortho-Bounds');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.send(pngBuffer);
+    } catch (err) {
+        logger.error(`[proxy-ortho-png] ERROR: ${err?.message || err}`, { stack: err?.stack });
+        res.status(500).json({ error: err?.message || 'render failed' });
+    }
+});
+
+
+
+router.get('/jobs/:jobId/proxy-dsm', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.upload_set_gcs_prefix FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).end();
+        if (!gcs) return res.status(503).end();
+        const prefix = jobRes.rows[0].upload_set_gcs_prefix || '';
+        const file = gcs.bucket(GCS_BUCKET).file(`${prefix}outputs/dsm.tif`);
+        const [exists] = await file.exists();
+        if (!exists) return res.status(404).json({ success: false, message: 'DSM not available.' });
+        const [meta] = await file.getMetadata();
+        res.setHeader('Content-Type', 'image/tiff');
+        res.setHeader('Content-Length', meta.size);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        file.createReadStream().pipe(res);
+    } catch (err) {
+        logger.error('[orthomosaic/proxy-dsm]', err);
+        res.status(500).end();
+    }
+});
+
 export default router;
+
+
+
+
+

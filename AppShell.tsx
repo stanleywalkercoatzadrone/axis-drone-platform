@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight, ChevronDown,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box, Globe, MapPin
+  Map as MapIcon, Box, Globe, MapPin, Share2
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -91,6 +91,7 @@ import PilotInterestInquiry from './src/components/PilotInterestInquiry';
 import DispatchBoard from './src/components/DispatchBoard';
 import OrganizationsView from './src/components/OrganizationsView';
 import ReportingSuite from './src/components/ReportingSuite';
+import SocialMediaSettings from './src/components/SocialMediaSettings';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -101,7 +102,7 @@ type NavKey =
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
   | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry'
-  | 'dispatch' | 'reports' | 'organizations';
+  | 'dispatch' | 'reports' | 'organizations' | 'social-media';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -160,6 +161,7 @@ const NAV: NavGroup[] = [
       { key: 'protocol-lists',  label: 'nav.operationalProtocols', adminOnly: true },
       { key: 'checklist-items', label: 'nav.myChecklist' },
       { key: 'system-settings', label: 'nav.systemSettings' },
+      { key: 'social-media',    label: 'Social Media', icon: Share2 },
     ],
   },
 ];
@@ -223,7 +225,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'organizations',
+      'dispatch', 'reports', 'organizations', 'social-media',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -375,6 +377,16 @@ export default function AppShell() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── axis:navigate custom event — fired by OrthomosaicView viewer CTA ─────────
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      if (e.detail?.key) navigate(e.detail.key as NavKey);
+    };
+    window.addEventListener('axis:navigate', handler as EventListener);
+    return () => window.removeEventListener('axis:navigate', handler as EventListener);
+  }, []);
+
+
   const pageLabel: Record<NavKey, string> = {
     'dashboard':             'Mission Terminal',
     'weather':               'Weather & Skies',
@@ -401,6 +413,7 @@ export default function AppShell() {
     'construction':          'Construction Monitoring',
     'orthomosaic':           'Orthomosaic',
     'interest-inquiry':      'Interest Inquiry',
+    'social-media':          'Social Media',
   };
 
   function renderView() {
@@ -444,6 +457,7 @@ export default function AppShell() {
       case 'checklist-items':  return <MyWorkItems />;
       case 'system-settings':  return <SettingsView />;
       case 'user-iam':         return <UserManagement />;
+      case 'social-media':     return <SocialMediaSettings />;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>
@@ -575,6 +589,7 @@ export default function AppShell() {
         >
           <div
             onClick={e => e.stopPropagation()}
+            className="ag-mobile-drawer-inner"
             style={{
               position: 'absolute', top: 0, left: 0, bottom: 0, width: 280,
               background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(24px)', borderRight: '1px solid rgba(255,255,255,0.05)',

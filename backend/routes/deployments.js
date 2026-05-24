@@ -25,6 +25,7 @@ import { preventPilotMissionMutation } from '../middleware/missionGuard.js';
 import { uploadSingle, uploadAny } from '../utils/fileUpload.js';
 import { query as _expQuery } from '../config/database.js';
 
+
 const router = express.Router();
 
 // All routes require authentication

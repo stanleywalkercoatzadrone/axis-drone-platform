@@ -124,6 +124,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus }> = ({ forc
     const [loadingAssets, setLoadingAssets] = useState(false);
     const [activeSection, setActiveSection] = useState<'missions' | 'assets'>(() => (sessionStorage.getItem('dt_activeSection') as any) || 'missions');
 
+
     // Persistence Effects
     useEffect(() => { sessionStorage.setItem('dt_searchQuery', searchQuery); }, [searchQuery]);
     useEffect(() => { sessionStorage.setItem('dt_statusFilter', statusFilter); }, [statusFilter]);
@@ -506,6 +507,7 @@ const DeploymentTracker: React.FC<{ forcedStatus?: DeploymentStatus }> = ({ forc
                 technicianIds: [...(selectedDeployment.technicianIds || []), personnelId]
             });
             fetchDeployments(); // Refresh list to update counts
+
         } catch (err: any) {
             console.error('Error assigning personnel:', err);
             alert(err.message);

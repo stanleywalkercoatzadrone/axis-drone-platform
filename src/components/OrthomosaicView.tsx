@@ -1,11 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   Map, Upload, Zap, Clock, CheckCircle2, XCircle, Loader2,
   CloudUpload, ImageIcon, ChevronDown, RefreshCw, Download,
   Layers, AlertTriangle, Play, X, RotateCcw, FileArchive, Satellite,
-  TrendingUp
+  TrendingUp, Eye, FileText, ExternalLink, BarChart3, Timer, Image, Box,
+  StopCircle, FolderOpen, Cuboid
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+
+const OrthoMapViewer = lazy(() => import('./viewers/OrthoMapViewer'));
+const Model3DViewer = lazy(() => import('./viewers/Model3DViewer'));
+const ReportViewer = lazy(() => import('./viewers/ReportViewer'));
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Mission {
@@ -42,6 +47,28 @@ interface OrthoJob {
   output_count?: number;
   outputs?: OrthoOutput[] | null;
 }
+
+interface LinkedData {
+  missionId: string;
+  mission: { id: string; title: string; site_name: string; type: string; status: string; date: string; location: string; } | null;
+  reports: Array<{ id: string; title: string; status: string; approval_status: string; created_at: string; }>;
+  files: Array<{ id: string; name: string; url: string; type: string; size: number; created_at: string; }>;
+}
+interface PreviewData {
+  previewUrl: string | null;
+  hasPreview: boolean;
+  stats: { imageCount: number; qualityTier: string; durationS: number; siteName: string; missionId: string; };
+}
+interface GeoData {
+  tifUrl: string | null;
+  objUrl: string | null;
+  previewUrl: string | null;
+  hasTif: boolean;
+  hasObj: boolean;
+  hasPreview: boolean;
+  stats: { imageCount: number; qualityTier: string; durationS: number; siteName: string; missionId: string; };
+}
+type ViewerTab = 'ortho' | '3d' | 'mission';
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -92,7 +119,25 @@ const OrthomosaicView: React.FC = () => {
   const [success, setSuccess] = useState('');
   const [retrying, setRetrying] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const localOrthoInputRef = useRef<HTMLInputElement>(null);
+  const localObjInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerJobId, setViewerJobId] = useState<string | null>(null);
+  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
+  const [linkedData, setLinkedData] = useState<LinkedData | null>(null);
+  const [geoData, setGeoData] = useState<GeoData | null>(null);
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerTab, setViewerTab] = useState<ViewerTab>('ortho');
+  const [activeReport, setActiveReport] = useState<Record<string, unknown> | null>(null);
+  const [imgZoom, setImgZoom] = useState(1);
+  const [imgPos, setImgPos] = useState({ x: 0, y: 0 });
+  const isDraggingImg = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
+  // Local file viewer state (open 3D/Ortho without a job)
+  const [localObjUrl, setLocalObjUrl] = useState<string | null>(null);
+  const [localOrthoUrl, setLocalOrthoUrl] = useState<string | null>(null);
 
   // ── Load missions + jobs ──────────────────────────────────────────────────
   useEffect(() => {
@@ -102,6 +147,32 @@ const OrthomosaicView: React.FC = () => {
 
     loadJobs();
   }, []);
+
+  // ── Delete a single job ──────────────────────────────────────────────────
+  async function deleteJob(jobId: string) {
+    try {
+      await apiClient.delete(`/orthomosaic/jobs/${jobId}`);
+      setJobs(prev => prev.filter(j => j.id !== jobId));
+      if (activeJobId === jobId) { setActiveJobId(null); setActiveJob(null); }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to delete job.');
+    }
+  }
+
+  // ── Clear all non-processing jobs ───────────────────────────────────────
+  async function clearAllJobs() {
+    const deletable = jobs.filter(j => j.status !== 'processing');
+    if (!deletable.length) return;
+    try {
+      await apiClient.delete('/orthomosaic/jobs', { data: { ids: deletable.map(j => j.id) } });
+      setJobs(prev => prev.filter(j => j.status === 'processing'));
+      if (activeJob && activeJob.status !== 'processing') {
+        setActiveJobId(null); setActiveJob(null);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to clear jobs.');
+    }
+  }
 
   function loadJobs() {
     apiClient.get('/orthomosaic/jobs')
@@ -144,42 +215,61 @@ const OrthomosaicView: React.FC = () => {
     setFiles(prev => [...prev, ...dropped]);
   }, []);
 
-  // ── Upload single file with retry ─────────────────────────────────────────
-  async function uploadFileWithRetry(
-    jobId: string,
-    file: File,
-    maxAttempts = 3
-  ): Promise<void> {
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const urlRes = await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-url`, {
-          fileName: file.name,
-          contentType: file.type || 'image/jpeg',
-          fileSize: file.size,
-        });
-        const { uploadSetId, signedUrl } = urlRes.data.data;
-
-        if (signedUrl) {
-          const putRes = await fetch(signedUrl, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': file.type || 'image/jpeg' },
-          });
-          if (!putRes.ok) {
-            throw new Error(`GCS PUT failed: ${putRes.status} ${putRes.statusText}`);
-          }
-        }
-
-        await apiClient.post(`/orthomosaic/jobs/${jobId}/upload-confirm`, { uploadSetId });
-        return; // success — exit retry loop
-      } catch (err: any) {
-        if (attempt === maxAttempts) {
-          throw new Error(`File "${file.name}" failed after ${maxAttempts} attempts: ${err.message}`);
-        }
-        // Wait before retry (exponential backoff: 1s, 2s)
-        await new Promise(resolve => setTimeout(resolve, attempt * 1000));
-      }
+  // ── Direct streaming upload (browser → Cloud Run → GCS) ──────────────────
+  async function uploadDirect(jobId: string, file: File, signal: AbortSignal): Promise<void> {
+    const token = sessionStorage.getItem('skylens_token');
+    const res = await fetch(`/api/orthomosaic/jobs/${jobId}/upload-direct`, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Authorization': token ? `Bearer ${token}` : '',
+        'Content-Type': file.type || 'image/jpeg',
+        'X-File-Name': encodeURIComponent(file.name),
+        'X-File-Size': String(file.size),
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+      throw new Error(err.message || `Upload failed: ${res.status}`);
     }
+  }
+
+  // ── Stop upload ────────────────────────────────────────────────────────────
+  function handleStopUpload() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setUploading(false);
+    setUploadStage('');
+    setUploadProgress(0);
+    setError('Upload stopped.');
+  }
+
+  // ── Upload all files with concurrency ──────────────────────────────────────
+  async function uploadAllFiles(jobId: string, allFiles: File[], signal: AbortSignal, onProgress: (done: number) => void): Promise<string[]> {
+    const CONCURRENCY = 5;
+    const failedFiles: string[] = [];
+    let done = 0;
+
+    for (let i = 0; i < allFiles.length; i += CONCURRENCY) {
+      if (signal.aborted) break;
+      const group = allFiles.slice(i, i + CONCURRENCY);
+      await Promise.all(group.map(async (file) => {
+        if (signal.aborted) { failedFiles.push(file.name); done++; onProgress(done); return; }
+        try {
+          await uploadDirect(jobId, file, signal);
+        } catch (err: any) {
+          if (err.name !== 'AbortError') {
+            failedFiles.push(file.name);
+            console.warn('[upload-direct]', file.name, err.message);
+          }
+        } finally {
+          done++;
+          onProgress(done);
+        }
+      }));
+    }
+    return failedFiles;
   }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
@@ -187,6 +277,8 @@ const OrthomosaicView: React.FC = () => {
     if (!selectedMission) { setError('Please select a mission.'); return; }
     if (files.length === 0) { setError('Please add at least 1 image.'); return; }
     setError(''); setSuccess(''); setUploading(true); setUploadProgress(0); setUploadStage('Creating project…');
+    const abort = new AbortController();
+    abortRef.current = abort;
 
     try {
       // 1. Create project
@@ -208,27 +300,19 @@ const OrthomosaicView: React.FC = () => {
       });
       const jobId = jobRes.data.data.id;
 
-      // 3. Upload each file with per-file retry (3 attempts)
-      const failedFiles: string[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setUploadStage(`Uploading ${i + 1}/${files.length}: ${file.name}`);
-        try {
-          await uploadFileWithRetry(jobId, file, 3);
-        } catch (uploadErr: any) {
-          failedFiles.push(file.name);
-          // Log but don't halt — continue uploading remaining files
-          console.warn('[Orthomosaic upload]', uploadErr.message);
-        }
-        setUploadProgress(Math.round(((i + 1) / files.length) * 100));
-      }
+      // 3. Upload files (streaming, 5 concurrent)
+      setUploadStage(`Uploading 0/${files.length} images…`);
+      const failedFiles = await uploadAllFiles(jobId, files, abort.signal, (done) => {
+        setUploadProgress(Math.round((done / files.length) * 100));
+        setUploadStage(`Uploading ${done}/${files.length} images…`);
+      });
+      if (abort.signal.aborted) return; // user stopped
 
       if (failedFiles.length === files.length) {
         throw new Error(`All ${files.length} files failed to upload. Check your connection and try again.`);
       }
-
       if (failedFiles.length > 0) {
-        setError(`⚠️ ${failedFiles.length} file(s) failed and will be skipped: ${failedFiles.slice(0, 3).join(', ')}${failedFiles.length > 3 ? '…' : ''}`);
+        setError(`⚠️ ${failedFiles.length} file(s) failed: ${failedFiles.slice(0, 3).join(', ')}${failedFiles.length > 3 ? '…' : ''}`);
       }
 
       // 4. Submit for processing
@@ -247,6 +331,8 @@ const OrthomosaicView: React.FC = () => {
       setUploadStage('');
     }
   }
+
+
 
   // ── Retry failed job ───────────────────────────────────────────────────────
   async function handleRetry(jobId: string) {
@@ -274,6 +360,39 @@ const OrthomosaicView: React.FC = () => {
       }
     } catch { setError('Download failed.'); }
   }
+
+  // ── Open viewer ────────────────────────────────────────────────────────────
+  const openViewer = useCallback(async (jobId: string) => {
+    setViewerOpen(true);
+    setViewerJobId(jobId);
+    setViewerLoading(true);
+    setViewerTab('ortho');
+    setActiveReport(null);
+    setPreviewData(null);
+    setLinkedData(null);
+    setGeoData(null);
+    setImgZoom(1);
+    setImgPos({ x: 0, y: 0 });
+    try {
+      const [prevRes, linkRes, geoRes] = await Promise.all([
+        apiClient.get(`/orthomosaic/jobs/${jobId}/preview`),
+        apiClient.get(`/orthomosaic/jobs/${jobId}/linked-reports`),
+        apiClient.get(`/orthomosaic/jobs/${jobId}/geo-data?_t=${Date.now()}`),
+      ]);
+      setPreviewData(prevRes.data?.data || null);
+      setLinkedData(linkRes.data?.data || null);
+      setGeoData(geoRes.data?.data || null);
+    } catch { /* ignore */ }
+    setViewerLoading(false);
+  }, []);
+
+  // ── Open report inline ────────────────────────────────────────────────────
+  const openReport = useCallback(async (reportId: string) => {
+    try {
+      const r = await apiClient.get(`/reports/${reportId}`);
+      setActiveReport(r.data?.data || r.data || null);
+    } catch { /* ignore */ }
+  }, []);
 
   const elapsedMins = activeJob?.processing_started_at
     ? Math.round((Date.now() - new Date(activeJob.processing_started_at).getTime()) / 60000)
@@ -305,6 +424,7 @@ const OrthomosaicView: React.FC = () => {
   }
 
   return (
+    <>
     <div className="flex flex-col gap-6 p-6 min-h-0" style={{ overflow: 'auto' }}>
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
@@ -322,6 +442,44 @@ const OrthomosaicView: React.FC = () => {
         <button onClick={loadJobs} className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
           style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
+      </div>
+
+      {/* ── On-demand viewer buttons ── */}
+      {/* Hidden inputs for local file selection */}
+      <input ref={localObjInputRef} type="file" accept=".obj" className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0]; if (!f) return;
+          if (localObjUrl) URL.revokeObjectURL(localObjUrl);
+          setLocalObjUrl(URL.createObjectURL(f));
+          setViewerJobId(null); setPreviewData(null); setLinkedData(null); setGeoData(null);
+          setViewerTab('3d'); setViewerOpen(true);
+          e.target.value = '';
+        }} />
+      <input ref={localOrthoInputRef} type="file" accept=".tif,.tiff,.geotiff" className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0]; if (!f) return;
+          if (localOrthoUrl) URL.revokeObjectURL(localOrthoUrl);
+          setLocalOrthoUrl(URL.createObjectURL(f));
+          setViewerJobId(null); setPreviewData(null); setLinkedData(null); setGeoData(null);
+          setViewerTab('ortho'); setViewerOpen(true);
+          e.target.value = '';
+        }} />
+      <div className="flex items-center gap-3">
+        <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Open locally:</span>
+        <button
+          onClick={() => localObjInputRef.current?.click()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80 active:scale-95"
+          style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', color: '#38bdf8' }}
+        >
+          <Box className="w-3.5 h-3.5" /> Open 3D Model
+        </button>
+        <button
+          onClick={() => localOrthoInputRef.current?.click()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80 active:scale-95"
+          style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', color: '#4ade80' }}
+        >
+          <Satellite className="w-3.5 h-3.5" /> Open Orthomosaic
         </button>
       </div>
 
@@ -416,10 +574,26 @@ const OrthomosaicView: React.FC = () => {
                     </span>
                   </div>
                   <button onClick={e => { e.stopPropagation(); setFiles([]); }}
-                    className="p-1 rounded-lg transition-colors hover:bg-white/10">
-                    <X className="w-4 h-4" style={{ color: '#64748b' }} />
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black transition-colors hover:bg-white/10"
+                    style={{ color: '#64748b' }}>
+                    <X className="w-3 h-3" /> Clear all
                   </button>
                 </div>
+                {/* Scrollable file list with individual remove */}
+                {files.length > 0 && files.length <= 20 && (
+                  <div className="mt-1 max-h-28 overflow-y-auto rounded-xl" style={{ background: 'rgba(15,23,42,0.95)' }}>
+                    {files.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between px-3 py-1.5 border-b last:border-b-0"
+                        style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+                        <span className="text-[10px] truncate" style={{ color: '#94a3b8' }}>{f.name}</span>
+                        <button onClick={e => { e.stopPropagation(); setFiles(prev => prev.filter((_, j) => j !== i)); }}
+                          className="ml-2 shrink-0 p-0.5 rounded hover:bg-white/10">
+                          <X className="w-3 h-3" style={{ color: '#475569' }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -440,20 +614,27 @@ const OrthomosaicView: React.FC = () => {
 
           {/* Upload progress */}
           {uploading && (
-            <div className="p-4 rounded-xl space-y-2" style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="p-4 rounded-xl space-y-3" style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>
                   {uploadStage || 'Uploading images…'}
                 </span>
-                <span className="text-xs font-black text-white">{uploadProgress}%</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-black text-white">{uploadProgress}%</span>
+                  <button
+                    onClick={handleStopUpload}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all hover:opacity-80 active:scale-95"
+                    style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                  >
+                    <StopCircle className="w-3 h-3" />
+                    Stop
+                  </button>
+                </div>
               </div>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
                 <div className="h-full rounded-full transition-all duration-300"
                   style={{ width: `${uploadProgress}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
               </div>
-              <p className="text-[10px]" style={{ color: '#475569' }}>
-                Each file is uploaded directly to secure cloud storage with 3 automatic retries.
-              </p>
             </div>
           )}
 
@@ -557,9 +738,22 @@ const OrthomosaicView: React.FC = () => {
 
 
               {/* Outputs */}
-              {activeJob.status === 'completed' && activeJob.outputs && activeJob.outputs.filter(Boolean).length > 0 && (
+              {activeJob.status === 'completed' && (
                 <div className="space-y-2">
-                  {activeJob.outputs.filter(Boolean).map(out => (
+                  {/* Open Viewer button */}
+                  <button
+                    onClick={() => openViewer(activeJob.id)}
+                    className="flex items-center justify-between w-full px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-90"
+                    style={{ background: 'linear-gradient(135deg, rgba(14,165,233,0.15), rgba(139,92,246,0.15))', border: '1px solid rgba(14,165,233,0.3)', color: '#38bdf8' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Eye className="w-3.5 h-3.5" />
+                      View Results in Axis
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Individual output downloads */}
+                  {activeJob.outputs && activeJob.outputs.filter(Boolean).length > 0 && activeJob.outputs.filter(Boolean).map(out => (
                     <button
                       key={out.id}
                       onClick={() => downloadOutput(activeJob.id, out.id, out.file_name || out.output_type)}
@@ -601,11 +795,22 @@ const OrthomosaicView: React.FC = () => {
           {/* Job history */}
           <div className="p-5 rounded-2xl flex flex-col gap-3" style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Recent Jobs</h2>
-              {jobs.length > 0 && (
-                <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: 'rgba(30,41,59,0.8)', color: '#94a3b8' }}>
-                  {jobs.length}
-                </span>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Recent Jobs</h2>
+                {jobs.length > 0 && (
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: 'rgba(30,41,59,0.8)', color: '#94a3b8' }}>
+                    {jobs.length}
+                  </span>
+                )}
+              </div>
+              {jobs.filter(j => j.status !== 'processing').length > 0 && (
+                <button
+                  onClick={clearAllJobs}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all hover:opacity-80"
+                  style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
+                >
+                  <X className="w-3 h-3" /> Clear All
+                </button>
               )}
             </div>
 
@@ -644,6 +849,16 @@ const OrthomosaicView: React.FC = () => {
                           </span>
                         )}
                         <StatusBadge status={job.status} />
+                        {/* Delete button — only protected while actively processing */}
+                        {job.status !== 'processing' && (
+                          <button
+                            onClick={e => { e.stopPropagation(); deleteJob(job.id); }}
+                            className="p-1 rounded-lg transition-all hover:bg-red-500/20 opacity-40 hover:opacity-100"
+                            title="Remove from history"
+                          >
+                            <X className="w-3 h-3" style={{ color: '#f87171' }} />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -693,9 +908,197 @@ const OrthomosaicView: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
     </div>
+    </div>
+    </div>
+
+      {/* ── Inline Report Viewer ─────────────────────────────────────────────── */}
+      {activeReport && (
+        <Suspense fallback={<div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: '#020817' }}><Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} /></div>}>
+          <ReportViewer
+            report={activeReport as Parameters<typeof ReportViewer>[0]['report']}
+            onClose={() => setActiveReport(null)}
+          />
+        </Suspense>
+      )}
+
+      {/* ── Full-screen Orthomosaic Viewer ─────────────────────────────────── */}
+      {viewerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col"
+          style={{ background: '#020817' }}
+        >
+          {/* ── Header bar ── */}
+          <div className="flex items-center justify-between px-6 py-3 shrink-0"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(2,8,23,0.97)' }}>
+            <div className="flex items-center gap-3">
+              <Satellite className="w-5 h-5" style={{ color: '#38bdf8' }} />
+              <div>
+                <p className="text-sm font-black text-white">
+                  {(geoData?.stats?.siteName || previewData?.stats?.siteName) || 'Orthomosaic Results'}
+                </p>
+                <p className="text-[10px] uppercase tracking-widest" style={{ color: '#475569' }}>
+                  {(geoData?.stats?.qualityTier || previewData?.stats?.qualityTier) === 'fast' ? '⚡ Lightning' : '🗺️ Standard'}
+                  {(geoData?.stats?.imageCount || previewData?.stats?.imageCount) ? ` · ${geoData?.stats?.imageCount || previewData?.stats?.imageCount} images` : ''}
+                </p>
+              </div>
+            </div>
+            {/* Tab nav */}
+            <div className="flex items-center gap-1">
+              {([
+                { key: 'ortho', label: 'Ortho Map', icon: <Map className="w-3.5 h-3.5" /> },
+                { key: '3d',    label: '3D Model',  icon: <Box className="w-3.5 h-3.5" /> },
+                { key: 'mission', label: 'Mission & Reports', icon: <FileText className="w-3.5 h-3.5" /> },
+              ] as { key: ViewerTab; label: string; icon: React.ReactNode }[]).map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setViewerTab(tab.key)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+                  style={{
+                    background: viewerTab === tab.key ? 'rgba(14,165,233,0.15)' : 'transparent',
+                    border: `1px solid ${viewerTab === tab.key ? 'rgba(14,165,233,0.35)' : 'transparent'}`,
+                    color: viewerTab === tab.key ? '#38bdf8' : '#475569',
+                  }}
+                >
+                  {tab.icon}{tab.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setViewerOpen(false)}
+              className="p-2 rounded-xl transition-all hover:opacity-70"
+              style={{ background: 'rgba(255,255,255,0.05)', color: '#94a3b8' }}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* ── Tab body ── */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+
+            {/* Ortho Map tab */}
+            {viewerTab === 'ortho' && (
+              <Suspense fallback={
+                <div className="w-full h-full flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+                  <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} />
+                </div>
+              }>
+                <OrthoMapViewer
+                  tifUrl={localOrthoUrl ?? geoData?.tifUrl ?? null}
+                  siteName={geoData?.stats?.siteName || previewData?.stats?.siteName || (localOrthoUrl ? 'Local File' : undefined)}
+                  isLoading={viewerLoading}
+                  error={null}
+                  onExtract={(!localOrthoUrl && viewerJobId) ? async () => {
+                    try {
+                      await apiClient.post(`/orthomosaic/jobs/${viewerJobId}/extract`);
+                      let polls = 0;
+                      const poll = setInterval(async () => {
+                        polls++;
+                        if (polls > 24) { clearInterval(poll); return; }
+                        try {
+                          const r = await apiClient.get(`/orthomosaic/jobs/${viewerJobId}/geo-data?_t=${Date.now()}`);
+                          if (r.data?.data?.tifUrl) { setGeoData(r.data.data); clearInterval(poll); }
+                        } catch { /* ignore */ }
+                      }, 5000);
+                    } catch { /* ignore */ }
+                  } : undefined}
+                />
+              </Suspense>
+            )}
+
+
+            {/* 3D Model tab */}
+            {viewerTab === '3d' && (
+              <Suspense fallback={
+                <div className="w-full h-full flex items-center justify-center" style={{ background: '#030712' }}>
+                  <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} />
+                </div>
+              }>
+                <Model3DViewer
+                  objUrl={localObjUrl ?? geoData?.objUrl ?? null}
+                  isLoading={viewerLoading}
+                  error={null}
+                  qualityTier={geoData?.stats?.qualityTier || previewData?.stats?.qualityTier}
+                />
+              </Suspense>
+            )}
+
+            {/* Mission & Reports tab */}
+            {viewerTab === 'mission' && (
+              <div className="h-full overflow-y-auto flex">
+                {/* Left: mission info + files */}
+                <div className="flex-1 p-6 space-y-5">
+                  {linkedData?.mission ? (
+                    <>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: '#64748b' }}>Linked Mission</p>
+                        <div className="rounded-2xl p-5" style={{ background: 'rgba(14,165,233,0.06)', border: '1px solid rgba(14,165,233,0.15)' }}>
+                          <p className="text-base font-black text-white mb-1">{linkedData.mission.title}</p>
+                          <p className="text-xs" style={{ color: '#64748b' }}>{linkedData.mission.site_name} · {linkedData.mission.type}</p>
+                          <p className="text-xs mt-0.5" style={{ color: '#334155' }}>{linkedData.mission.location}</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: '#64748b' }}>Downloads</p>
+                        <div className="space-y-2">
+                          {activeJob?.outputs?.filter(Boolean).map(out => (
+                            <button key={out.id}
+                              onClick={() => viewerJobId && downloadOutput(viewerJobId, out.id, out.file_name || out.output_type)}
+                              className="flex items-center justify-between w-full px-4 py-3 rounded-xl text-xs font-bold transition-all hover:opacity-80"
+                              style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.15)', color: '#4ade80' }}>
+                              <div className="flex items-center gap-2">{outputTypeIcon(out.output_type)}<span>{outputTypeLabel(out.output_type)}</span></div>
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                      <Satellite className="w-10 h-10 mb-4" style={{ color: '#1e293b' }} />
+                      <p className="text-sm font-black" style={{ color: '#334155' }}>No mission linked</p>
+                      <p className="text-xs mt-1" style={{ color: '#1e293b' }}>Attach this job to a mission when submitting</p>
+                    </div>
+                  )}
+                </div>
+                {/* Right: reports */}
+                <div className="w-80 shrink-0 p-6 space-y-4" style={{ borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Inspection Reports</p>
+                  {viewerLoading ? (
+                    <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" style={{ color: '#334155' }} /></div>
+                  ) : linkedData?.reports?.length ? (
+                    <div className="space-y-2">
+                      {linkedData.reports.map(r => (
+                        <div key={r.id} className="rounded-xl p-3 cursor-pointer transition-all hover:opacity-80"
+                          onClick={() => openReport(r.id)}
+                          style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <p className="text-xs font-black text-white truncate">{r.title}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-[9px] px-2 py-0.5 rounded-full font-bold"
+                              style={{ background: r.approval_status === 'Approved' ? 'rgba(34,197,94,0.12)' : 'rgba(100,116,139,0.1)', color: r.approval_status === 'Approved' ? '#4ade80' : '#64748b' }}>
+                              {r.approval_status || r.status}
+                            </span>
+                            <span className="text-[9px] font-bold" style={{ color: '#38bdf8' }}>Open →</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs py-4" style={{ color: '#334155' }}>No reports linked to this mission yet.</p>
+                  )}
+                  <button
+                    onClick={() => { setViewerOpen(false); window.dispatchEvent(new CustomEvent('axis:navigate', { detail: { key: 'reports' } })); }}
+                    className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80"
+                    style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', color: '#a78bfa' }}>
+                    <FileText className="w-3.5 h-3.5" /> Create Inspection Report
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
