@@ -1095,7 +1095,109 @@ app.get('/api/documents', protect, async (req, res) => {
 })();
 
 
-// ── LBD Units Migration ───────────────────────────────────────────────────────
+// ── Solar Client Address & Contact Enrichment ─────────────────────────────────
+// Patches seeded solar companies with real street addresses, zip codes, and
+// corporate phone numbers. Idempotent: skips rows already enriched.
+(async () => {
+    try {
+        // Map of company name → { street, zip, phone, website, type, description, city, state, country }
+        const enrichments = [
+            ['NextEra Energy Resources',    '700 Universe Blvd',                  'Juno Beach',      'FL',                   'United States',  '33408', '+1 (561) 694-4000', 'nexteraenergy.com',        'Utility-Scale Owner',   "World's largest generator of renewable energy with 20+ GW of solar capacity across North America."],
+            ['Clearway Energy Group',       '300 Carnegie Center, Suite 300',      'Princeton',       'NJ',                   'United States',  '08540', '+1 (609) 608-1525', 'clearwayenergy.com',       'Utility-Scale Owner',   'One of the largest renewable energy owners in the US with 8+ GW of wind and solar assets.'],
+            ['Invenergy',                   '1 South Wacker Drive, Suite 1800',    'Chicago',         'IL',                   'United States',  '60606', '+1 (312) 224-1888', 'invenergy.com',            'Utility-Scale Owner',   'One of the largest private renewable energy developers in North America with 35+ GW.'],
+            ['AES Corporation',             '4300 Wilson Blvd, Suite 1100',        'Arlington',       'VA',                   'United States',  '22203', '+1 (703) 522-1315', 'aes.com',                  'Utility-Scale Owner',   'Global power company with major solar portfolio spanning 14 countries.'],
+            ['Dominion Energy',             '120 Tredegar Street',                 'Richmond',        'VA',                   'United States',  '23219', '+1 (804) 819-2000', 'dominionenergy.com',       'Utility-Scale Owner',   'Major US utility with a 35 GW solar buildout plan across the Southeast US.'],
+            ['Duke Energy Renewables',      '400 South Tryon Street',              'Charlotte',       'NC',                   'United States',  '28202', '+1 (704) 382-3853', 'duke-energy.com',          'Utility-Scale Owner',   'One of the largest US utilities operating 6+ GW of solar and expanding rapidly.'],
+            ['Xcel Energy',                 '414 Nicollet Mall',                   'Minneapolis',     'MN',                   'United States',  '55401', '+1 (612) 330-5500', 'xcelenergy.com',           'Utility-Scale Owner',   'Upper Midwest utility with an aggressive 100% carbon-free electricity goal.'],
+            ['Avangrid Renewables',         '1 City Center',                       'Portland',        'OR',                   'United States',  '97201', '+1 (207) 629-1400', 'avangrid.com',             'Utility-Scale Owner',   'US renewable arm of Iberdrola with 10+ GW of wind and solar in operation.'],
+            ['PSEG Solar Source',           '80 Park Plaza',                       'Newark',          'NJ',                   'United States',  '07102', '+1 (973) 430-7000', 'pseg.com',                 'Utility-Scale Owner',   "PSEG's solar subsidiary managing 500+ MW of utility-scale solar across the US."],
+            ['Arevon Energy',               '2398 E Camelback Rd, Suite 1060',     'Phoenix',         'AZ',                   'United States',  '85016', '+1 (602) 900-2900', 'arevonenergy.com',         'Utility-Scale Owner',   'Independent power producer owning utility-scale solar across the US Southwest and Southeast.'],
+            ['EDF Renewables',              '15445 Innovation Drive, Suite 100',   'San Diego',       'CA',                   'United States',  '92128', '+1 (858) 521-3600', 'edf-renewables.com',       'Utility-Scale Owner',   'US subsidiary of French utility EDF with multi-GW solar and storage portfolio.'],
+            ['Pattern Energy',              '1088 Sansome Street',                 'San Francisco',   'CA',                   'United States',  '94111', '+1 (415) 283-4000', 'patternenergy.com',        'Utility-Scale Owner',   'Privately owned developer and operator of utility-scale solar, wind and storage.'],
+            ['Greenbacker Renewable Energy','230 Park Avenue, Suite 1560',         'New York',        'NY',                   'United States',  '10169', '+1 (212) 845-7977', 'greenbackercapital.com',   'Utility-Scale Owner',   'Publicly-listed renewable energy company owning utility-scale solar across North America.'],
+            ['Hannon Armstrong',            '1906 Towne Centre Blvd, Suite 370',   'Annapolis',       'MD',                   'United States',  '21401', '+1 (410) 571-9860', 'hannonarmstrong.com',      'Utility-Scale Owner',   'Climate-positive investment firm owning 5+ GW of solar and wind assets.'],
+            ['Altus Power',                 'Two Greenwich Plaza, Suite 302',       'Greenwich',       'CT',                   'United States',  '06830', '+1 (203) 900-2110', 'altuspower.com',           'Utility-Scale Owner',   'Leading US commercial-scale clean electrification company with 1+ GW of solar.'],
+            ['Sunrun',                      '225 Bush Street, Suite 1400',          'San Francisco',   'CA',                   'United States',  '94104', '+1 (415) 580-6900', 'sunrun.com',               'Residential Installer', 'Largest US residential solar installer with 900,000+ customers and 6+ GW installed.'],
+            ['Sunnova Energy',              '20 Greenway Plaza, Suite 475',         'Houston',         'TX',                   'United States',  '77046', '+1 (281) 985-9100', 'sunnova.com',              'Residential Installer', 'National residential solar and storage provider with 400,000+ customers.'],
+            ['SunPower Corporation',        '880 Harbour Way South',                'Richmond',        'CA',                   'United States',  '94804', '+1 (408) 240-5500', 'sunpower.com',             'Residential Installer', 'Premium solar manufacturer and installer for residential and commercial markets.'],
+            ['Freedom Forever',             '40900 County Center Drive, Suite A',   'Temecula',        'CA',                   'United States',  '92591', '+1 (888) 557-6161', 'freedomforever.com',       'Residential Installer', 'Large national residential solar installer with 25-year production guarantee.'],
+            ['Cypress Creek Renewables',    '501 Wilshire Blvd, Suite 900',         'Santa Monica',    'CA',                   'United States',  '90401', '+1 (919) 595-0107', 'ccrenew.com',              'Developer-EPC',         'Major US community and utility-scale solar developer with 3+ GW in operation.'],
+            ['Silicon Ranch',               '315 Deaderick Street, Suite 1700',     'Nashville',       'TN',                   'United States',  '37238', '+1 (615) 732-7200', 'siliconranch.com',         'Developer-EPC',         'Leading US solar developer and operator backed by Shell in the Southeast.'],
+            ['Strata Clean Energy',         '3211 Shannon Road, Suite 600',         'Durham',          'NC',                   'United States',  '27707', '+1 (919) 294-6780', 'stratacleanenergy.com',    'Developer-EPC',         'Vertically integrated solar EPC and operator focused on the Southeast.'],
+            ['Recurrent Energy',            '300 W 6th Street, Suite 1700',         'Austin',          'TX',                   'United States',  '78701', '+1 (512) 900-5200', 'recurrentenergy.com',      'Developer-EPC',         "Canadian Solar's global utility-scale solar and storage developer."],
+            ['SOLV Energy',                 '9665 Chesapeake Drive, Suite 360',     'San Diego',       'CA',                   'United States',  '92123', '+1 (619) 382-2100', 'solvenergy.com',           'Developer-EPC',         'Leading US utility-scale solar EPC contractor and O&M provider.'],
+            ['Sol Systems',                 '1110 Vermont Ave NW, Suite 1000',      'Washington',      'DC',                   'United States',  '20005', '+1 (202) 656-5422', 'solsystems.com',           'Developer-EPC',         'Full-service solar energy firm managing development, financing and asset management.'],
+            ['Savion',                      '4520 Main Street, Suite 1000',         'Kansas City',     'MO',                   'United States',  '64111', '+1 (816) 888-4200', 'savionenergy.com',         'Developer-EPC',         "Shell-owned utility-scale solar and storage developer in the US."],
+            ['Quanta Services',             '2800 Post Oak Blvd, Suite 2600',       'Houston',         'TX',                   'United States',  '77056', '+1 (713) 629-7600', 'quantaservices.com',       'Developer-EPC',         'Publicly traded infrastructure services company with major solar EPC market share.'],
+            ['Mortenson',                   '700 Meadow Lane North',                'Minneapolis',     'MN',                   'United States',  '55422', '+1 (763) 522-2100', 'mortenson.com',            'Developer-EPC',         'Major US construction company and leading solar EPC firm.'],
+            ['NovaSource Power Services',   '2231 E Camelback Rd, Suite 340',       'Phoenix',         'AZ',                   'United States',  '85016', '+1 (602) 759-4799', 'novasourcepower.com',      'O&M',                   "World's largest independent solar O&M provider managing 50+ GW globally."],
+            ['ENGIE North America',         '1990 Post Oak Blvd, Suite 1900',       'Houston',         'TX',                   'United States',  '77056', '+1 (713) 636-0000', 'engie.com',                'O&M',                   'North American arm of French utility ENGIE operating utility-scale solar.'],
+            ['Terrasmart',                  '4100 Legendary Drive, Suite 200',      'Fort Myers',      'FL',                   'United States',  '34109', '+1 (239) 249-0000', 'terrasmart.com',           'O&M',                   'Leading US solar O&M provider and racking manufacturer managing 4+ GW.'],
+            ['Borrego',                     '2100 Main Street, Suite 340',          'Chula Vista',     'CA',                   'United States',  '91914', '+1 (858) 270-1711', 'borrego.com',              'O&M',                   'Vertically integrated US solar company delivering commercial and community solar.'],
+            ['First Solar',                 '350 W Washington Street, Suite 600',   'Tempe',           'AZ',                   'United States',  '85281', '+1 (602) 414-9300', 'firstsolar.com',           'Manufacturer',          'Leading US thin-film solar manufacturer with 20+ GW of utility projects globally.'],
+            ['Array Technologies',          '3901 Midway Place NE',                 'Albuquerque',     'NM',                   'United States',  '87109', '+1 (505) 881-7567', 'arraytechinc.com',         'Manufacturer',          "World's largest solar tracking manufacturer with 30+ GW deployed globally."],
+            ['Nextracker',                  '6200 Paseo Padre Parkway',             'Fremont',         'CA',                   'United States',  '94555', '+1 (510) 270-2500', 'nextracker.com',           'Manufacturer',          'Global leader in intelligent solar tracker systems with 70+ GW shipped.'],
+            ['Enphase Energy',              '47281 Bayside Parkway',                'Fremont',         'CA',                   'United States',  '94538', '+1 (877) 797-4743', 'enphase.com',              'Manufacturer',          "World's #1 microinverter company with 3+ million homes powered globally."],
+            ['Ørsted',                      'Kraftværksvej 53',                     'Fredericia',      'Region of Southern Denmark', 'Denmark', '7000', '+45 99 55 11 11',  'orsted.com',               'Developer-EPC',         'Global leader in renewable energy with major solar and offshore wind portfolios.'],
+            ['RWE Renewables',              'Alstom-Str. 1',                        'Essen',           'North Rhine-Westphalia', 'Germany',     '45141', '+49 201 5179-0',    'rwe.com',                  'Utility-Scale Owner',   "One of the world's largest renewable energy companies with 10+ GW solar capacity."],
+            ['Enel Green Power',            'Viale Regina Margherita 137',          'Rome',            'Lazio',                'Italy',          '00198', '+39 06 8305 1',     'enelgreenpower.com',       'Utility-Scale Owner',   "World's largest private renewable energy operator with 60+ GW of renewables."],
+            ['Iberdrola',                   'Plaza Euskadi 5',                       'Bilbao',          'Basque Country',       'Spain',          '48009', '+34 944 151 411',   'iberdrola.com',            'Utility-Scale Owner',   'Global energy major with €150B clean investment plan and 20+ GW of solar.'],
+            ['EDP Renewables',              'Calle Ribera del Loira 60',            'Madrid',          'Community of Madrid',  'Spain',          '28042', '+34 91 213 1000',   'edpr.com',                 'Developer-EPC',         "One of Europe's largest renewable developers with 7+ GW solar globally."],
+            ['Acciona Energy',              'Avenida de Europa 18',                  'Alcobendas',      'Community of Madrid',  'Spain',          '28108', '+34 91 663 2850',   'acciona.com',              'Utility-Scale Owner',   'Major Spanish renewable energy conglomerate with 12+ GW solar globally.'],
+            ['BayWa r.e.',                  'Arabellastraße 4',                     'Munich',          'Bavaria',              'Germany',        '81925', '+49 89 9222-0',     'baywa-re.com',             'Developer-EPC',         'Leading global renewable energy developer with 5+ GW in 30+ countries.'],
+            ['Lightsource bp',              '17 Hanover Square',                    'London',          'England',              'United Kingdom', 'W1S 1HU', '+44 20 3828 0000', 'lightsourcebp.com',       'Developer-EPC',         'Global solar developer backed by bp with 25+ GW in development worldwide.'],
+            ['TotalEnergies Renewables',    '2 Place Jean Millier',                 'Courbevoie',      'Île-de-France',        'France',         '92400', '+33 1 47 44 45 46', 'totalenergies.com',        'Utility-Scale Owner',   'Major energy company targeting 100 GW of solar globally by 2030.'],
+            ['Equinor Renewables',          'Forusbeen 50',                         'Stavanger',       'Rogaland',             'Norway',         '4035',  '+47 51 99 00 00',   'equinor.com',              'Utility-Scale Owner',   'Norwegian energy company building solar portfolio in US, Brazil, Poland and Denmark.'],
+            ['Canadian Solar',              '545 Speedvale Avenue West',            'Guelph',          'Ontario',              'Canada',         'N1K 1E6', '+1 (519) 837-1881', 'canadiansolar.com',      'Manufacturer',          "One of the world's largest solar companies with 60+ GW of modules shipped."],
+            ['JinkoSolar',                  '1 Jinko Road, Shangrao Economic Development Zone', 'Shangrao', 'Jiangxi',          'China',          '334100', '+86 793 846 1158',  'jinkosolar.com',          'Manufacturer',          "World's leading solar manufacturer with 200+ GW shipped to 200+ countries."],
+            ['LONGi Solar',                 '1 Tianhua Road, High-Tech Zone',       "Xi'an",           'Shaanxi',              'China',          '710119', '+86 29 8833 3626',  'longi-solar.com',          'Manufacturer',          "World's largest solar technology company specializing in monocrystalline wafers."],
+            ['Trina Solar',                 '2 Trina Road, Changzhou Science & Education Town', 'Changzhou', 'Jiangsu',         'China',          '213031', '+86 519 8517 6088', 'trinasolar.com',           'Manufacturer',          'Leading global solar company with 100+ GW of modules shipped.'],
+            ['Hanwha Q CELLS',              '101 Hanwha Qcells Way',                'Dalton',          'GA',                   'United States',  '30720', '+1 (706) 529-1000', 'q-cells.com',              'Manufacturer',          'Global solar manufacturer with Q.ANTUM technology and 3+ GW of US projects.'],
+            ['Brookfield Renewable Partners','181 Bay Street, Suite 300',           'Toronto',         'Ontario',              'Canada',         'M5J 2T3', '+1 (416) 363-9491', 'brookfieldrenewable.com', 'Utility-Scale Owner',  "One of the world's largest pure-play renewable energy platforms with 30+ GW."],
+            ['Atlas Renewable Energy',      '2333 Ponce de Leon Blvd, Suite 700',   'Coral Gables',    'FL',                   'United States',  '33134', '+1 (305) 400-8710', 'atlasrenewableenergy.com', 'Developer-EPC',         "Latin America's leading solar developer with 4+ GW across Chile, Brazil, Mexico, Colombia."],
+            ['Sonnedix',                    '20 Eastbourne Terrace, 7th Floor',     'London',          'England',              'United Kingdom', 'W2 6LG', '+44 20 3826 7000',  'sonnedix.com',             'Utility-Scale Owner',   'International solar IPP with 3+ GW across Europe, Americas, Japan, South Africa.'],
+        ];
+
+        // Build a VALUES list for bulk UPDATE
+        const values = enrichments.map((r, i) => {
+            const [name, street, city, state, country, zip, phone, website, type, desc] = r;
+            return `($${i*10+1}, $${i*10+2}, $${i*10+3}, $${i*10+4}, $${i*10+5}, $${i*10+6}, $${i*10+7}, $${i*10+8}, $${i*10+9}, $${i*10+10})`;
+        }).join(', ');
+        const params = enrichments.flatMap(r => r);
+
+        const result = await dbQuery(`
+            UPDATE clients AS c
+            SET
+                phone   = v.phone,
+                address = jsonb_build_object(
+                    'street',      v.street,
+                    'city',        v.city,
+                    'state',       v.state,
+                    'country',     v.country,
+                    'zip',         v.zip,
+                    'phone',       v.phone,
+                    'website',     v.website,
+                    'type',        v.type,
+                    'description', v.description
+                )
+            FROM (VALUES ${values})
+                AS v(name, street, city, state, country, zip, phone, website, type, description)
+            WHERE c.name = v.name
+              AND c.tenant_id = 'coatzadrone'
+              AND (c.address->>'street' IS NULL OR c.address->>'street' = '')
+        `, params);
+
+        if (result.rowCount > 0) {
+            console.log(`✅ Solar client enrichment: updated ${result.rowCount} companies with real addresses & phone numbers`);
+        } else {
+            console.log(`[solar-client-enrichment] Already enriched — no updates needed`);
+        }
+    } catch (e) {
+        console.warn('[solar-client-enrichment] skipped:', e.message);
+    }
+})();
+
+
 // Phase LBD-2: Extends solar_blocks with LBD-level tracking + creates lbd_units
 (async () => {
     try {
