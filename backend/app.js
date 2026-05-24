@@ -964,6 +964,137 @@ app.get('/api/documents', protect, async (req, res) => {
     }
 })();
 
+// ── Solar Industry Clients Seed ───────────────────────────────────────────────
+// Seeds the top ~65 real solar companies (utility owners, EPCs, O&M, installers)
+// Idempotent: ON CONFLICT DO NOTHING — safe to run on every restart.
+(async () => {
+    try {
+        // Ensure clients table exists with required columns
+        await dbQuery(`CREATE TABLE IF NOT EXISTS clients (
+            id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            industry_id          UUID,
+            name                 VARCHAR(255) NOT NULL,
+            external_id          VARCHAR(100),
+            address              JSONB DEFAULT '{}'::jsonb,
+            email                VARCHAR(255),
+            phone                VARCHAR(50),
+            primary_contact_name VARCHAR(255),
+            tenant_id            TEXT DEFAULT 'coatzadrone',
+            onboarding_step      INTEGER DEFAULT 1,
+            onboarding_status    VARCHAR(50) DEFAULT 'IN_PROGRESS',
+            created_at           TIMESTAMPTZ DEFAULT NOW(),
+            updated_at           TIMESTAMPTZ DEFAULT NOW()
+        )`);
+
+        // Resolve solar industry_id (handles both key-based and name-based schemas)
+        let solarIndustryId = null;
+        try {
+            const r = await dbQuery(`SELECT id FROM industries WHERE key = 'solar' LIMIT 1`);
+            if (r.rows[0]) solarIndustryId = r.rows[0].id;
+        } catch (_) { /* key column may not exist */ }
+        if (!solarIndustryId) {
+            try {
+                const r = await dbQuery(`SELECT id FROM industries WHERE LOWER(name) = 'solar' LIMIT 1`);
+                if (r.rows[0]) solarIndustryId = r.rows[0].id;
+            } catch (_) { /* industries table may not exist yet */ }
+        }
+
+        const clients = [
+          // ── US Utility-Scale Asset Owners & IPPs ─────────────────────────
+          ['NextEra Energy Resources','{"city":"Juno Beach","state":"FL","country":"United States","website":"nexteraenergy.com","type":"Utility-Scale Owner","description":"World\'s largest generator of renewable energy with 20+ GW of solar capacity across North America."}','contact@nexteraenergy.com','Director of Operations'],
+          ['Clearway Energy Group','{"city":"San Francisco","state":"CA","country":"United States","website":"clearwayenergy.com","type":"Utility-Scale Owner","description":"One of the largest renewable energy owners in the US with 8+ GW of wind and solar assets."}','contact@clearwayenergy.com','Asset Manager'],
+          ['Invenergy','{"city":"Chicago","state":"IL","country":"United States","website":"invenergy.com","type":"Utility-Scale Owner","description":"One of the largest private renewable energy developers in North America with 35+ GW in operation."}','contact@invenergy.com','VP Asset Management'],
+          ['AES Corporation','{"city":"Arlington","state":"VA","country":"United States","website":"aes.com","type":"Utility-Scale Owner","description":"Global power company with major solar portfolio spanning 14 countries accelerating toward 100% clean energy."}','contact@aes.com','Solar Asset Manager'],
+          ['Dominion Energy','{"city":"Richmond","state":"VA","country":"United States","website":"dominionenergy.com","type":"Utility-Scale Owner","description":"Major US utility with a 35 GW solar buildout plan across the Southeast US."}','contact@dominionenergy.com','Director of Solar Operations'],
+          ['Duke Energy Renewables','{"city":"Charlotte","state":"NC","country":"United States","website":"duke-energy.com","type":"Utility-Scale Owner","description":"One of the largest US utilities operating 6+ GW of solar and expanding rapidly."}','contact@duke-energy.com','Renewables Asset Manager'],
+          ['Xcel Energy','{"city":"Denver","state":"CO","country":"United States","website":"xcelenergy.com","type":"Utility-Scale Owner","description":"Upper Midwest utility with an aggressive 100% carbon-free electricity goal and major solar buildout."}','contact@xcelenergy.com','Clean Energy Director'],
+          ['Avangrid Renewables','{"city":"Orange","state":"CT","country":"United States","website":"avangrid.com","type":"Utility-Scale Owner","description":"US renewable arm of Iberdrola with 10+ GW of wind and solar in operation and development."}','contact@avangrid.com','VP Renewable Operations'],
+          ['PSEG Solar Source','{"city":"Newark","state":"NJ","country":"United States","website":"pseg.com","type":"Utility-Scale Owner","description":"PSEG\'s solar subsidiary managing 500+ MW of utility-scale and distributed solar across the US."}','contact@pseg.com','Solar Portfolio Manager'],
+          ['Arevon Energy','{"city":"Scottsdale","state":"AZ","country":"United States","website":"arevonenergy.com","type":"Utility-Scale Owner","description":"Independent power producer and asset manager owning utility-scale solar and storage across the US Southwest and Southeast."}','contact@arevonenergy.com','Asset Management Director'],
+          ['EDF Renewables','{"city":"San Diego","state":"CA","country":"United States","website":"edf-renewables.com","type":"Utility-Scale Owner","description":"US subsidiary of French utility EDF, owning and operating multi-GW of solar and solar-plus-storage assets across North America."}','contact@edf-renewables.com','Asset Management Lead'],
+          ['Pattern Energy','{"city":"San Francisco","state":"CA","country":"United States","website":"patternenergy.com","type":"Utility-Scale Owner","description":"Privately owned developer, owner and operator of utility-scale solar, wind and storage projects across North America."}','contact@patternenergy.com','Asset Operations Manager'],
+          ['Greenbacker Renewable Energy','{"city":"New York","state":"NY","country":"United States","website":"greenbackercapital.com","type":"Utility-Scale Owner","description":"Publicly-listed renewable energy company owning and operating utility-scale solar across North America."}','contact@greenbackercapital.com','Asset Operations Manager'],
+          ['Hannon Armstrong','{"city":"Annapolis","state":"MD","country":"United States","website":"hannonarmstrong.com","type":"Utility-Scale Owner","description":"Climate-positive investment firm owning solar and wind assets totaling 5+ GW across the United States."}','contact@hannonarmstrong.com','Asset Management Director'],
+          ['Altus Power','{"city":"Stamford","state":"CT","country":"United States","website":"altuspower.com","type":"Utility-Scale Owner","description":"Leading US commercial-scale clean electrification company with 1+ GW of solar serving commercial clients."}','contact@altuspower.com','Portfolio Manager'],
+          // ── US Residential & Commercial Installers ────────────────────────
+          ['Sunrun','{"city":"San Francisco","state":"CA","country":"United States","website":"sunrun.com","type":"Residential Installer","description":"Largest US residential solar installer with 900,000+ customers and 6+ GW of installed solar+storage."}','contact@sunrun.com','Operations Director'],
+          ['Sunnova Energy','{"city":"Houston","state":"TX","country":"United States","website":"sunnova.com","type":"Residential Installer","description":"National residential solar and storage service provider with 400,000+ customers across 40+ US states."}','contact@sunnova.com','Asset Management Lead'],
+          ['SunPower Corporation','{"city":"San Jose","state":"CA","country":"United States","website":"sunpower.com","type":"Residential Installer","description":"Premium US solar manufacturer and installer serving residential and commercial markets with high-efficiency panels."}','contact@sunpower.com','Commercial Sales Director'],
+          ['Freedom Forever','{"city":"Temecula","state":"CA","country":"United States","website":"freedomforever.com","type":"Residential Installer","description":"Large national residential solar installer with 25-year production guarantee operating through authorized dealer network."}','contact@freedomforever.com','Operations Director'],
+          // ── US Developer-EPCs ─────────────────────────────────────────────
+          ['Cypress Creek Renewables','{"city":"Santa Monica","state":"CA","country":"United States","website":"ccrenew.com","type":"Developer-EPC","description":"Major US community and utility-scale solar developer with 3+ GW in operation and strong Southeast presence."}','contact@ccrenew.com','VP of O&M'],
+          ['Silicon Ranch','{"city":"Nashville","state":"TN","country":"United States","website":"siliconranch.com","type":"Developer-EPC","description":"Leading US utility-scale solar developer, owner and operator backed by Shell, focused on the Southeast US."}','contact@siliconranch.com','Operations Director'],
+          ['Strata Clean Energy','{"city":"Durham","state":"NC","country":"United States","website":"stratacleanenergy.com","type":"Developer-EPC","description":"Vertically integrated solar company developing, constructing, owning and operating utility-scale solar primarily in the Southeast."}','contact@stratacleanenergy.com','VP Asset Management'],
+          ['Recurrent Energy','{"city":"Austin","state":"TX","country":"United States","website":"recurrentenergy.com","type":"Developer-EPC","description":"Wholly owned subsidiary of Canadian Solar developing and managing utility-scale solar and storage projects globally."}','contact@recurrentenergy.com','Project Development Director'],
+          ['Sol Systems','{"city":"Washington","state":"DC","country":"United States","website":"solsystems.com","type":"Developer-EPC","description":"Full-service solar energy firm managing development, financing and long-term asset management for solar projects."}','contact@solsystems.com','Director of Project Development'],
+          ['SOLV Energy','{"city":"San Diego","state":"CA","country":"United States","website":"solvenergy.com","type":"Developer-EPC","description":"Leading US utility-scale solar EPC contractor and O&M provider engineering and constructing GW-scale solar plants."}','contact@solvenergy.com','Director of Asset Services'],
+          ['Savion','{"city":"Kansas City","state":"MO","country":"United States","website":"savionenergy.com","type":"Developer-EPC","description":"Shell-owned utility-scale solar and storage developer with large project pipeline across the US Midwest and Southeast."}','contact@savionenergy.com','Development Director'],
+          ['Quanta Services','{"city":"Houston","state":"TX","country":"United States","website":"quantaservices.com","type":"Developer-EPC","description":"Publicly traded infrastructure services company with one of the largest solar EPC market shares in the US."}','contact@quantaservices.com','Renewable Energy Director'],
+          ['Mortenson','{"city":"Minneapolis","state":"MN","country":"United States","website":"mortenson.com","type":"Developer-EPC","description":"Major US construction company and leading solar EPC firm, building GW-scale utility solar and storage projects."}','contact@mortenson.com','Solar EPC Director'],
+          ['SunEnergy1','{"city":"Charlotte","state":"NC","country":"United States","website":"sunenergy1.com","type":"Developer-EPC","description":"Large-scale solar EPC and development company specializing in utility and commercial solar in the Southeast US."}','contact@sunenergy1.com','Operations Director'],
+          // ── O&M Specialists ───────────────────────────────────────────────
+          ['NovaSource Power Services','{"city":"Chandler","state":"AZ","country":"United States","website":"novasourcepower.com","type":"O&M","description":"World\'s largest independent solar O&M provider managing 50+ GW of utility-scale and distributed solar globally."}','contact@novasourcepower.com','VP Field Operations'],
+          ['ENGIE North America','{"city":"Houston","state":"TX","country":"United States","website":"engie.com","type":"O&M","description":"North American arm of French utility ENGIE developing, owning and operating utility-scale solar, wind and storage."}','contact@engie-northamerica.com','Solar O&M Director'],
+          ['Terrasmart','{"city":"Fort Myers","state":"FL","country":"United States","website":"terrasmart.com","type":"O&M","description":"Leading US solar O&M provider and racking manufacturer managing 4+ GW of solar assets with integrated inspection services."}','contact@terrasmart.com','O&M Operations Manager'],
+          ['Borrego','{"city":"San Diego","state":"CA","country":"United States","website":"borrego.com","type":"O&M","description":"Vertically integrated US solar company delivering 3+ GW of commercial and community solar projects with dedicated O&M."}','contact@borrego.com','Director of Asset Services'],
+          ['Greenskies Clean Focus','{"city":"Middletown","state":"CT","country":"United States","website":"greenskies.com","type":"O&M","description":"Develops, finances, builds, owns and operates commercial and industrial rooftop and ground-mount solar for businesses."}','contact@greenskies.com','O&M Manager'],
+          ['Nexamp','{"city":"Boston","state":"MA","country":"United States","website":"nexamp.com","type":"Commercial","description":"Leading community and commercial solar developer providing shared solar subscriptions to businesses and residents."}','contact@nexamp.com','Operations Manager'],
+          // ── US Solar Manufacturers & Technology ──────────────────────────
+          ['First Solar','{"city":"Tempe","state":"AZ","country":"United States","website":"firstsolar.com","type":"Manufacturer","description":"Leading US-based thin-film solar panel manufacturer and developer with 20+ GW of utility-scale projects globally."}','contact@firstsolar.com','Project Development Manager'],
+          ['Array Technologies','{"city":"Albuquerque","state":"NM","country":"United States","website":"arraytechinc.com","type":"Manufacturer","description":"World\'s largest solar tracking manufacturer with trackers deployed on 30+ GW of solar projects globally."}','contact@arraytechinc.com','Field Services Manager'],
+          ['Nextracker','{"city":"Fremont","state":"CA","country":"United States","website":"nextracker.com","type":"Manufacturer","description":"Global leader in intelligent solar tracker systems with 70+ GW of trackers shipped worldwide."}','contact@nextracker.com','Global Services Director'],
+          ['Tesla Energy','{"city":"Austin","state":"TX","country":"United States","website":"tesla.com","type":"Commercial","description":"Tesla\'s energy division deploying solar panels, Powerwall, Powerpack and Megapack at residential and grid scale."}','contact@tesla.com','Energy Operations Lead'],
+          ['Enphase Energy','{"city":"Fremont","state":"CA","country":"United States","website":"enphase.com","type":"Manufacturer","description":"World\'s #1 microinverter company powering 3+ million homes in 145+ countries with solar microinverters and storage."}','contact@enphase.com','Field Operations Manager'],
+          // ── European Utilities ────────────────────────────────────────────
+          ['Ørsted','{"city":"Fredericia","state":"Jutland","country":"Denmark","website":"orsted.com","type":"Developer-EPC","description":"Global leader in renewable energy development with major solar and offshore wind portfolios across Europe and the US."}','contact@orsted.com','Solar Asset Manager'],
+          ['RWE Renewables','{"city":"Essen","state":"North Rhine-Westphalia","country":"Germany","website":"rwe.com","type":"Utility-Scale Owner","description":"One of the world\'s largest renewable energy companies with 10+ GW solar capacity and €50B green investment plan."}','contact@rwe.com','Solar Portfolio Director'],
+          ['Enel Green Power','{"city":"Rome","state":"Lazio","country":"Italy","website":"enelgreenpower.com","type":"Utility-Scale Owner","description":"World\'s largest private renewable energy operator with 60+ GW of renewables including 20+ GW of solar globally."}','contact@enelgreenpower.com','Asset Management Director'],
+          ['Iberdrola','{"city":"Bilbao","state":"Basque Country","country":"Spain","website":"iberdrola.com","type":"Utility-Scale Owner","description":"Global energy major with €150B clean investment plan and 20+ GW of solar across Spain, US, Brazil and UK."}','contact@iberdrola.com','Renewables Operations Lead'],
+          ['EDP Renewables','{"city":"Oviedo","state":"Asturias","country":"Spain","website":"edpr.com","type":"Developer-EPC","description":"One of Europe\'s largest renewable energy developers with 7+ GW of solar in operation across 4 continents."}','contact@edpr.com','Solar Asset Manager'],
+          ['Acciona Energy','{"city":"Alcobendas","state":"Madrid","country":"Spain","website":"acciona.com","type":"Utility-Scale Owner","description":"Major Spanish renewable energy conglomerate with 12+ GW of solar and wind globally."}','contact@acciona.com','Director of Solar Assets'],
+          ['BayWa r.e.','{"city":"Munich","state":"Bavaria","country":"Germany","website":"baywa-re.com","type":"Developer-EPC","description":"Leading global renewable energy developer with 5+ GW of solar in development and operation across 30+ countries."}','contact@baywa-re.com','Project Development Director'],
+          ['Statkraft','{"city":"Oslo","state":"Oslo","country":"Norway","website":"statkraft.com","type":"Developer-EPC","description":"Europe\'s largest renewable energy producer with solar projects spanning Europe, South America and India."}','contact@statkraft.com','Solar Asset Manager'],
+          ['Lightsource bp','{"city":"London","state":"England","country":"United Kingdom","website":"lightsourcebp.com","type":"Developer-EPC","description":"Global solar developer backed by bp with 25+ GW in development across Europe, Americas, India and Australia."}','contact@lightsourcebp.com','VP Asset Management'],
+          // ── Oil & Gas Solar Divisions ─────────────────────────────────────
+          ['TotalEnergies Renewables','{"city":"Paris","state":"Île-de-France","country":"France","website":"totalenergies.com","type":"Utility-Scale Owner","description":"Major European energy major with 35+ GW of solar in operation and development targeting 100 GW by 2030."}','contact@totalenergies.com','Solar Portfolio Manager'],
+          ['Equinor Renewables','{"city":"Stavanger","state":"Rogaland","country":"Norway","website":"equinor.com","type":"Utility-Scale Owner","description":"Norwegian state-majority energy company building a solar portfolio in the US, Brazil, Poland and Denmark."}','contact@equinor.com','Solar Asset Manager'],
+          // ── Asian Manufacturers ───────────────────────────────────────────
+          ['Canadian Solar','{"city":"Guelph","state":"Ontario","country":"Canada","website":"canadiansolar.com","type":"Manufacturer","description":"One of the world\'s largest solar energy companies with 60+ GW of modules shipped and 9+ GW of utility projects."}','contact@canadiansolar.com','Project Development Director'],
+          ['JinkoSolar','{"city":"Shanghai","state":"Shanghai","country":"China","website":"jinkosolar.com","type":"Manufacturer","description":"World\'s leading solar panel manufacturer having shipped 200+ GW of modules to 200+ countries and regions."}','contact@jinkosolar.com','Global Sales Director'],
+          ['LONGi Solar','{"city":"Xi\'an","state":"Shaanxi","country":"China","website":"longi-solar.com","type":"Manufacturer","description":"World\'s largest solar technology company specializing in monocrystalline silicon wafers and high-efficiency modules."}','contact@longi-solar.com','Global Business Director'],
+          ['Trina Solar','{"city":"Changzhou","state":"Jiangsu","country":"China","website":"trinasolar.com","type":"Manufacturer","description":"Leading global solar company with 100+ GW of modules shipped and a growing utility-scale project development division."}','contact@trinasolar.com','International Project Manager'],
+          ['JA Solar','{"city":"Beijing","state":"Beijing","country":"China","website":"jasolar.com","type":"Manufacturer","description":"One of the world\'s largest solar cell and module manufacturers with 80+ GW of module shipments globally."}','contact@jasolar.com','Global Account Manager'],
+          ['Hanwha Q CELLS','{"city":"Seoul","state":"Seoul","country":"South Korea","website":"q-cells.com","type":"Manufacturer","description":"Global solar manufacturer and project developer with premium Q.ANTUM technology and 3+ GW of US projects."}','contact@q-cells.com','Americas Development Director'],
+          ['Maxeon Solar Technologies','{"city":"Singapore","state":"Singapore","country":"Singapore","website":"maxeon.com","type":"Manufacturer","description":"Premium solar panel manufacturer known for world-record high-efficiency IBC solar cells."}','contact@maxeon.com','Technical Operations Director'],
+          // ── Canada & Latin America ────────────────────────────────────────
+          ['Brookfield Renewable Partners','{"city":"Toronto","state":"Ontario","country":"Canada","website":"brookfieldrenewable.com","type":"Utility-Scale Owner","description":"One of the world\'s largest pure-play renewable energy platforms with 30+ GW of solar and hydro globally."}','contact@brookfieldrenewable.com','Portfolio Asset Manager'],
+          ['Atlas Renewable Energy','{"city":"Miami","state":"FL","country":"United States","website":"atlasrenewableenergy.com","type":"Developer-EPC","description":"Latin America\'s leading renewable energy developer with 4+ GW of solar in operation across Chile, Brazil, Mexico and Colombia."}','contact@atlasrenewableenergy.com','Operations Director'],
+          ['Sonnedix','{"city":"London","state":"England","country":"United Kingdom","website":"sonnedix.com","type":"Utility-Scale Owner","description":"International solar IPP owning and operating 3+ GW of solar across Europe, Americas, Japan and South Africa."}','contact@sonnedix.com','Asset Management Director'],
+        ];
+
+        let inserted = 0;
+        for (const [name, address, email, contact] of clients) {
+            const r = await dbQuery(
+                `INSERT INTO clients (industry_id, name, address, email, primary_contact_name, tenant_id, onboarding_status, onboarding_step)
+                 VALUES ($1, $2, $3::jsonb, $4, $5, 'coatzadrone', 'IN_PROGRESS', 1)
+                 ON CONFLICT DO NOTHING`,
+                [solarIndustryId, name, address, email, contact]
+            );
+            inserted += (r.rowCount || 0);
+        }
+
+        const total = await dbQuery(`SELECT COUNT(*) FROM clients WHERE tenant_id = 'coatzadrone'`);
+        if (inserted > 0) {
+            console.log(`✅ Solar clients seed: inserted ${inserted} new companies (${total.rows[0].count} total)`);
+        } else {
+            console.log(`[solar-clients-seed] Already seeded — ${total.rows[0].count} companies in DB`);
+        }
+    } catch (e) {
+        console.warn('[solar-clients-seed] skipped:', e.message);
+    }
+})();
+
+
 // ── LBD Units Migration ───────────────────────────────────────────────────────
 // Phase LBD-2: Extends solar_blocks with LBD-level tracking + creates lbd_units
 (async () => {
