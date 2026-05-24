@@ -140,6 +140,22 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // AI Writer state
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBrief, setAiBrief] = useState('');
+  const [aiTone, setAiTone] = useState<'professional' | 'casual' | 'exciting'>('professional');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState('');
+
+  // AI Image state
+  const [imgOpen, setImgOpen] = useState(false);
+  const [imgPrompt, setImgPrompt] = useState('');
+  const [imgStyle, setImgStyle] = useState<'professional' | 'cinematic' | 'minimal'>('professional');
+  const [imgGenerating, setImgGenerating] = useState(false);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
+  const [imgAttached, setImgAttached] = useState<string | null>(null);
+  const [imgError, setImgError] = useState('');
+
   useEffect(() => { setContent(initialContent); }, [initialContent]);
 
   useEffect(() => {
@@ -162,10 +178,60 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
       : `Twitter: ${content.length}/280`
     : null;
 
+  const generatePost = async () => {
+    if (!aiBrief.trim()) { setAiError('Enter a brief first.'); return; }
+    setAiGenerating(true);
+    setAiError('');
+    try {
+      const res = await apiClient.post('/ai/social-post', {
+        brief: aiBrief.trim(),
+        post_type: postType,
+        tone: aiTone,
+        platforms: selectedPlatforms,
+        company: 'CoatzaDrone',
+      });
+      const data = res.data as { success: boolean; text?: string; message?: string };
+      if (data.success && data.text) {
+        setContent(data.text);
+        setAiOpen(false);
+        setAiBrief('');
+      } else {
+        setAiError(data.message ?? 'No content returned.');
+      }
+    } catch (e: unknown) {
+      setAiError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'AI generation failed.');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const generateImage = async () => {
+    if (!imgPrompt.trim()) { setImgError('Enter an image description first.'); return; }
+    setImgGenerating(true);
+    setImgError('');
+    setImgPreview(null);
+    try {
+      const res = await apiClient.post('/ai/social-image', {
+        prompt: imgPrompt.trim(),
+        post_type: postType,
+        style: imgStyle,
+      });
+      const data = res.data as { success: boolean; image?: string; message?: string };
+      if (data.success && data.image) {
+        setImgPreview(data.image);
+      } else {
+        setImgError(data.message ?? 'No image returned.');
+      }
+    } catch (e: unknown) {
+      setImgError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Image generation failed.');
+    } finally {
+      setImgGenerating(false);
+    }
+  };
+
   const submit = async (override_auto_post?: boolean) => {
     if (!content.trim()) { setResult({ ok: false, msg: 'Please write some content first.' }); return; }
     if (!selectedPlatforms.length) { setResult({ ok: false, msg: 'Select at least one platform.' }); return; }
-
     const ap = override_auto_post ?? autoPost;
     setSubmitting(true);
     setResult(null);
@@ -176,24 +242,25 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
         auto_post: ap,
         post_type: postType,
         post_title: postTitle.trim() || null,
+        image: imgAttached || undefined,
       });
       const data = res.data as { success: boolean; data?: { platform: string; status: string }[] };
       const posted = data.data?.filter(r => r.status === 'posted').length ?? 0;
       const pending = data.data?.filter(r => r.status === 'pending').length ?? 0;
       const failed = data.data?.filter(r => r.status === 'failed').length ?? 0;
       const skipped = data.data?.filter(r => r.status === 'skipped').length ?? 0;
-
       let msg = '';
       if (ap) {
         msg = `${posted} posted${failed ? `, ${failed} failed` : ''}${skipped ? `, ${skipped} skipped (no connected account)` : ''}.`;
       } else {
         msg = `${pending} post${pending !== 1 ? 's' : ''} queued for approval${skipped ? `, ${skipped} skipped` : ''}.`;
       }
-
       setResult({ ok: posted > 0 || pending > 0, msg, details: data.data });
       if (posted > 0 || pending > 0) {
         setContent('');
         setPostTitle('');
+        setImgAttached(null);
+        setImgPreview(null);
         onBlasted?.();
       }
     } catch (e: unknown) {
@@ -208,9 +275,8 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="bg-gradient-to-r from-blue-600/10 to-indigo-600/10 border border-blue-500/20 rounded-xl p-4">
-        <p className="text-sm text-blue-300 font-medium">📣 Compose a post and send it to your connected social media accounts — share job openings, company news, or marketing content to grow your brand.</p>
+        <p className="text-sm text-blue-300 font-medium">Post jobs, company news, and marketing content to grow your brand across all connected platforms.</p>
       </div>
 
       {/* Post Type */}
@@ -235,7 +301,7 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
         </div>
       </div>
 
-      {/* Title / Headline */}
+      {/* Title */}
       <div>
         <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
           {postType === 'job_opening' ? 'Job Title / Role' : 'Headline (optional)'}
@@ -248,7 +314,121 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
         />
       </div>
 
-      {/* Content */}
+      {/* AI Writing Assistant */}
+      <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 overflow-hidden">
+        <button
+          onClick={() => setAiOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-violet-300 hover:bg-violet-500/10 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span>✨</span> AI Writing Assistant
+            <span className="text-xs font-normal text-violet-400/70">describe what you want, AI writes it</span>
+          </span>
+          <span className="text-violet-400">{aiOpen ? '▲' : '▼'}</span>
+        </button>
+        {aiOpen && (
+          <div className="px-4 pb-4 space-y-3 border-t border-violet-500/20">
+            <div className="pt-3">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Brief</label>
+              <textarea
+                value={aiBrief}
+                onChange={e => { setAiBrief(e.target.value); setAiError(''); }}
+                placeholder={
+                  postType === 'job_opening'
+                    ? 'e.g. Hiring a drone pilot in Phoenix AZ, $35/hr, 2+ years experience'
+                    : postType === 'company_news'
+                    ? 'e.g. We just completed our 500th solar inspection with zero incidents'
+                    : 'e.g. Showcase our drone inspection services for solar farms'
+                }
+                rows={3}
+                className={`${inputClass} resize-none`}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Tone</label>
+              <div className="flex gap-2">
+                {([{ val: 'professional' as const, label: 'Professional' }, { val: 'casual' as const, label: 'Casual' }, { val: 'exciting' as const, label: 'Exciting' }]).map(t => (
+                  <button key={t.val} onClick={() => setAiTone(t.val)}
+                    className={`flex-1 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      aiTone === t.val ? 'bg-violet-600/30 border-violet-500 text-violet-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                    }`}>{t.label}</button>
+                ))}
+              </div>
+            </div>
+            {aiError && <p className="text-xs text-red-400">⚠️ {aiError}</p>}
+            <button onClick={generatePost} disabled={aiGenerating || !aiBrief.trim()}
+              className="w-full py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {aiGenerating ? '⏳ Generating…' : '✨ Generate Post'}
+            </button>
+            <p className="text-[11px] text-slate-500 text-center">Generated content replaces the composer text below</p>
+          </div>
+        )}
+      </div>
+
+      {/* AI Image Generator */}
+      <div className="rounded-xl border border-pink-500/30 bg-pink-500/5 overflow-hidden">
+        <button
+          onClick={() => setImgOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-pink-300 hover:bg-pink-500/10 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span>🎨</span> AI Image Generator
+            <span className="text-xs font-normal text-pink-400/70">create a visual for your post</span>
+          </span>
+          <span className="text-pink-400">{imgOpen ? '▲' : '▼'}</span>
+        </button>
+        {imgOpen && (
+          <div className="px-4 pb-4 space-y-3 border-t border-pink-500/20">
+            <div className="pt-3">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Image Description</label>
+              <input value={imgPrompt} onChange={e => { setImgPrompt(e.target.value); setImgError(''); }}
+                placeholder="e.g. Drone flying over a large solar farm at sunset, aerial view"
+                className={inputClass} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Style</label>
+              <div className="flex gap-2">
+                {([{ val: 'professional' as const, label: 'Professional' }, { val: 'cinematic' as const, label: 'Cinematic' }, { val: 'minimal' as const, label: 'Minimal' }]).map(s => (
+                  <button key={s.val} onClick={() => setImgStyle(s.val)}
+                    className={`flex-1 text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      imgStyle === s.val ? 'bg-pink-600/30 border-pink-500 text-pink-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                    }`}>{s.label}</button>
+                ))}
+              </div>
+            </div>
+            {imgError && <p className="text-xs text-red-400">⚠️ {imgError}</p>}
+            <button onClick={generateImage} disabled={imgGenerating || !imgPrompt.trim()}
+              className="w-full py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {imgGenerating ? '⏳ Generating with Imagen AI…' : '🎨 Generate Image'}
+            </button>
+            {imgPreview && (
+              <div className="space-y-2">
+                <img src={imgPreview} alt="AI generated" className="w-full rounded-xl border border-pink-500/20 object-cover max-h-64" />
+                <div className="flex gap-2">
+                  <button onClick={() => { setImgAttached(imgPreview); setImgOpen(false); }}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors">✅ Attach to Post</button>
+                  <button onClick={() => { setImgPreview(null); }}
+                    className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-semibold transition-colors">Regenerate</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Attached image badge */}
+      {imgAttached && (
+        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5">
+          <img src={imgAttached} alt="Attached" className="w-12 h-12 rounded-lg object-cover border border-emerald-500/20" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-emerald-300">Image attached</p>
+            <p className="text-[11px] text-slate-500">AI-generated image will be included with your post</p>
+          </div>
+          <button onClick={() => setImgAttached(null)} className="text-slate-500 hover:text-red-400 transition-colors text-lg">x</button>
+        </div>
+      )}
+
+      {/* Content textarea */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Post Content</label>
@@ -256,39 +436,20 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
             {charWarning ?? `${content.length} chars`}
           </span>
         </div>
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={e => setContent(e.target.value)}
-          placeholder={
-            postType === 'job_opening'
-              ? '💼 We\'re hiring!\n\nWe\'re looking for a skilled drone pilot to join our growing team...\n\n📍 Location\n💰 Pay range\n✅ How to apply'
-              : postType === 'company_news'
-              ? '📢 Exciting news from CoatzaDrone!\n\n...'
-              : 'Write your post content here…'
-          }
-          rows={7}
-          className={`${inputClass} resize-none`}
-        />
-        {overTwitterLimit && (
-          <p className="text-xs text-red-400 mt-1">⚠️ Content exceeds Twitter's 280-character limit. It will be truncated automatically.</p>
-        )}
-        {/* Variable quick-insert for job openings */}
+        <textarea ref={textareaRef} value={content} onChange={e => setContent(e.target.value)}
+          placeholder={postType === 'job_opening' ? 'Write your hiring post here, or use AI Writing Assistant above…' : postType === 'company_news' ? 'Write your news update here, or use AI Writing Assistant above…' : 'Write your post here, or use AI Writing Assistant above…'}
+          rows={7} className={`${inputClass} resize-none`} />
+        {overTwitterLimit && <p className="text-xs text-red-400 mt-1">Twitter limit exceeded — content will be truncated.</p>}
         {postType !== 'manual' && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             <span className="text-xs text-slate-500">Insert variable:</span>
             {(postType === 'job_opening' ? JOB_VARIABLES : NEWS_VARIABLES).map(v => (
-              <button
-                key={v}
-                onClick={() => {
-                  const ta = textareaRef.current;
-                  if (!ta) return;
-                  const s = ta.selectionStart;
-                  const e = ta.selectionEnd;
-                  setContent(prev => prev.slice(0, s) + `{${v}}` + prev.slice(e));
-                }}
-                className="text-xs px-2 py-0.5 rounded-full bg-slate-700 hover:bg-blue-600/30 text-blue-400 border border-slate-600 hover:border-blue-500 transition-colors"
-              >
+              <button key={v} onClick={() => {
+                const ta = textareaRef.current;
+                if (!ta) return;
+                const s = ta.selectionStart; const e = ta.selectionEnd;
+                setContent(prev => prev.slice(0, s) + `{${v}}` + prev.slice(e));
+              }} className="text-xs px-2 py-0.5 rounded-full bg-slate-700 hover:bg-blue-600/30 text-blue-400 border border-slate-600 hover:border-blue-500 transition-colors">
                 {'{' + v + '}'}
               </button>
             ))}
@@ -305,56 +466,35 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
             const account = getAccount(p);
             const selected = selectedPlatforms.includes(p);
             return (
-              <button
-                key={p}
-                onClick={() => togglePlatform(p)}
+              <button key={p} onClick={() => togglePlatform(p)}
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm transition-all ${
-                  selected
-                    ? 'bg-blue-600/20 border-blue-500 text-blue-200'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
-                }`}
-              >
+                  selected ? 'bg-blue-600/20 border-blue-500 text-blue-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                }`}>
                 <span>{meta.icon}</span>
                 <span className="font-medium">{meta.label}</span>
-                {!account && (
-                  <span title="Not connected" className="ml-auto w-2 h-2 rounded-full bg-slate-600 flex-shrink-0" />
-                )}
-                {account && (
-                  <span title="Connected" className="ml-auto w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                )}
+                <span title={account ? 'Connected' : 'Not connected'} className={`ml-auto w-2 h-2 rounded-full flex-shrink-0 ${account ? 'bg-emerald-400' : 'bg-slate-600'}`} />
               </button>
             );
           })}
         </div>
         {platformsWithNoAccount.length > 0 && (
-          <p className="text-xs text-amber-400 mt-1.5">
-            ⚠️ {platformsWithNoAccount.map(p => PLATFORMS[p].label).join(', ')} {platformsWithNoAccount.length === 1 ? 'is' : 'are'} not connected — go to Connected Accounts to set up.
-          </p>
+          <p className="text-xs text-amber-400 mt-1.5">⚠️ {platformsWithNoAccount.map(p => PLATFORMS[p].label).join(', ')} not connected — set up in Connected Accounts tab.</p>
         )}
       </div>
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-2 border-t border-slate-700">
-        <button
-          onClick={() => submit(true)}
-          disabled={submitting || !content.trim() || !selectedPlatforms.length}
-          className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-600/20"
-        >
+        <button onClick={() => submit(true)} disabled={submitting || !content.trim() || !selectedPlatforms.length}
+          className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all disabled:opacity-50 shadow-lg shadow-blue-600/20">
           {submitting ? '⏳ Posting…' : '🚀 Post Now'}
         </button>
-        <button
-          onClick={() => submit(false)}
-          disabled={submitting || !content.trim() || !selectedPlatforms.length}
-          className="px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold border border-slate-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
+        <button onClick={() => submit(false)} disabled={submitting || !content.trim() || !selectedPlatforms.length}
+          className="px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold border border-slate-600 transition-all disabled:opacity-50">
           {submitting ? '⏳ Saving…' : '📋 Queue for Approval'}
         </button>
-        <p className="text-xs text-slate-500 sm:ml-auto">
-          "Post Now" sends immediately. "Queue" lets you review first in Post History.
-        </p>
+        <p className="text-xs text-slate-500 sm:ml-auto">Post Now sends immediately. Queue lets you review first.</p>
       </div>
 
-      {/* Result */}
       {result && (
         <div className={`rounded-xl border px-4 py-3 text-sm ${result.ok ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
           {result.ok ? '✅' : '❌'} {result.msg}
@@ -364,11 +504,9 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
                 <span key={d.platform} className={`text-xs px-2 py-0.5 rounded-full border capitalize ${
                   d.status === 'posted' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
                   d.status === 'pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-300' :
-                  d.status === 'failed'  ? 'bg-red-500/10 border-red-500/30 text-red-300' :
+                  d.status === 'failed' ? 'bg-red-500/10 border-red-500/30 text-red-300' :
                   'bg-slate-700 border-slate-600 text-slate-400'
-                }`}>
-                  {d.platform}: {d.status}
-                </span>
+                }`}>{d.platform}: {d.status}</span>
               ))}
             </div>
           )}

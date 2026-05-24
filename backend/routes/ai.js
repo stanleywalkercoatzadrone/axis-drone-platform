@@ -523,4 +523,102 @@ router.get('/reports/mission/:missionId', async (req, res) => {
     }
 });
 
+// ── POST /api/ai/social-post ─────────────────────────────────────────────────
+// Generates a social media post using Gemini based on type, tone, and brief
+router.post('/social-post', aiLimiter, async (req, res) => {
+    try {
+        const { brief, post_type = 'manual', tone = 'professional', platforms = [], company = 'CoatzaDrone' } = req.body;
+        if (!brief) return res.status(400).json({ success: false, message: 'brief is required' });
+
+        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
+
+        const twitterNote = platforms.includes('twitter') ? ' Keep under 280 characters if possible.' : '';
+        const typeContext = {
+            job_opening: 'a job opening / hiring announcement for a drone operations company',
+            company_news: 'a company news update / milestone announcement for a drone operations company',
+            manual: 'a marketing post for a drone operations company',
+        }[post_type] || 'a marketing post';
+
+        const toneMap = {
+            professional: 'professional, authoritative, and confidence-inspiring',
+            casual: 'friendly, approachable, and conversational',
+            exciting: 'energetic, exciting, and inspiring with emojis',
+        };
+
+        const prompt = `You are an expert social media marketing copywriter for ${company}, a professional drone inspection and aerial services company.
+
+Write ${typeContext} based on this brief:
+"${brief}"
+
+Requirements:
+- Tone: ${toneMap[tone] || toneMap.professional}
+- Include relevant emojis sparingly for engagement
+- Add 3-5 relevant hashtags at the end
+- Make it compelling and action-oriented
+- Keep it concise and impactful${twitterNote}
+- Do NOT use placeholder text like [Company Name] — use "${company}" directly
+
+Return ONLY the post text, nothing else. No quotes, no explanation.`;
+
+        const ai = new GoogleGenerativeAI(apiKey);
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(prompt);
+        const text = (result.response.text() || '').trim();
+
+        res.json({ success: true, text });
+    } catch (err) {
+        console.error('[/ai/social-post]', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// ── POST /api/ai/social-image ─────────────────────────────────────────────────
+// Generates a social media image using Gemini Imagen API
+router.post('/social-image', aiLimiter, async (req, res) => {
+    try {
+        const { prompt: userPrompt, post_type = 'manual', style = 'professional' } = req.body;
+        if (!userPrompt) return res.status(400).json({ success: false, message: 'prompt is required' });
+
+        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
+
+        const styleMap = {
+            professional: 'professional corporate photography style, clean and polished',
+            cinematic: 'cinematic drone aerial photography, dramatic lighting, wide angle',
+            minimal: 'minimalist design, clean white background, modern typography feel',
+        };
+
+        const fullPrompt = `Professional social media image for a drone inspection company: ${userPrompt}. ${styleMap[style] || styleMap.professional}. High quality, 16:9 aspect ratio, no text overlays.`;
+
+        // Use Gemini's Imagen 3 via the generativelanguage REST API
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instances: [{ prompt: fullPrompt }],
+                    parameters: { sampleCount: 1, aspectRatio: '16:9', safetyFilterLevel: 'block_few' }
+                })
+            }
+        );
+
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('[/ai/social-image] Imagen API error:', errText);
+            return res.status(502).json({ success: false, message: 'Image generation failed. Try a different prompt.' });
+        }
+
+        const data = await response.json();
+        const b64 = data?.predictions?.[0]?.bytesBase64Encoded;
+        if (!b64) return res.status(502).json({ success: false, message: 'No image returned from AI.' });
+
+        res.json({ success: true, image: `data:image/png;base64,${b64}` });
+    } catch (err) {
+        console.error('[/ai/social-image]', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 export default router;
