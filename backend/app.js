@@ -964,9 +964,41 @@ app.get('/api/documents', protect, async (req, res) => {
     }
 })();
 
+// ── Solar Clients Deduplication ───────────────────────────────────────────────
+// Removes duplicate company rows created by repeated seed runs. Keeps the row
+// with the most complete address (has street), or the newest if all equal.
+(async () => {
+    try {
+        const result = await dbQuery(`
+            DELETE FROM clients
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY name, tenant_id
+                               ORDER BY
+                                   CASE WHEN address->>'street' IS NOT NULL AND address->>'street' != '' THEN 0 ELSE 1 END ASC,
+                                   created_at DESC
+                           ) AS rn
+                    FROM clients
+                    WHERE tenant_id = 'coatzadrone'
+                ) ranked
+                WHERE rn > 1
+            )
+        `);
+        if (result.rowCount > 0) {
+            const remaining = await dbQuery(`SELECT COUNT(*) FROM clients WHERE tenant_id = 'coatzadrone'`);
+            console.log(`✅ Dedup: removed ${result.rowCount} duplicate clients (${remaining.rows[0].count} unique companies remain)`);
+        } else {
+            console.log(`[dedup] No duplicates found`);
+        }
+    } catch (e) {
+        console.warn('[dedup] skipped:', e.message);
+    }
+})();
+
 // ── Solar Industry Clients Seed ───────────────────────────────────────────────
-// Seeds the top ~65 real solar companies (utility owners, EPCs, O&M, installers)
-// Idempotent: ON CONFLICT DO NOTHING — safe to run on every restart.
+// Seeds the top ~65 real solar companies. Idempotent via WHERE NOT EXISTS.
 (async () => {
     try {
         // Ensure clients table exists with required columns
@@ -1076,8 +1108,10 @@ app.get('/api/documents', protect, async (req, res) => {
         for (const [name, address, email, contact] of clients) {
             const r = await dbQuery(
                 `INSERT INTO clients (industry_id, name, address, email, primary_contact_name, tenant_id, onboarding_status, onboarding_step)
-                 VALUES ($1, $2, $3::jsonb, $4, $5, 'coatzadrone', 'IN_PROGRESS', 1)
-                 ON CONFLICT DO NOTHING`,
+                 SELECT $1, $2, $3::jsonb, $4, $5, 'coatzadrone', 'IN_PROGRESS', 1
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM clients WHERE name = $2 AND tenant_id = 'coatzadrone'
+                 )`,
                 [solarIndustryId, name, address, email, contact]
             );
             inserted += (r.rowCount || 0);
