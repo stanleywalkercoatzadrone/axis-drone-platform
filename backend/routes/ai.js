@@ -591,9 +591,9 @@ router.post('/social-image', aiLimiter, async (req, res) => {
 
         const fullPrompt = `Professional social media image for a drone inspection company: ${userPrompt}. ${styleMap[style] || styleMap.professional}. High quality, 16:9 aspect ratio, no text overlays.`;
 
-        // Use Gemini's Imagen 3 via the generativelanguage REST API
+        // Use Imagen 4 via the generativelanguage REST API
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -617,6 +617,76 @@ router.post('/social-image', aiLimiter, async (req, res) => {
         res.json({ success: true, image: `data:image/png;base64,${b64}` });
     } catch (err) {
         console.error('[/ai/social-image]', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// ── POST /api/ai/social-video ────────────────────────────────────────────────
+// Generates a full video script (narration, shot list, captions, hashtags)
+router.post('/social-video', aiLimiter, async (req, res) => {
+    try {
+        const { brief, post_type = 'manual', tone = 'professional', duration = '60', company = 'CoatzaDrone' } = req.body;
+        if (!brief) return res.status(400).json({ success: false, message: 'brief is required' });
+
+        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
+
+        const toneMap = {
+            professional: 'professional, authoritative, and polished',
+            casual: 'friendly, conversational, and relatable',
+            exciting: 'high-energy, cinematic, and inspiring',
+        };
+
+        const typeContext = {
+            job_opening: 'a recruitment video for a drone operations company',
+            company_news: 'a company milestone/news announcement video',
+            manual: 'a marketing/brand video for a drone operations company',
+        }[post_type] || 'a marketing video';
+
+        const prompt = `You are an expert video scriptwriter and social media content strategist for ${company}, a professional drone inspection and aerial services company.
+
+Create a complete ${duration}-second video script for ${typeContext} based on this brief:
+"${brief}"
+
+Tone: ${toneMap[tone] || toneMap.professional}
+
+Return ONLY a JSON object with this exact structure:
+{
+  "title": "Short punchy video title",
+  "hook": "Opening line/hook (first 3 seconds — must grab attention immediately)",
+  "narration": "Full narration script for voice-over (natural spoken language, ~${Math.round(parseInt(duration) * 2.5)} words)",
+  "shots": [
+    { "timestamp": "0:00-0:05", "shot": "Description of what's on screen", "caption": "On-screen text overlay" },
+    { "timestamp": "0:05-0:15", "shot": "...", "caption": "..." }
+  ],
+  "captions": ["Caption 1 for slide 1", "Caption 2", "Caption 3"],
+  "cta": "Call to action (last 5 seconds)",
+  "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
+  "music_suggestion": "Style of background music (e.g. upbeat corporate, cinematic orchestral)",
+  "platform_tips": { "linkedin": "tip", "instagram": "tip", "twitter": "tip" }
+}
+
+Include 6-8 shots. Return ONLY the raw JSON, no markdown, no explanation.`;
+
+        const ai = new GoogleGenerativeAI(apiKey);
+        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const result = await model.generateContent(prompt);
+        const rawText = (result.response.text() || '{}').trim();
+        const cleaned = rawText.replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/```$/, '').trim();
+
+        let parsed;
+        try {
+            parsed = JSON.parse(cleaned);
+        } catch {
+            const match = cleaned.match(/\{[\s\S]*\}/);
+            parsed = match ? JSON.parse(match[0]) : null;
+        }
+
+        if (!parsed) return res.status(500).json({ success: false, message: 'Could not parse AI response. Try again.' });
+
+        res.json({ success: true, script: parsed });
+    } catch (err) {
+        console.error('[/ai/social-video]', err.message);
         res.status(500).json({ success: false, message: err.message });
     }
 });

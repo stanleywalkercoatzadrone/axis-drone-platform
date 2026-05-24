@@ -156,6 +156,20 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
   const [imgAttached, setImgAttached] = useState<string | null>(null);
   const [imgError, setImgError] = useState('');
 
+  // AI Video Script state
+  const [vidOpen, setVidOpen] = useState(false);
+  const [vidBrief, setVidBrief] = useState('');
+  const [vidTone, setVidTone] = useState<'professional' | 'casual' | 'exciting'>('professional');
+  const [vidDuration, setVidDuration] = useState<'30' | '60' | '90'>('60');
+  const [vidGenerating, setVidGenerating] = useState(false);
+  const [vidScript, setVidScript] = useState<{
+    title?: string; hook?: string; narration?: string;
+    shots?: { timestamp: string; shot: string; caption: string }[];
+    captions?: string[]; cta?: string; hashtags?: string[];
+    music_suggestion?: string; platform_tips?: Record<string, string>;
+  } | null>(null);
+  const [vidError, setVidError] = useState('');
+
   useEffect(() => { setContent(initialContent); }, [initialContent]);
 
   useEffect(() => {
@@ -226,6 +240,32 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
       setImgError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Image generation failed.');
     } finally {
       setImgGenerating(false);
+    }
+  };
+
+  const generateVideoScript = async () => {
+    if (!vidBrief.trim()) { setVidError('Enter a brief first.'); return; }
+    setVidGenerating(true);
+    setVidError('');
+    setVidScript(null);
+    try {
+      const res = await apiClient.post('/ai/social-video', {
+        brief: vidBrief.trim(),
+        post_type: postType,
+        tone: vidTone,
+        duration: vidDuration,
+        company: 'CoatzaDrone',
+      });
+      const data = res.data as { success: boolean; script?: typeof vidScript; message?: string };
+      if (data.success && data.script) {
+        setVidScript(data.script);
+      } else {
+        setVidError(data.message ?? 'No script returned.');
+      }
+    } catch (e: unknown) {
+      setVidError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Video script generation failed.');
+    } finally {
+      setVidGenerating(false);
     }
   };
 
@@ -427,6 +467,147 @@ function ComposeTab({ initialContent = '', onBlasted }: ComposeTabProps) {
           <button onClick={() => setImgAttached(null)} className="text-slate-500 hover:text-red-400 transition-colors text-lg">x</button>
         </div>
       )}
+
+      {/* AI Video Script Generator */}
+      <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 overflow-hidden">
+        <button
+          onClick={() => setVidOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <span>🎬</span> AI Video Script
+            <span className="text-xs font-normal text-cyan-400/70">generate a full script, shot list &amp; captions</span>
+          </span>
+          <span className="text-cyan-400">{vidOpen ? '▲' : '▼'}</span>
+        </button>
+        {vidOpen && (
+          <div className="px-4 pb-4 space-y-3 border-t border-cyan-500/20">
+            <div className="pt-3">
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Brief</label>
+              <textarea
+                value={vidBrief}
+                onChange={e => { setVidBrief(e.target.value); setVidError(''); }}
+                placeholder="e.g. Showcase our drone solar inspection services, target commercial solar asset owners, highlight speed and accuracy"
+                rows={3}
+                className={`${inputClass} resize-none`}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Tone</label>
+                <div className="flex flex-col gap-1.5">
+                  {([{ val: 'professional' as const, label: 'Professional' }, { val: 'casual' as const, label: 'Casual' }, { val: 'exciting' as const, label: 'Exciting' }]).map(t => (
+                    <button key={t.val} onClick={() => setVidTone(t.val)}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all text-left ${
+                        vidTone === t.val ? 'bg-cyan-600/30 border-cyan-500 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                      }`}>{t.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Duration</label>
+                <div className="flex flex-col gap-1.5">
+                  {([{ val: '30' as const, label: '30 seconds' }, { val: '60' as const, label: '60 seconds' }, { val: '90' as const, label: '90 seconds' }]).map(d => (
+                    <button key={d.val} onClick={() => setVidDuration(d.val)}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all text-left ${
+                        vidDuration === d.val ? 'bg-cyan-600/30 border-cyan-500 text-cyan-200' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'
+                      }`}>{d.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {vidError && <p className="text-xs text-red-400">⚠️ {vidError}</p>}
+            <button onClick={generateVideoScript} disabled={vidGenerating || !vidBrief.trim()}
+              className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {vidGenerating ? '⏳ Writing Script…' : '🎬 Generate Video Script'}
+            </button>
+
+            {/* Script output */}
+            {vidScript && (
+              <div className="space-y-3 mt-2 bg-slate-900 rounded-xl border border-cyan-500/20 p-4">
+                {vidScript.title && (
+                  <div>
+                    <p className="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-1">Title</p>
+                    <p className="text-sm font-semibold text-slate-100">{vidScript.title}</p>
+                  </div>
+                )}
+                {vidScript.hook && (
+                  <div>
+                    <p className="text-xs font-bold text-yellow-400 uppercase tracking-wider mb-1">⚡ Hook (0–3s)</p>
+                    <p className="text-sm text-slate-200 italic">"{vidScript.hook}"</p>
+                  </div>
+                )}
+                {vidScript.narration && (
+                  <div>
+                    <p className="text-xs font-bold text-violet-400 uppercase tracking-wider mb-1">🎙 Narration Script</p>
+                    <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-line">{vidScript.narration}</p>
+                  </div>
+                )}
+                {vidScript.shots && vidScript.shots.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">🎥 Shot List</p>
+                    <div className="space-y-1.5">
+                      {vidScript.shots.map((s, i) => (
+                        <div key={i} className="bg-slate-800 rounded-lg px-3 py-2">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">{s.timestamp}</span>
+                            {s.caption && <span className="text-[10px] text-amber-400 truncate">Caption: "{s.caption}"</span>}
+                          </div>
+                          <p className="text-xs text-slate-300">{s.shot}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {vidScript.cta && (
+                  <div>
+                    <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">📢 Call to Action</p>
+                    <p className="text-sm text-slate-200">{vidScript.cta}</p>
+                  </div>
+                )}
+                {vidScript.music_suggestion && (
+                  <div>
+                    <p className="text-xs font-bold text-pink-400 uppercase tracking-wider mb-1">🎵 Music</p>
+                    <p className="text-sm text-slate-300">{vidScript.music_suggestion}</p>
+                  </div>
+                )}
+                {vidScript.hashtags && vidScript.hashtags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {vidScript.hashtags.map(h => (
+                      <span key={h} className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-blue-400 border border-slate-600">{h}</span>
+                    ))}
+                  </div>
+                )}
+                {vidScript.platform_tips && (
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Platform Tips</p>
+                    <div className="space-y-1">
+                      {Object.entries(vidScript.platform_tips).map(([platform, tip]) => (
+                        <p key={platform} className="text-xs text-slate-400">
+                          <span className="capitalize font-semibold text-slate-300">{platform}:</span> {tip}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    const fullText = [
+                      vidScript.hook,
+                      vidScript.narration,
+                      vidScript.hashtags?.join(' ')
+                    ].filter(Boolean).join('\n\n');
+                    setContent(fullText);
+                  }}
+                  className="w-full py-2 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 text-xs font-semibold border border-cyan-500/30 transition-colors"
+                >
+                  ↗ Copy narration to composer
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Content textarea */}
       <div>
