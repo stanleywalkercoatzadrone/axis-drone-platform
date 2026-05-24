@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
 import { useIndustry } from '../context/IndustryContext';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, Building2, MapPin, Globe, Mail, Phone, Users, LayoutGrid, Plane, Calendar, Plus } from 'lucide-react';
+import { ArrowLeft, Building2, MapPin, Globe, Mail, Phone, Users, LayoutGrid, Plane, Calendar, Plus, ExternalLink, Tag } from 'lucide-react';
 import StakeholderList from './StakeholderList';
 import { Deployment, DeploymentStatus, DeploymentType } from '../types';
 
@@ -158,27 +158,81 @@ const ClientDetail: React.FC<ClientDetailProps> = ({ clientId, onBack }) => {
                     <ArrowLeft className="w-4 h-4" /> Back to {tLabel('client')}s
                 </button>
 
-                <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                <div className="flex items-start justify-between flex-wrap gap-4">
+                    <div className="flex items-start gap-4">
+                        <div className="w-16 h-16 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                             <Building2 className="w-8 h-8" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
-                            <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
-                                {client.address?.city && (
-                                    <span className="flex items-center gap-1.5">
-                                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                                        {client.address.city}, {client.address.state}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h1 className="text-2xl font-bold text-slate-900">{client.name}</h1>
+                                {client.address?.type && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700">
+                                        <Tag className="w-3 h-3" />
+                                        {client.address.type}
                                     </span>
                                 )}
                                 {client.industry_name && (
-                                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-xs font-medium">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 text-xs font-medium text-slate-600">
                                         <Globe className="w-3 h-3 text-slate-400" />
                                         {client.industry_name}
                                     </span>
                                 )}
                             </div>
+
+                            {/* Address line */}
+                            {client.address?.city && (
+                                <p className="flex items-start gap-1.5 mt-2 text-sm text-slate-500">
+                                    <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                                    <span>
+                                        {client.address.street && <>{client.address.street}, </>}
+                                        {client.address.city}{client.address.state ? `, ${client.address.state}` : ''}
+                                        {client.address.zip ? ` ${client.address.zip}` : ''}
+                                        {client.address.country && client.address.country !== 'United States' ? `, ${client.address.country}` : ''}
+                                    </span>
+                                </p>
+                            )}
+
+                            {/* Contact row */}
+                            <div className="flex items-center gap-4 mt-2 flex-wrap">
+                                {(client.phone || client.address?.phone) && (
+                                    <a
+                                        href={`tel:${client.phone || client.address?.phone}`}
+                                        className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                                        onClick={e => e.stopPropagation()}
+                                    >
+                                        <Phone className="w-3.5 h-3.5" />
+                                        {client.phone || client.address?.phone}
+                                    </a>
+                                )}
+                                {client.email && (
+                                    <a
+                                        href={`mailto:${client.email}`}
+                                        className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                                        onClick={e => e.stopPropagation()}
+                                    >
+                                        <Mail className="w-3.5 h-3.5" />
+                                        {client.email}
+                                    </a>
+                                )}
+                                {client.address?.website && (
+                                    <a
+                                        href={`https://${client.address.website}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 transition-colors"
+                                        onClick={e => e.stopPropagation()}
+                                    >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                        {client.address.website}
+                                    </a>
+                                )}
+                            </div>
+
+                            {/* Description */}
+                            {client.address?.description && (
+                                <p className="mt-2 text-sm text-slate-400 max-w-2xl leading-relaxed">{client.address.description}</p>
+                            )}
                         </div>
                     </div>
                 </div>

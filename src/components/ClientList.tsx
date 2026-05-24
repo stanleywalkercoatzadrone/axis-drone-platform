@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import apiClient from '../services/apiClient';
 import ClientForm from './ClientForm';
 import { useIndustry } from '../context/IndustryContext';
-import { Plus, Search, Building2, MapPin, ChevronRight, LayoutGrid, Trash2, Briefcase, Globe, TrendingUp } from 'lucide-react';
+import { Plus, Search, Building2, MapPin, ChevronRight, LayoutGrid, Trash2, Briefcase, Globe, TrendingUp, Phone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isAdmin } from '../utils/roleUtils';
 
@@ -165,9 +165,19 @@ const ClientList: React.FC<{ onSelectClient: (id: string) => void }> = ({ onSele
                                                     {client.name}
                                                 </h3>
                                                 {client.address?.city && (
-                                                    <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                                                        <MapPin className="w-3 h-3" />
-                                                        {client.address.city}{client.address.state ? `, ${client.address.state}` : ''}
+                                                    <p className="text-[11px] text-slate-500 flex items-start gap-1 mt-0.5">
+                                                        <MapPin className="w-3 h-3 mt-0.5 shrink-0" />
+                                                        <span>
+                                                            {client.address.street ? `${client.address.street}, ` : ''}
+                                                            {client.address.city}{client.address.state ? `, ${client.address.state}` : ''}
+                                                            {client.address.zip ? ` ${client.address.zip}` : ''}
+                                                        </span>
+                                                    </p>
+                                                )}
+                                                {client.address?.phone && (
+                                                    <p className="text-[11px] text-blue-400 flex items-center gap-1 mt-0.5">
+                                                        <Phone className="w-3 h-3" />
+                                                        {client.address.phone}
                                                     </p>
                                                 )}
                                             </div>
