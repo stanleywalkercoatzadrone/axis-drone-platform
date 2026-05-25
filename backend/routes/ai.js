@@ -28,6 +28,7 @@ router.get('/health', async (req, res) => {
         const pendingCount  = parseInt(pendingRow.rows[0]?.cnt || 0);
 
         // Only re-ping Gemini if cache is stale — prevents burning rate limits
+        const geminiModel = 'gemini-2.0-flash';
         let geminiOk = _ghCache.ok;
         if (keySet && (Date.now() - _ghCache.ts > GH_TTL)) {
             try {
