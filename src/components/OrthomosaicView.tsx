@@ -15,9 +15,14 @@ const ReportViewer = lazy(() => import('./viewers/ReportViewer'));
 // ── Types ────────────────────────────────────────────────────────────────────
 interface Mission {
   id: string;
-  site_name: string;
-  client_name: string;
-  location: string;
+  title?: string;
+  siteName?: string;
+  site_name?: string;
+  client_name?: string;
+  location?: string;
+  type?: string;
+  status?: string;
+  date?: string;
 }
 
 interface OrthoOutput {
@@ -284,9 +289,9 @@ const OrthomosaicView: React.FC = () => {
       // 1. Create project
       const missionObj = missions.find(m => m.id === selectedMission);
       const projectRes = await apiClient.post('/orthomosaic/projects', {
-        name: `${missionObj?.site_name || missionObj?.location || 'Mission'} — ${new Date().toLocaleDateString()}`,
+        name: `${missionObj?.title || missionObj?.siteName || missionObj?.site_name || missionObj?.location || 'Mission'} — ${new Date().toLocaleDateString()}`,
         missionId: selectedMission,
-        siteName: missionObj?.site_name || missionObj?.location,
+        siteName: missionObj?.siteName || missionObj?.site_name || missionObj?.location,
       });
       const projectId = projectRes.data.data.id;
 
@@ -503,7 +508,7 @@ const OrthomosaicView: React.FC = () => {
                     <option value="" style={{ background: '#0f172a' }}>Select mission…</option>
                     {missions.map(m => (
                       <option key={m.id} value={m.id} style={{ background: '#0f172a' }}>
-                        {m.site_name || m.location || m.id.slice(0, 8)}
+                        {m.title || m.siteName || m.site_name || m.location || m.id.slice(0, 8)}
                       </option>
                     ))}
                   </select>
