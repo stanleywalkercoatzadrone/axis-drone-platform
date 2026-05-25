@@ -528,14 +528,15 @@ router.get('/reports/mission/:missionId', async (req, res) => {
 });
 
 // ── POST /api/ai/social-post ─────────────────────────────────────────────────
-// Generates a social media post using Gemini based on type, tone, and brief
+// Generates a social media post via Groq (Llama 3.3 70B) — 14,400 free req/day
 router.post('/social-post', aiLimiter, async (req, res) => {
     try {
         const { brief, post_type = 'manual', tone = 'professional', platforms = [], company = 'CoatzaDrone' } = req.body;
         if (!brief) return res.status(400).json({ success: false, message: 'brief is required' });
 
-        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
-        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
+        const groqKey = process.env.GROQ_API_KEY || '';
+        const geminiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!groqKey && !geminiKey) return res.status(503).json({ success: false, message: 'AI service not configured. Add GROQ_API_KEY to environment.' });
 
         const twitterNote = platforms.includes('twitter') ? ' Keep under 280 characters if possible.' : '';
         const typeContext = {
@@ -565,10 +566,31 @@ Requirements:
 
 Return ONLY the post text, nothing else. No quotes, no explanation.`;
 
-        const ai = new GoogleGenerativeAI(apiKey);
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        const result = await model.generateContent(prompt);
-        const text = (result.response.text() || '').trim();
+        let text = '';
+
+        if (groqKey) {
+            // Primary: Groq — Llama 3.3 70B, 14,400 free req/day
+            const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+                body: JSON.stringify({
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 512,
+                    temperature: 0.7,
+                })
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error?.message || 'Groq error');
+            text = (d.choices?.[0]?.message?.content || '').trim();
+        } else {
+            // Fallback: Gemini
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const ai = new GoogleGenerativeAI(geminiKey);
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const result = await model.generateContent(prompt);
+            text = (result.response.text() || '').trim();
+        }
 
         res.json({ success: true, text });
     } catch (err) {
@@ -578,71 +600,36 @@ Return ONLY the post text, nothing else. No quotes, no explanation.`;
 });
 
 // ── POST /api/ai/social-image ─────────────────────────────────────────────────
-// Generates a social media image using Gemini's native image generation
+// Generates a social media image via Pollinations.ai — completely free, no API key
 router.post('/social-image', aiLimiter, async (req, res) => {
     try {
         const { prompt: userPrompt, post_type = 'manual', style = 'professional' } = req.body;
         if (!userPrompt) return res.status(400).json({ success: false, message: 'prompt is required' });
 
-        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
-        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
-
         const styleMap = {
-            professional: 'professional corporate photography style, clean and polished, high resolution',
-            cinematic: 'cinematic aerial drone photography, dramatic golden hour lighting, wide angle lens',
-            minimal: 'minimalist clean design, simple composition, modern and sleek',
+            professional: 'professional corporate drone photography, clean polished lighting, photorealistic, 4K',
+            cinematic: 'cinematic aerial drone photography, dramatic golden hour lighting, wide angle lens, epic',
+            minimal: 'minimalist clean composition, soft natural light, modern and sleek, simple background',
         };
 
-        const fullPrompt = `Professional social media image for a drone inspection company: ${userPrompt}. ${styleMap[style] || styleMap.professional}. 16:9 widescreen format, no text overlays, photorealistic.`;
+        const fullPrompt = `Drone inspection company social media image: ${userPrompt}. ${styleMap[style] || styleMap.professional}. No text, no watermarks, high quality.`;
 
-        // Use Gemini 2.5 Flash Image model for native image generation
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: fullPrompt }] }],
-                    generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
-                })
-            }
-        );
+        // Pollinations.ai — 100% free, no API key, returns image directly
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1280&height=720&model=flux&nologo=true&enhance=true&seed=${Date.now()}`;
 
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            console.error('[/ai/social-image] Gemini image error:', JSON.stringify(errData));
+        const imgRes = await fetch(pollinationsUrl, {
+            headers: { 'User-Agent': 'AxisDronePlatform/1.0 (axisplatform.app)' }
+        });
 
-            // Fallback: try Imagen 4 (works if account is upgraded)
-            const imgRes = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        instances: [{ prompt: fullPrompt }],
-                        parameters: { sampleCount: 1, aspectRatio: '16:9' }
-                    })
-                }
-            );
-            if (imgRes.ok) {
-                const imgData = await imgRes.json();
-                const b64 = imgData?.predictions?.[0]?.bytesBase64Encoded;
-                if (b64) return res.json({ success: true, image: `data:image/png;base64,${b64}` });
-            }
-
-            return res.status(502).json({ success: false, message: 'Image generation unavailable. Your API plan may require an upgrade at ai.dev — or try a different prompt.' });
+        if (!imgRes.ok) {
+            return res.status(502).json({ success: false, message: 'Image generation service unavailable. Try again in a moment.' });
         }
 
-        const data = await response.json();
-        // Extract base64 image from response parts
-        const parts = data?.candidates?.[0]?.content?.parts || [];
-        const imagePart = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
-        if (!imagePart?.inlineData?.data) {
-            return res.status(502).json({ success: false, message: 'No image in AI response. Try a more specific prompt.' });
-        }
+        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+        const buffer = await imgRes.arrayBuffer();
+        const b64 = Buffer.from(buffer).toString('base64');
 
-        const mimeType = imagePart.inlineData.mimeType || 'image/png';
-        res.json({ success: true, image: `data:${mimeType};base64,${imagePart.inlineData.data}` });
+        res.json({ success: true, image: `data:${contentType};base64,${b64}` });
     } catch (err) {
         console.error('[/ai/social-image]', err.message);
         res.status(500).json({ success: false, message: err.message });
@@ -650,68 +637,82 @@ router.post('/social-image', aiLimiter, async (req, res) => {
 });
 
 // ── POST /api/ai/social-video ────────────────────────────────────────────────
-// Generates a full video script (narration, shot list, captions, hashtags)
+// Generates a full video script via Groq (Llama 3.3 70B)
 router.post('/social-video', aiLimiter, async (req, res) => {
     try {
         const { brief, post_type = 'manual', tone = 'professional', duration = '60', company = 'CoatzaDrone' } = req.body;
         if (!brief) return res.status(400).json({ success: false, message: 'brief is required' });
 
-        const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
-        if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
+        const groqKey = process.env.GROQ_API_KEY || '';
+        const geminiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || '';
+        if (!groqKey && !geminiKey) return res.status(503).json({ success: false, message: 'AI service not configured. Add GROQ_API_KEY to environment.' });
 
         const toneMap = {
             professional: 'professional, authoritative, and polished',
             casual: 'friendly, conversational, and relatable',
             exciting: 'high-energy, cinematic, and inspiring',
         };
-
         const typeContext = {
             job_opening: 'a recruitment video for a drone operations company',
             company_news: 'a company milestone/news announcement video',
             manual: 'a marketing/brand video for a drone operations company',
         }[post_type] || 'a marketing video';
 
-        const prompt = `You are an expert video scriptwriter and social media content strategist for ${company}, a professional drone inspection and aerial services company.
+        const wordCount = Math.round(parseInt(duration) * 2.5);
+        const prompt = `You are an expert video scriptwriter for ${company}, a professional drone inspection and aerial services company.
 
-Create a complete ${duration}-second video script for ${typeContext} based on this brief:
+Create a complete ${duration}-second video script for ${typeContext}:
 "${brief}"
 
 Tone: ${toneMap[tone] || toneMap.professional}
 
-Return ONLY a JSON object with this exact structure:
+Return ONLY valid JSON, no markdown:
 {
-  "title": "Short punchy video title",
-  "hook": "Opening line/hook (first 3 seconds — must grab attention immediately)",
-  "narration": "Full narration script for voice-over (natural spoken language, ~${Math.round(parseInt(duration) * 2.5)} words)",
+  "title": "Short punchy title",
+  "hook": "Opening line (first 3 seconds, grab attention)",
+  "narration": "Full voice-over script (~${wordCount} words)",
   "shots": [
-    { "timestamp": "0:00-0:05", "shot": "Description of what's on screen", "caption": "On-screen text overlay" },
-    { "timestamp": "0:05-0:15", "shot": "...", "caption": "..." }
+    { "timestamp": "0:00-0:05", "shot": "What is on screen", "caption": "On-screen text" }
   ],
-  "captions": ["Caption 1 for slide 1", "Caption 2", "Caption 3"],
-  "cta": "Call to action (last 5 seconds)",
-  "hashtags": ["#hashtag1", "#hashtag2", "#hashtag3", "#hashtag4", "#hashtag5"],
-  "music_suggestion": "Style of background music (e.g. upbeat corporate, cinematic orchestral)",
+  "cta": "Call to action for last 5 seconds",
+  "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
+  "music_suggestion": "Background music style",
   "platform_tips": { "linkedin": "tip", "instagram": "tip", "twitter": "tip" }
 }
 
-Include 6-8 shots. Return ONLY the raw JSON, no markdown, no explanation.`;
+Include 6-8 shots. Return ONLY the raw JSON.`;
 
-        const ai = new GoogleGenerativeAI(apiKey);
-        const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        const result = await model.generateContent(prompt);
-        const rawText = (result.response.text() || '{}').trim();
-        const cleaned = rawText.replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/```$/, '').trim();
+        let rawText = '';
 
-        let parsed;
-        try {
-            parsed = JSON.parse(cleaned);
-        } catch {
-            const match = cleaned.match(/\{[\s\S]*\}/);
-            parsed = match ? JSON.parse(match[0]) : null;
+        if (groqKey) {
+            const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+                body: JSON.stringify({
+                    model: 'llama-3.3-70b-versatile',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 2048,
+                    temperature: 0.7,
+                    response_format: { type: 'json_object' },
+                })
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error?.message || 'Groq error');
+            rawText = d.choices?.[0]?.message?.content || '{}';
+        } else {
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const ai = new GoogleGenerativeAI(geminiKey);
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const result = await model.generateContent(prompt);
+            rawText = result.response.text() || '{}';
         }
 
-        if (!parsed) return res.status(500).json({ success: false, message: 'Could not parse AI response. Try again.' });
+        const cleaned = rawText.trim().replace(/^```json\n?/i, '').replace(/^```\n?/, '').replace(/```$/, '').trim();
+        let parsed;
+        try { parsed = JSON.parse(cleaned); }
+        catch { const m = cleaned.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : null; }
 
+        if (!parsed) return res.status(500).json({ success: false, message: 'Could not parse AI response. Try again.' });
         res.json({ success: true, script: parsed });
     } catch (err) {
         console.error('[/ai/social-video]', err.message);
