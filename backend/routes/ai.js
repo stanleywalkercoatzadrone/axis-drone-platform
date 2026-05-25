@@ -601,11 +601,14 @@ Return ONLY the post text, nothing else. No quotes, no explanation.`;
 });
 
 // ── POST /api/ai/social-image ─────────────────────────────────────────────────
-// Generates a social media image via Pollinations.ai — completely free, no API key
+// Primary: HuggingFace FLUX.1-schnell (HUGGING_FACE_TOKEN) — 1000 free/day, no watermarks
+// Fallback: Pollinations.ai (no key, but may be slow under load)
 router.post('/social-image', aiLimiter, async (req, res) => {
     try {
         const { prompt: userPrompt, post_type = 'manual', style = 'professional' } = req.body;
         if (!userPrompt) return res.status(400).json({ success: false, message: 'prompt is required' });
+
+        const hfToken = process.env.HUGGING_FACE_TOKEN || '';
 
         const styleMap = {
             professional: 'professional corporate drone photography, clean polished lighting, photorealistic, 4K',
@@ -615,21 +618,42 @@ router.post('/social-image', aiLimiter, async (req, res) => {
 
         const fullPrompt = `Drone inspection company social media image: ${userPrompt}. ${styleMap[style] || styleMap.professional}. No text, no watermarks, high quality.`;
 
-        // Pollinations.ai — 100% free, no API key, returns image directly
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1280&height=720&model=flux&nologo=true&enhance=true&seed=${Date.now()}`;
+        if (hfToken) {
+            // Primary: HuggingFace Inference API — FLUX.1-schnell, 1000 free images/day
+            const hfRes = await fetch(
+                'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${hfToken}`,
+                        'Content-Type': 'application/json',
+                        'X-Wait-For-Model': 'true',
+                    },
+                    body: JSON.stringify({ inputs: fullPrompt }),
+                }
+            );
+            if (hfRes.ok) {
+                const buffer = await hfRes.arrayBuffer();
+                const b64 = Buffer.from(buffer).toString('base64');
+                return res.json({ success: true, image: `data:image/jpeg;base64,${b64}` });
+            }
+            const errText = await hfRes.text().catch(() => '');
+            console.error('[/ai/social-image] HF error:', hfRes.status, errText.slice(0, 200));
+        }
 
+        // Fallback: Pollinations.ai (no key required)
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1280&height=720&model=flux&nologo=true&enhance=true&seed=${Date.now()}`;
         const imgRes = await fetch(pollinationsUrl, {
             headers: { 'User-Agent': 'AxisDronePlatform/1.0 (axisplatform.app)' }
         });
 
         if (!imgRes.ok) {
-            return res.status(502).json({ success: false, message: 'Image generation service unavailable. Try again in a moment.' });
+            return res.status(502).json({ success: false, message: 'Image generation unavailable. Add HUGGING_FACE_TOKEN env var for reliable images.' });
         }
 
         const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
         const buffer = await imgRes.arrayBuffer();
         const b64 = Buffer.from(buffer).toString('base64');
-
         res.json({ success: true, image: `data:${contentType};base64,${b64}` });
     } catch (err) {
         console.error('[/ai/social-image]', err.message);
