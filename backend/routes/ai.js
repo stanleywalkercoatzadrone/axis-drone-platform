@@ -6,6 +6,10 @@ import { query } from '../config/database.js';
 
 const router = express.Router();
 
+// Cache Gemini health ping for 5 minutes — stops burning rate limits on every page load
+let _ghCache = { ok: false, ts: 0 };
+const GH_TTL = 5 * 60 * 1000;
+
 // ── GET /api/ai/health — PUBLIC (no auth required) ───────────────────────────
 // Returns Gemini key status + today's activity stats
 router.get('/health', async (req, res) => {
@@ -23,19 +27,19 @@ router.get('/health', async (req, res) => {
         const analyzedToday = parseInt(analyzedRow.rows[0]?.cnt || 0);
         const pendingCount  = parseInt(pendingRow.rows[0]?.cnt || 0);
 
-        // Quick Gemini ping to verify key works
-        let geminiOk = false;
-        let geminiModel = 'gemini-2.0-flash';
-        if (keySet) {
+        // Only re-ping Gemini if cache is stale — prevents burning rate limits
+        let geminiOk = _ghCache.ok;
+        if (keySet && (Date.now() - _ghCache.ts > GH_TTL)) {
             try {
                 const ai = new GoogleGenerativeAI(apiKey);
                 const model = ai.getGenerativeModel({ model: geminiModel });
                 await model.generateContent('ping');
                 geminiOk = true;
-            } catch (pErr) { 
+            } catch (pErr) {
                 console.error('Gemini Health Check Failed:', pErr.message);
-                geminiOk = false; 
+                geminiOk = false;
             }
+            _ghCache = { ok: geminiOk, ts: Date.now() };
         }
 
         res.json({ success: true, data: { keySet, geminiOk, model: geminiModel, analyzedToday, pendingCount } });
@@ -574,7 +578,7 @@ Return ONLY the post text, nothing else. No quotes, no explanation.`;
 });
 
 // ── POST /api/ai/social-image ─────────────────────────────────────────────────
-// Generates a social media image using Gemini Imagen API
+// Generates a social media image using Gemini's native image generation
 router.post('/social-image', aiLimiter, async (req, res) => {
     try {
         const { prompt: userPrompt, post_type = 'manual', style = 'professional' } = req.body;
@@ -584,37 +588,61 @@ router.post('/social-image', aiLimiter, async (req, res) => {
         if (!apiKey) return res.status(503).json({ success: false, message: 'AI service not configured' });
 
         const styleMap = {
-            professional: 'professional corporate photography style, clean and polished',
-            cinematic: 'cinematic drone aerial photography, dramatic lighting, wide angle',
-            minimal: 'minimalist design, clean white background, modern typography feel',
+            professional: 'professional corporate photography style, clean and polished, high resolution',
+            cinematic: 'cinematic aerial drone photography, dramatic golden hour lighting, wide angle lens',
+            minimal: 'minimalist clean design, simple composition, modern and sleek',
         };
 
-        const fullPrompt = `Professional social media image for a drone inspection company: ${userPrompt}. ${styleMap[style] || styleMap.professional}. High quality, 16:9 aspect ratio, no text overlays.`;
+        const fullPrompt = `Professional social media image for a drone inspection company: ${userPrompt}. ${styleMap[style] || styleMap.professional}. 16:9 widescreen format, no text overlays, photorealistic.`;
 
-        // Use Imagen 4 via the generativelanguage REST API
+        // Use Gemini 2.5 Flash Image model for native image generation
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    instances: [{ prompt: fullPrompt }],
-                    parameters: { sampleCount: 1, aspectRatio: '16:9', safetyFilterLevel: 'block_few' }
+                    contents: [{ parts: [{ text: fullPrompt }] }],
+                    generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
                 })
             }
         );
 
         if (!response.ok) {
-            const errText = await response.text();
-            console.error('[/ai/social-image] Imagen API error:', errText);
-            return res.status(502).json({ success: false, message: 'Image generation failed. Try a different prompt.' });
+            const errData = await response.json().catch(() => ({}));
+            console.error('[/ai/social-image] Gemini image error:', JSON.stringify(errData));
+
+            // Fallback: try Imagen 4 (works if account is upgraded)
+            const imgRes = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instances: [{ prompt: fullPrompt }],
+                        parameters: { sampleCount: 1, aspectRatio: '16:9' }
+                    })
+                }
+            );
+            if (imgRes.ok) {
+                const imgData = await imgRes.json();
+                const b64 = imgData?.predictions?.[0]?.bytesBase64Encoded;
+                if (b64) return res.json({ success: true, image: `data:image/png;base64,${b64}` });
+            }
+
+            return res.status(502).json({ success: false, message: 'Image generation unavailable. Your API plan may require an upgrade at ai.dev — or try a different prompt.' });
         }
 
         const data = await response.json();
-        const b64 = data?.predictions?.[0]?.bytesBase64Encoded;
-        if (!b64) return res.status(502).json({ success: false, message: 'No image returned from AI.' });
+        // Extract base64 image from response parts
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const imagePart = parts.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+        if (!imagePart?.inlineData?.data) {
+            return res.status(502).json({ success: false, message: 'No image in AI response. Try a more specific prompt.' });
+        }
 
-        res.json({ success: true, image: `data:image/png;base64,${b64}` });
+        const mimeType = imagePart.inlineData.mimeType || 'image/png';
+        res.json({ success: true, image: `data:${mimeType};base64,${imagePart.inlineData.data}` });
     } catch (err) {
         console.error('[/ai/social-image]', err.message);
         res.status(500).json({ success: false, message: err.message });
