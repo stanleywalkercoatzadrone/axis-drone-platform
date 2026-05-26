@@ -4,11 +4,14 @@
  * Two-phase workflow:
  *   1. POST /api/pilot/upload-jobs              — Create a job (returns storage destination)
  *   2. POST /api/pilot/upload-jobs/:id/files    — Upload files into the job
- *   2. POST /api/pilot/upload-jobs/:id/chunk    — Upload file chunks (for large multi-part uploads)
+ *   3. POST /api/pilot/upload-jobs/:id/chunk    — Upload file chunks (for large multi-part uploads)
  *
- * Storage split:
- *   Aerial images (images/thermal/orthomosaic) → AWS S3  (tm-prod-pilot-california)
- *   Ground data   (lbd/kml/sensor_log/sheet)   → GCS     (axis-platform-uploads)
+ * Storage: all upload types route to Google Cloud Storage (GCS)
+ *   Aerial  (images/thermal/orthomosaic) → GCS via uploadAerialImage()  — auto-sorted IR|RGB
+ *   Ground  (lbd)                        → GCS via uploadLBDToGCS()     — {project}/{pilot}/{block}/
+ *   Data    (kml/sensor_log/spreadsheet) → GCS via uploadByDestination() — flat folder
+ *
+ * Bucket is controlled by GCS_BUCKET_NAME env var (default: axis-platform-storage).
  */
 import express from 'express';
 import path from 'path';
@@ -164,8 +167,8 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ success: false, message: 'lbdBlock is required for LBD uploads' });
         }
         const destination = UPLOAD_DESTINATION[uploadType];
-        if (destination === 's3' && !missionFolder) {
-            return res.status(400).json({ success: false, message: 'missionFolder is required for aerial (S3) uploads — e.g. M14 or Flight-3' });
+        if (destination === 'gcs' && ['images', 'thermal', 'orthomosaic'].includes(uploadType) && !missionFolder) {
+            return res.status(400).json({ success: false, message: 'missionFolder is required for aerial uploads — e.g. M14 or Flight-3' });
         }
 
         // Ensure table exists with storage_destination column
@@ -307,7 +310,7 @@ router.post('/:jobId/files', uploadSingle, async (req, res) => {
                 const siteName    = siteRes.rows[0]?.site_name || 'Site';
                 const folderLabel = job.mission_folder || 'Mission';
 
-                // S3/GCS key: {SiteName}/{pilot-supplied folder}/IR|RGB/{uuid}{ext}
+                // GCS key: {SiteName}/{pilot-supplied folder}/IR|RGB/{uuid}{ext}
                 uploadResult = await uploadAerialImage(
                     file,
                     job.mission_id,

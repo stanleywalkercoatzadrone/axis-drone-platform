@@ -374,9 +374,9 @@ if (STORAGE_PROVIDER === 'gcs') {
 // Uses EXIF metadata as the primary classification signal.
 // Falls back to MIME type, extension, and filename keywords.
 //
-// S3 structure:
-//   {S3_PATH_PREFIX}{SiteName}/{missionId}/IR/{uuid}{ext}   — thermal/infrared
-//   {S3_PATH_PREFIX}{SiteName}/{missionId}/RGB/{uuid}{ext}  — standard RGB
+// GCS structure:
+//   {GCS_BUCKET}/{SiteName}/{missionFolder}/IR/{uuid}{ext}   — thermal/infrared
+//   {GCS_BUCKET}/{SiteName}/{missionFolder}/RGB/{uuid}{ext}  — standard RGB
 
 // Thermal camera model identifiers (DJI + FLIR product lines)
 const IR_CAMERA_MODELS = ['xt', 'xt2', 'h20t', 'zh20t', 'xt s', 'zenmuse xt', 'flir', 'tau', 'boson', 'lepton', 'duo r'];
@@ -471,13 +471,13 @@ export async function classifyAerialImage(file) {
 }
 
 /**
- * Upload an aerial image to S3, auto-sorted into IR or RGB subfolder.
- * Uses EXIF metadata for classification. Stores EXIF-derived metadata on the S3 object.
+ * Upload an aerial image to GCS, auto-sorted into IR or RGB subfolder.
+ * Uses EXIF metadata for classification. Stores EXIF-derived metadata on the GCS object.
  *
  * @param {object} file          - multer file object
  * @param {string} missionId     - Mission UUID
  * @param {string} [forceType]   - 'IR' or 'RGB' override (pilot selection)
- * @param {string} [siteName]    - Site/deployment name used as the parent S3 folder
+ * @param {string} [siteName]    - Site/mission folder path used as GCS key prefix (e.g. "Coatza Solar/M14")
  * @returns {Promise<{ url, key, imageType, exifMeta, bucket }>}
  */
 export const uploadAerialImage = async (file, missionId, forceType = null, siteName = null) => {
@@ -555,13 +555,8 @@ export const uploadAerialImage = async (file, missionId, forceType = null, siteN
 };
 
 /**
- * Generate a signed URL for downloading a private aerial image from S3.
+ * Generate a signed URL for downloading a private aerial image from GCS.
  */
-export const getAerialSignedUrl = async (key, expiresIn = 900) => {
-    try {
-        return await s3.getSignedUrlPromise('getObject', { Bucket: BUCKET_NAME, Key: key, Expires: expiresIn });
-    } catch (e) {
-        console.error('[storageService] signed URL error:', e.message);
-        return null;
-    }
+export const getAerialSignedUrl = async (key, expiresInSeconds = 900) => {
+    return getGCSSignedUrl(key, expiresInSeconds);
 };
