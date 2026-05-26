@@ -13,7 +13,7 @@ import { Upload, Activity, Image, Layers } from 'lucide-react';
 import UploadCenter from './UploadCenter';
 import AIUploadsAdmin from './AIUploadsAdmin';
 import { useAuth } from '../../context/AuthContext';
-import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
+import { useMediaDeliverable } from '../context/MediaDeliverableContext';
 
 type Tab = 'upload' | 'monitor';
 

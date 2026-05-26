@@ -7,7 +7,7 @@ import {
   StopCircle, FolderOpen, Cuboid
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
-import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
+import { useMediaDeliverable } from '../context/MediaDeliverableContext';
 import { exportOrthoReportPDF } from '../../modules/ai-reporting/components/exportOrthoReportPDF';
 
 const OrthoMapViewer = lazy(() => import('./viewers/OrthoMapViewer'));

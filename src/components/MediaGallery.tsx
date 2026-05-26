@@ -10,7 +10,7 @@ import {
     ArrowLeft, TriangleAlert, Brain, Zap, CheckCircle2
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
-import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
+import { useMediaDeliverable } from '../context/MediaDeliverableContext';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types

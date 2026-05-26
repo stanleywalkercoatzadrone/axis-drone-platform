@@ -2,7 +2,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import apiClient from '../services/apiClient';
 import { InspectionReport } from '../types';
-import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
+import { useMediaDeliverable } from '../context/MediaDeliverableContext';
 const ReportViewer = lazy(() => import('./viewers/ReportViewer'));
 import {
     BarChart,
