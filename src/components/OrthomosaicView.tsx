@@ -1385,15 +1385,18 @@ const OrthomosaicView: React.FC = () => {
                               {showStats && odmReportData.stats?.processing_statistics && (() => {
                                 const ps = odmReportData.stats!.processing_statistics!;
                                 const rs = odmReportData.stats!.reconstruction_statistics;
-                                const areaHa = (ps.area / 10_000).toFixed(2);
-                                const areaSqKm = (ps.area / 1_000_000).toFixed(4);
-                                const imgUsed = rs?.reconstructed_shots_count ?? null;
-                                const imgTotal = rs?.initial_shots_count ?? null;
+                                const areaN = Number(ps.area) || 0;
+                                const areaHa = (areaN / 10_000).toFixed(2);
+                                const areaSqKm = (areaN / 1_000_000).toFixed(4);
+                                const imgUsed = rs?.reconstructed_shots_count != null ? Number(rs.reconstructed_shots_count) : null;
+                                const imgTotal = rs?.initial_shots_count != null ? Number(rs.initial_shots_count) : null;
                                 const imgPct = (imgUsed != null && imgTotal != null && imgTotal > 0) ? Math.round((imgUsed / imgTotal) * 100) : null;
-                                const sparsePoints = rs?.reconstructed_points_count ?? null;
-                                const densePoints = (rs as any)?.dense_reconstruction?.points_count ?? (odmReportData.stats as any)?.dense_reconstruction?.points_count ?? null;
-                                const gsd = ps.gsd ?? (odmReportData.stats as any)?.gsd ?? null;
-                                const gpsErr = (rs as any)?.gps_errors ?? (odmReportData.stats as any)?.gps_errors ?? null;
+                                const sparsePoints = rs?.reconstructed_points_count != null ? Number(rs.reconstructed_points_count) : null;
+                                const densePoints = (rs as any)?.dense_reconstruction?.points_count != null ? Number((rs as any).dense_reconstruction.points_count) : (odmReportData.stats as any)?.dense_reconstruction?.points_count != null ? Number((odmReportData.stats as any).dense_reconstruction.points_count) : null;
+                                const gsdRaw = ps.gsd ?? (odmReportData.stats as any)?.gsd ?? null;
+                                const gsd = gsdRaw != null ? Number(gsdRaw) : null;
+                                const gpsErrRaw = (rs as any)?.gps_errors ?? (odmReportData.stats as any)?.gps_errors ?? null;
+                                const gpsErr = gpsErrRaw != null ? Number(gpsErrRaw) : null;
                                 const totalTime = ps.steps_times?.['Total Time'];
                                 const cellBg = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc';
                                 const cellBd = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.07)' : '#e2e8f0';
@@ -1408,8 +1411,8 @@ const OrthomosaicView: React.FC = () => {
                                         {[
                                           { label: 'Area Covered', val: `${areaHa} ha (${areaSqKm} km²)` },
                                           { label: 'Images Reconstructed', val: imgUsed != null ? `${imgUsed}${imgTotal != null ? ` of ${imgTotal} (${imgPct}%)` : ''}` : '—' },
-                                          ...(gsd != null ? [{ label: 'Avg GSD', val: gsd < 0.1 ? `${(gsd * 100).toFixed(1)} cm` : `${gsd.toFixed(2)} m` }] : []),
-                                          ...(gpsErr != null ? [{ label: 'GPS Error', val: `${gpsErr.toFixed(2)} m` }] : []),
+                                          ...(gsd != null && !isNaN(gsd) ? [{ label: 'Avg GSD', val: gsd < 0.1 ? `${(gsd * 100).toFixed(1)} cm` : `${gsd.toFixed(2)} m` }] : []),
+                                          ...(gpsErr != null && !isNaN(gpsErr) ? [{ label: 'GPS Error', val: `${gpsErr.toFixed(2)} m` }] : []),
                                           { label: 'Geographic Ref', val: rs?.has_gps ? 'GPS' : 'None' },
                                           ...(ps.date ? [{ label: 'Processed', val: ps.date }] : []),
                                         ].map(({ label, val }) => (
@@ -1428,7 +1431,7 @@ const OrthomosaicView: React.FC = () => {
                                         {[
                                           { label: 'Sparse Points', val: sparsePoints?.toLocaleString() ?? '—', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.08)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.2)' : '#bfdbfe' },
                                           ...(densePoints != null ? [{ label: 'Dense Points', val: densePoints.toLocaleString(), color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.08)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.2)' : '#e9d5ff' }] : []),
-                                          { label: 'Reprojection', val: rs?.reprojection_error_pixels != null ? `${rs.reprojection_error_pixels.toFixed(2)}px` : '—', color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#16a34a' : '#d97706', bg: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0' },
+                                          { label: 'Reprojection', val: rs?.reprojection_error_pixels != null ? `${Number(rs.reprojection_error_pixels).toFixed(2)}px` : '—', color: rs?.reprojection_error_pixels != null && Number(rs.reprojection_error_pixels) < 1.0 ? '#16a34a' : '#d97706', bg: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0' },
                                         ].map(m => (
                                           <div key={m.label} className="p-3 rounded-xl border text-center" style={{ background: m.bg, borderColor: m.bd }}>
                                             <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>{m.label}</p>
@@ -1464,16 +1467,17 @@ const OrthomosaicView: React.FC = () => {
                                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Processing Times</p>
                                       <div className="space-y-1.5 text-[10px]">
                                         {Object.entries(ps.steps_times!).filter(([k]) => k !== 'Total Time').map(([step, secs]) => {
-                                          const total = (totalTime as number) || 1;
-                                          const pct = Math.round(((secs as number) / total) * 100);
+                                          const total = Number(totalTime) || 1;
+                                          const secsN = Number(secs) || 0;
+                                          const pct = Math.min(100, Math.round((secsN / total) * 100));
                                           return (
                                             <div key={step}>
-                                              <div className="flex justify-between mb-0.5"><span className="text-slate-500 truncate">{step}</span><span className="font-bold">{Math.round((secs as number) / 60)}m</span></div>
+                                              <div className="flex justify-between mb-0.5"><span className="text-slate-500 truncate">{step}</span><span className="font-bold">{Math.round(secsN / 60)}m</span></div>
                                               <div className="h-0.5 rounded-full" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: accentColor }} /></div>
                                             </div>
                                           );
                                         })}
-                                        {totalTime && <div className="flex justify-between pt-1 border-t text-[10px]" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}><span className="font-black">Total</span><span className="font-black" style={{ color: accentColor }}>{Math.round((totalTime as number) / 60)}m</span></div>}
+                                        {totalTime && <div className="flex justify-between pt-1 border-t text-[10px]" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}><span className="font-black">Total</span><span className="font-black" style={{ color: accentColor }}>{Math.round(Number(totalTime) / 60)}m</span></div>}
                                       </div>
                                     </div>
                                   );
