@@ -54,7 +54,7 @@ export function generateSolarInspectionReport(allIssues) {
     if (healthScore < 0) healthScore = 0;
 
     return {
-        executiveSummary: \`Axis Solar Inspection Analysis complete. Evaluated \${allIssues.length} points of interest indicating \${totalIssuesClassified} classified anomalies. Site Health Score: \${healthScore}/100.\`,
+        executiveSummary: `Axis Solar Inspection Analysis complete. Evaluated ${allIssues.length} points of interest indicating ${totalIssuesClassified} classified anomalies. Site Health Score: ${healthScore}/100.`,
         siteHealthScore: healthScore,
         counts: {
             total: allIssues.length,

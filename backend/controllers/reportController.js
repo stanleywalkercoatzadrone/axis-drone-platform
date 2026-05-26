@@ -320,7 +320,7 @@ export const createReport = async (req, res, next) => {
 export const updateReport = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { title, client, summary, siteContext, strategicAssessment, config, branding, images, status } = req.body;
+        const { title, client, summary, siteContext, strategicAssessment, config, branding, images, status, theme } = req.body;
 
         // 1. Process Images BEFORE Transaction (Pre-upload)
         let processedImages = null;
@@ -403,9 +403,10 @@ export const updateReport = async (req, res, next) => {
                      config = COALESCE($6, config),
                      branding = COALESCE($7, branding),
                      status = COALESCE($8, status),
+                     theme = COALESCE($9, theme),
                      version = version + 1,
                      updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $9 AND tenant_id = $12 AND (user_id = $10 OR $11 = 'ADMIN')
+                 WHERE id = $10 AND tenant_id = $13 AND (user_id = $11 OR $12 = 'ADMIN')
                  RETURNING *`,
                 [
                     title, client, summary,
@@ -414,7 +415,7 @@ export const updateReport = async (req, res, next) => {
                     config ? JSON.stringify(config) : null,
                     branding ? JSON.stringify(branding) : null,
                     status,
-                    status,
+                    theme ? theme.toUpperCase() : null,
                     id, req.user.id, req.user.role, req.user.tenantId
                 ]
             );

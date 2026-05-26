@@ -24,7 +24,7 @@ const severityColors: Record<string, string> = {
 const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
     const {
         finalizeReport, images, title, setTitle, industry, client, setClient,
-        theme, reportStatus, summary, setSummary, recommendations, setRecommendations,
+        theme, branding, config, reportStatus, summary, setSummary, recommendations, setRecommendations,
         generateReportNarrative, saveDraft, setStep, reportId
     } = useReport();
 
@@ -76,7 +76,10 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
                 findings: solarFindings,
                 aiSummary: summary,
                 section: { title: 'Solar PV Inspection', badge: 'SOLAR', accentHex: '#f59e0b' },
-                images: images.map(img => img.url)
+                images: images.map(img => img.url),
+                theme,
+                branding,
+                config
             });
         } else {
             await exportReportPDF({
@@ -90,6 +93,9 @@ const ReportReview: React.FC<ReportReviewProps> = ({ onBack }) => {
                 riskScore: Math.min(100, Math.round((criticals * 25) + (highs * 10))),
                 status: 'draft',
                 approvalStatus: 'pending',
+                theme,
+                branding,
+                config,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             } as any);

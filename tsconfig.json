@@ -38,5 +38,10 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "components",
+    "report-wizard"
+  ]
 }

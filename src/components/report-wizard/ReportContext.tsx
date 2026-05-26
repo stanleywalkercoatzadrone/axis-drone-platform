@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { Industry, ReportTheme, Branding, InspectionReport, InspectionImage, IndustryTemplate, INDUSTRY_TEMPLATES } from '../../types';
+import { Industry, ReportTheme, Branding, ReportConfig, InspectionReport, InspectionImage, IndustryTemplate, INDUSTRY_TEMPLATES } from '../../types';
 import apiClient from '../../services/apiClient';
 
 interface ReportContextType {
@@ -12,6 +12,7 @@ interface ReportContextType {
     industry: Industry;
     theme: ReportTheme;
     branding: Branding;
+    config: ReportConfig;
     images: InspectionImage[];
     summary: string;
     recommendations: string[];
@@ -29,6 +30,7 @@ interface ReportContextType {
     setIndustry: (industry: Industry) => void;
     setTheme: (theme: ReportTheme) => void;
     setBranding: (branding: Branding) => void;
+    setConfig: (config: ReportConfig) => void;
     setSummary: (summary: string) => void;
     setRecommendations: (recs: string[]) => void;
     addImage: (file: File) => Promise<void>;
@@ -54,6 +56,14 @@ export const ReportProvider: React.FC<{ children: React.ReactNode, initialReport
     const [industry, setIndustryState] = useState<Industry>(initialReport?.industry || initialIndustry || Industry.SOLAR);
     const [theme, setTheme] = useState<ReportTheme>(initialReport?.theme || ReportTheme.TECHNICAL);
     const [branding, setBranding] = useState<Branding>(initialReport?.branding || { primaryColor: '#0f172a' });
+    const [config, setConfig] = useState<ReportConfig>(initialReport?.config || {
+        showExecutiveSummary: true,
+        showSiteIntelligence: true,
+        showStrategicAssessment: true,
+        showCostAnalysis: true,
+        showDetailedImagery: true,
+        showAuditTrail: true
+    });
     const [images, setImages] = useState<InspectionImage[]>(initialReport?.images || []);
     const [summary, setSummary] = useState(initialReport?.summary || '');
     const [recommendations, setRecommendations] = useState<string[]>(initialReport?.recommendations || []);
@@ -234,6 +244,7 @@ Respond in JSON: { "summary": "...", "recommendations": ["...", "..."] }`;
             industry,
             theme: theme.toUpperCase(),
             branding,
+            config,
             summary,
             recommendations,
             status: 'DRAFT'
@@ -267,6 +278,14 @@ Respond in JSON: { "summary": "...", "recommendations": ["...", "..."] }`;
         setIndustry(report.industry);
         setTheme(report.theme);
         setBranding(report.branding);
+        setConfig(report.config || {
+            showExecutiveSummary: true,
+            showSiteIntelligence: true,
+            showStrategicAssessment: true,
+            showCostAnalysis: true,
+            showDetailedImagery: true,
+            showAuditTrail: true
+        });
         setImages(report.images);
         setSummary(report.summary || '');
         setRecommendations(report.recommendations || []);
@@ -283,6 +302,7 @@ Respond in JSON: { "summary": "...", "recommendations": ["...", "..."] }`;
             industry, setIndustry,
             theme, setTheme,
             branding, setBranding,
+            config, setConfig,
             summary, setSummary,
             recommendations, setRecommendations,
             images,
