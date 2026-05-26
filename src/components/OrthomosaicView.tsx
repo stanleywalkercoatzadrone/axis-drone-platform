@@ -204,6 +204,7 @@ const OrthomosaicView: React.FC = () => {
   const [showReconstruction, setShowReconstruction] = useState(true);
   const [showPreview, setShowPreview] = useState(true);
   const [showFullPdf, setShowFullPdf] = useState(true);
+  const [showCertification, setShowCertification] = useState(true);
   const [isEditingReport, setIsEditingReport] = useState(false);
   const [isCustomMode, setIsCustomMode] = useState(true);
   const [savingCustomization, setSavingCustomization] = useState(false);
@@ -225,6 +226,7 @@ const OrthomosaicView: React.FC = () => {
         showReconstruction,
         showPreview,
         showFullPdf,
+        showCertification,
       };
       await apiClient.post(`/orthomosaic/jobs/${viewerJobId}/customization`, {
         customization: payload
@@ -294,6 +296,7 @@ const OrthomosaicView: React.FC = () => {
           showReconstruction,
           showPreview,
           showFullPdf,
+          showCertification,
         }
       });
     } catch (err: any) {
@@ -573,6 +576,7 @@ const OrthomosaicView: React.FC = () => {
           setShowReconstruction(cust.showReconstruction !== false);
           setShowPreview(cust.showPreview !== false);
           setShowFullPdf(cust.showFullPdf !== false);
+          setShowCertification(cust.showCertification !== false);
         } else {
           setCustomTitle('');
           setCustomSubtitle('');
@@ -1329,6 +1333,7 @@ const OrthomosaicView: React.FC = () => {
                             { label: 'Step Distribution', val: showReconstruction, set: setShowReconstruction },
                             { label: 'Map Preview', val: showPreview, set: setShowPreview },
                             { label: 'Full ODM Report', val: showFullPdf, set: setShowFullPdf },
+                            { label: 'Accuracy Certification', val: showCertification, set: setShowCertification },
                           ] as { label: string; val: boolean; set: (v: boolean) => void }[]).map(({ label, val, set }) => (
                             <label key={label} className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
                               <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} className="rounded border-slate-700 bg-slate-800" />
@@ -1404,45 +1409,114 @@ const OrthomosaicView: React.FC = () => {
                                 const gsd = gsdRaw != null ? Number(gsdRaw) : null;
                                 const gpsErrRaw = (rs as any)?.gps_errors ?? (odmReportData.stats as any)?.gps_errors ?? null;
                                 const gpsErr = gpsErrRaw != null ? Number(gpsErrRaw) : null;
-                                const totalTime = ps.steps_times?.['Total Time'];
+                                const reprErr = rs?.reprojection_error_pixels != null ? Number(rs.reprojection_error_pixels) : null;
                                 const cellBg = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc';
                                 const cellBd = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.07)' : '#e2e8f0';
                                 const labelCol = customTheme === 'TECHNICAL' ? '#64748b' : '#6b7280';
                                 const valCol = customTheme === 'TECHNICAL' ? '#f1f5f9' : '#0f172a';
+                                const job = jobs.find((j: any) => j.id === viewerJobId);
+                                const outputs: any[] = (job?.outputs ?? []).filter(Boolean);
+                                const hasOrthomosaic = outputs.some((o: any) => ['orthomosaic', 'tif'].includes(o.output_type));
+                                const hasDsm = outputs.some((o: any) => o.output_type === 'dsm');
+                                const hasModel = outputs.some((o: any) => ['model', 'obj', '3d'].includes(o.output_type));
+                                const hasAll = outputs.some((o: any) => o.output_type === 'all');
+                                const reprErrQ = reprErr == null ? null : reprErr < 0.5 ? { label: 'Excellent', color: '#16a34a' } : reprErr < 1.0 ? { label: 'Good', color: '#65a30d' } : reprErr < 2.0 ? { label: 'Acceptable', color: '#d97706' } : { label: 'Poor', color: '#dc2626' };
                                 return (
                                   <div className="space-y-4">
-                                    {/* Dataset summary row */}
+                                    {/* ── Survey Parameters ── */}
                                     <div>
-                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Dataset Summary</p>
-                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Survey Parameters</p>
+                                      <div className="grid grid-cols-3 gap-1.5">
                                         {[
-                                          { label: 'Area Covered', val: `${areaHa} ha (${areaSqKm} km²)` },
-                                          { label: 'Images Reconstructed', val: imgUsed != null ? `${imgUsed}${imgTotal != null ? ` of ${imgTotal} (${imgPct}%)` : ''}` : '—' },
-                                          ...(gsd != null && !isNaN(gsd) ? [{ label: 'Avg GSD', val: gsd < 0.1 ? `${(gsd * 100).toFixed(1)} cm` : `${gsd.toFixed(2)} m` }] : []),
-                                          ...(gpsErr != null && !isNaN(gpsErr) ? [{ label: 'GPS Error', val: `${gpsErr.toFixed(2)} m` }] : []),
-                                          { label: 'Geographic Ref', val: rs?.has_gps ? 'GPS' : 'None' },
+                                          { label: 'Area Covered', val: `${areaHa} ha` },
+                                          { label: 'Coverage km²', val: areaSqKm },
+                                          { label: 'Images Used', val: imgUsed != null ? `${imgUsed} / ${imgTotal ?? '?'}` : '—' },
+                                          ...(imgPct != null ? [{ label: 'Image Match', val: `${imgPct}%` }] : []),
+                                          ...(gsd != null && !isNaN(gsd) ? [{ label: 'Ground Sampling', val: gsd < 0.1 ? `${(gsd * 100).toFixed(1)} cm/px` : `${gsd.toFixed(2)} m/px` }] : []),
+                                          { label: 'Spatial Reference', val: 'WGS84 / UTM' },
+                                          { label: 'GPS Georeference', val: rs?.has_gps ? 'Yes — Embedded GPS' : 'No GPS' },
+                                          ...(job?.quality_tier ? [{ label: 'Quality Preset', val: (job.quality_tier as string) === 'fast' ? 'Lightning' : (job.quality_tier as string) === 'high' ? 'High Accuracy' : 'Standard' }] : []),
+                                          ...(job?.flight_date ? [{ label: 'Flight Date', val: new Date(job.flight_date as string).toLocaleDateString() }] : []),
                                           ...(ps.date ? [{ label: 'Processed', val: ps.date }] : []),
                                         ].map(({ label, val }) => (
-                                          <div key={label} className="p-2.5 rounded-lg border" style={{ background: cellBg, borderColor: cellBd }}>
-                                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5" style={{ color: labelCol }}>{label}</p>
-                                            <p className="text-[11px] font-bold" style={{ color: valCol }}>{val}</p>
+                                          <div key={label} className="p-2 rounded-lg border" style={{ background: cellBg, borderColor: cellBd }}>
+                                            <p className="text-[7px] font-black uppercase tracking-widest mb-0.5" style={{ color: labelCol }}>{label}</p>
+                                            <p className="text-[10px] font-bold leading-tight" style={{ color: valCol }}>{val}</p>
                                           </div>
                                         ))}
                                       </div>
                                     </div>
 
-                                    {/* Key metrics 3-up */}
+                                    {/* ── Accuracy & Error Statistics ── */}
                                     <div>
-                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Reconstruction Quality</p>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Accuracy & Error Statistics</p>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {reprErr != null && reprErrQ && (
+                                          <div className="p-3 rounded-xl border" style={{ background: reprErrQ.color === '#16a34a' || reprErrQ.color === '#65a30d' ? (customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4') : (customTheme === 'TECHNICAL' ? 'rgba(217,119,6,0.06)' : '#fffbeb'), borderColor: reprErrQ.color === '#16a34a' || reprErrQ.color === '#65a30d' ? (customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0') : (customTheme === 'TECHNICAL' ? 'rgba(217,119,6,0.2)' : '#fde68a') }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>Reprojection Error</p>
+                                            <p className="text-xl font-black mt-0.5" style={{ color: reprErrQ.color }}>{reprErr.toFixed(2)}px</p>
+                                            <p className="text-[8px] font-bold mt-0.5" style={{ color: reprErrQ.color }}>{reprErrQ.label} — {reprErr < 0.5 ? 'Sub-pixel accuracy' : reprErr < 1.0 ? 'Survey-grade' : reprErr < 2.0 ? 'Mapping-grade' : 'Below survey grade'}</p>
+                                          </div>
+                                        )}
+                                        {imgPct != null && (
+                                          <div className="p-3 rounded-xl border" style={{ background: cellBg, borderColor: cellBd }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>Image Match Rate</p>
+                                            <p className="text-xl font-black mt-0.5" style={{ color: imgPct >= 95 ? '#16a34a' : imgPct >= 80 ? '#65a30d' : '#d97706' }}>{imgPct}%</p>
+                                            <p className="text-[8px] font-bold mt-0.5" style={{ color: '#64748b' }}>{imgPct >= 95 ? 'Excellent coverage' : imgPct >= 80 ? 'Good coverage' : 'Check flight path'}</p>
+                                          </div>
+                                        )}
+                                        {gpsErr != null && !isNaN(gpsErr) && (
+                                          <div className="p-3 rounded-xl border" style={{ background: cellBg, borderColor: cellBd }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>GPS Position Error</p>
+                                            <p className="text-xl font-black mt-0.5" style={{ color: gpsErr < 2.0 ? '#16a34a' : '#d97706' }}>{gpsErr.toFixed(2)} m</p>
+                                            <p className="text-[8px] font-bold mt-0.5" style={{ color: '#64748b' }}>Horizontal positioning</p>
+                                          </div>
+                                        )}
+                                        {rs?.components != null && (
+                                          <div className="p-3 rounded-xl border" style={{ background: cellBg, borderColor: cellBd }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>Scene Components</p>
+                                            <p className="text-xl font-black mt-0.5" style={{ color: rs.components === 1 ? '#16a34a' : '#d97706' }}>{rs.components}</p>
+                                            <p className="text-[8px] font-bold mt-0.5" style={{ color: '#64748b' }}>{rs.components === 1 ? 'Single connected model' : 'Fragmented — check overlap'}</p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* ── Point Cloud & Reconstruction Output ── */}
+                                    <div>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Reconstruction Output</p>
                                       <div className="grid grid-cols-3 gap-2">
                                         {[
-                                          { label: 'Sparse Points', val: sparsePoints?.toLocaleString() ?? '—', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.08)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.2)' : '#bfdbfe' },
-                                          ...(densePoints != null ? [{ label: 'Dense Points', val: densePoints.toLocaleString(), color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.08)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.2)' : '#e9d5ff' }] : []),
-                                          { label: 'Reprojection', val: rs?.reprojection_error_pixels != null ? `${Number(rs.reprojection_error_pixels).toFixed(2)}px` : '—', color: rs?.reprojection_error_pixels != null && Number(rs.reprojection_error_pixels) < 1.0 ? '#16a34a' : '#d97706', bg: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0' },
+                                          { label: 'Sparse Cloud', val: sparsePoints?.toLocaleString() ?? '—', sub: 'keypoints', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.08)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.2)' : '#bfdbfe' },
+                                          ...(densePoints != null ? [{ label: 'Dense Cloud', val: densePoints.toLocaleString(), sub: 'points', color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.08)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.2)' : '#e9d5ff' }] : []),
+                                          ...(reprErr != null ? [{ label: 'Reprojection', val: `${reprErr.toFixed(2)}px`, sub: 'avg error', color: reprErr < 1.0 ? '#16a34a' : '#d97706', bg: reprErr < 1.0 ? (customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4') : (customTheme === 'TECHNICAL' ? 'rgba(217,119,6,0.06)' : '#fffbeb'), bd: reprErr < 1.0 ? (customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0') : (customTheme === 'TECHNICAL' ? 'rgba(217,119,6,0.2)' : '#fde68a') }] : []),
                                         ].map(m => (
                                           <div key={m.label} className="p-3 rounded-xl border text-center" style={{ background: m.bg, borderColor: m.bd }}>
-                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>{m.label}</p>
-                                            <p className="text-base font-black mt-0.5" style={{ color: m.color }}>{m.val}</p>
+                                            <p className="text-[7px] font-black uppercase tracking-widest" style={{ color: labelCol }}>{m.label}</p>
+                                            <p className="text-sm font-black mt-0.5" style={{ color: m.color }}>{m.val}</p>
+                                            <p className="text-[7px] font-bold mt-0.5" style={{ color: labelCol }}>{m.sub}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    {/* ── Survey Deliverables ── */}
+                                    <div>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Survey Deliverables</p>
+                                      <div className="grid grid-cols-2 gap-1.5">
+                                        {[
+                                          { label: 'Orthomosaic GeoTIFF', desc: 'Georeferenced aerial raster', avail: hasOrthomosaic, icon: '🗺️' },
+                                          { label: 'DEM / DSM', desc: 'Digital Elevation Model', avail: hasDsm, icon: '📊' },
+                                          { label: '3D Point Cloud / Model', desc: 'Photogrammetric mesh', avail: hasModel, icon: '🧊' },
+                                          { label: 'Full Archive (.zip)', desc: 'All processing outputs', avail: hasAll, icon: '📦' },
+                                        ].map(({ label, desc, avail, icon }) => (
+                                          <div key={label} className="flex items-center gap-2 p-2.5 rounded-lg border" style={{ background: cellBg, borderColor: avail ? (customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.25)' : '#bbf7d0') : cellBd }}>
+                                            <span className="text-base">{icon}</span>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-[9px] font-black truncate" style={{ color: valCol }}>{label}</p>
+                                              <p className="text-[8px]" style={{ color: labelCol }}>{desc}</p>
+                                            </div>
+                                            <span className="text-[9px] font-black shrink-0" style={{ color: avail ? '#16a34a' : '#94a3b8' }}>{avail ? '✓' : '—'}</span>
                                           </div>
                                         ))}
                                       </div>
@@ -1456,11 +1530,11 @@ const OrthomosaicView: React.FC = () => {
                                   const rs = odmReportData.stats!.reconstruction_statistics;
                                   return (
                                     <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
-                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Feature Quality</p>
+                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Feature Detection</p>
                                       <div className="space-y-1.5 text-xs">
                                         <div className="flex justify-between"><span className="text-slate-500">Detected / image</span><span className="font-bold">{fs.detected_features?.mean?.toLocaleString() ?? '—'}</span></div>
                                         <div className="flex justify-between"><span className="text-slate-500">Reconstructed / image</span><span className="font-bold">{fs.reconstructed_features?.mean?.toLocaleString() ?? '—'}</span></div>
-                                        <div className="flex justify-between"><span className="text-slate-500">GPS tagged</span><span className="font-bold" style={{ color: rs?.has_gps ? '#16a34a' : '#dc2626' }}>{rs?.has_gps ? 'Yes' : 'No'}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-500">GPS georeference</span><span className="font-bold" style={{ color: rs?.has_gps ? '#16a34a' : '#dc2626' }}>{rs?.has_gps ? 'Yes' : 'No'}</span></div>
                                         {rs?.components != null && <div className="flex justify-between"><span className="text-slate-500">Components</span><span className="font-bold" style={{ color: rs.components === 1 ? '#16a34a' : '#d97706' }}>{rs.components}</span></div>}
                                       </div>
                                     </div>
@@ -1490,19 +1564,58 @@ const OrthomosaicView: React.FC = () => {
                                   );
                                 })()}
                               </div>
+                              {/* ── Orthomosaic Imagery ── */}
                               {showPreview && previewData?.previewUrl && (
                                 <div className="space-y-2">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Visual Map Overview</p>
-                                  <div className="w-full h-44 rounded-xl border overflow-hidden" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Orthomosaic Imagery</p>
+                                    {geoData?.tifUrl && <a href={geoData.tifUrl} target="_blank" rel="noopener noreferrer" className="text-[9px] font-black uppercase tracking-widest" style={{ color: accentColor }}>View Interactive Map ↗</a>}
+                                  </div>
+                                  <div className="w-full rounded-xl overflow-hidden border" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', height: '220px' }}>
                                     <img src={previewData.previewUrl} className="w-full h-full object-cover" alt="Orthomosaic preview" />
                                   </div>
+                                  <p className="text-[8px]" style={{ color: '#64748b' }}>Georeferenced orthomosaic raster · WGS84/UTM coordinate system · {odmReportData.stats?.processing_statistics?.area ? `${(Number(odmReportData.stats.processing_statistics.area) / 10_000).toFixed(2)} ha` : 'full survey area'} coverage</p>
                                 </div>
                               )}
+                              {/* ── Survey Accuracy Statement ── */}
+                              {showCertification && odmReportData.stats?.reconstruction_statistics && (() => {
+                                const rs = odmReportData.stats!.reconstruction_statistics!;
+                                const reprErrC = rs.reprojection_error_pixels != null ? Number(rs.reprojection_error_pixels) : null;
+                                const iUsed = rs.reconstructed_shots_count != null ? Number(rs.reconstructed_shots_count) : null;
+                                const iTotal = rs.initial_shots_count != null ? Number(rs.initial_shots_count) : null;
+                                const iPct = (iUsed != null && iTotal != null && iTotal > 0) ? Math.round((iUsed / iTotal) * 100) : null;
+                                const cellBgC = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.04)' : '#fff';
+                                const cellBdC = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e2e8f0';
+                                return (
+                                  <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', borderLeft: `4px solid ${accentColor}` }}>
+                                    <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: accentColor }}>Survey Accuracy Statement</p>
+                                    <p className="text-[10px] leading-relaxed" style={{ color: customTheme === 'TECHNICAL' ? '#94a3b8' : '#475569' }}>
+                                      This dataset was processed using <strong style={{ color: customTheme === 'TECHNICAL' ? '#e2e8f0' : '#0f172a' }}>OpenDroneMap</strong> photogrammetric software. Orthomosaic and elevation outputs are georeferenced to <strong style={{ color: customTheme === 'TECHNICAL' ? '#e2e8f0' : '#0f172a' }}>WGS84 / UTM</strong> using {rs.has_gps ? <strong style={{ color: customTheme === 'TECHNICAL' ? '#e2e8f0' : '#0f172a' }}>embedded image GPS metadata</strong> : 'relative positioning (no GPS)'}.{reprErrC != null && ` Mean reprojection error of ${reprErrC.toFixed(2)}px indicates ${reprErrC < 1.0 ? 'survey-grade geometric accuracy' : 'mapping-grade accuracy'}.`}{iPct != null && ` ${iPct}% image reconstruction rate${iPct >= 95 ? ' confirms comprehensive area coverage' : ''}.`} GCP residuals and full accuracy tables are available in the ODM Technical Report below.
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-2 mt-3">
+                                      {[
+                                        { label: 'Processed By', val: companyName },
+                                        { label: 'Report Date', val: today() },
+                                        { label: 'Processing Engine', val: 'OpenDroneMap' },
+                                      ].map(({ label, val }) => (
+                                        <div key={label} className="text-center p-2 rounded-lg" style={{ background: cellBgC, border: `1px solid ${cellBdC}` }}>
+                                          <p className="text-[7px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>{label}</p>
+                                          <p className="text-[9px] font-bold mt-0.5" style={{ color: customTheme === 'TECHNICAL' ? '#e2e8f0' : '#0f172a' }}>{val}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                              {/* ── Full ODM Technical Report (PDF embed) ── */}
                               {showFullPdf && odmReportData.hasPdf && odmReportData.pdfUrl && (
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between">
-                                    <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Full ODM Technical Report</p>
-                                    <a href={odmReportData.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[9px] font-black uppercase tracking-widest" style={{ color: accentColor }}>Open PDF ↗</a>
+                                    <div>
+                                      <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Full ODM Technical Report</p>
+                                      <p className="text-[8px] mt-0.5" style={{ color: '#475569' }}>Includes GCP residuals, camera calibration, keypoint distribution, DEM outputs & accuracy tables</p>
+                                    </div>
+                                    <a href={odmReportData.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[9px] font-black uppercase tracking-widest shrink-0 ml-4" style={{ color: accentColor }}>Open PDF ↗</a>
                                   </div>
                                   <div className="w-full rounded-xl overflow-hidden border" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', height: '1100px' }}>
                                     <iframe
