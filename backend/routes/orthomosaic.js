@@ -34,14 +34,14 @@ try {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const tenantId = (req) => req.user?.tenantId || req.user?.tenant_id || null;
 
-// ── Extract orthomosaic.tif + dsm.tif from all.zip in GCS ────────────────────
+// ── Extract orthomosaic.tif + dsm.tif + report.pdf + stats.json from all.zip ──
 // Supports two GCS layouts:
 //   Old: <prefix>outputs/all.zip  (outputs/ subdir)
 //   New: <prefix>all.zip          (zip at root of prefix)
 async function extractOrthoAssets(prefix) {
     if (!gcs) { logger.warn('[extract] GCS unavailable'); return {}; }
     const bucket = gcs.bucket(GCS_BUCKET);
-    const result = { tif: false, dsm: false };
+    const result = { tif: false, dsm: false, report: false, stats: false };
 
     // Detect which zip path exists
     let zipPath = `${prefix}outputs/all.zip`;
@@ -57,24 +57,31 @@ async function extractOrthoAssets(prefix) {
     logger.info(`[extract] Using zip: ${zipPath}`);
 
     const targets = {
-        'odm_orthophoto/odm_orthophoto.tif': `${prefix}outputs/orthomosaic.tif`,
-        'odm_dem/dsm.tif': `${prefix}outputs/dsm.tif`,
+        'odm_orthophoto/odm_orthophoto.tif': { dest: `${prefix}outputs/orthomosaic.tif`, contentType: 'image/tiff' },
+        'odm_dem/dsm.tif':                   { dest: `${prefix}outputs/dsm.tif`,          contentType: 'image/tiff' },
+        'odm_report/report.pdf':             { dest: `${prefix}outputs/report.pdf`,       contentType: 'application/pdf' },
+        'odm_report/stats.json':             { dest: `${prefix}outputs/stats.json`,       contentType: 'application/json' },
     };
 
     await new Promise((resolve, reject) => {
         bucket.file(zipPath).createReadStream()
             .pipe(unzipper.Parse())
             .on('entry', (entry) => {
-                const dest = targets[entry.path];
-                if (dest) {
-                    const ws = bucket.file(dest).createWriteStream({ metadata: { contentType: 'image/tiff' }, resumable: false });
+                const target = targets[entry.path];
+                if (target) {
+                    const ws = bucket.file(target.dest).createWriteStream({
+                        metadata: { contentType: target.contentType },
+                        resumable: target.contentType === 'application/pdf', // resumable for large PDFs
+                    });
                     entry.pipe(ws);
                     ws.on('finish', () => {
-                        if (dest.includes('orthomosaic')) result.tif = true;
-                        if (dest.includes('dsm')) result.dsm = true;
-                        logger.info(`[extract] ✓ ${dest}`);
+                        if (target.dest.includes('orthomosaic')) result.tif = true;
+                        if (target.dest.includes('dsm'))         result.dsm = true;
+                        if (target.dest.includes('report.pdf'))  result.report = true;
+                        if (target.dest.includes('stats.json'))  result.stats = true;
+                        logger.info(`[extract] ✓ ${target.dest}`);
                     });
-                    ws.on('error', e => logger.warn(`[extract] write error: ${e.message}`));
+                    ws.on('error', e => logger.warn(`[extract] write error for ${target.dest}: ${e.message}`));
                 } else { entry.autodrain(); }
             })
             .on('finish', resolve)
@@ -569,7 +576,7 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
         if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
         const job = jobRes.rows[0];
 
-        if (!['queued', 'failed'].includes(job.status)) {
+        if (!['queued', 'failed', 'canceled'].includes(job.status)) {
             return res.status(409).json({ success: false, message: `Job is already ${job.status}.` });
         }
 
@@ -595,7 +602,6 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
 
         // ── Async processing (non-blocking) ──────────────────────────────────
         const fastMode = job.quality_tier === 'fast';
-        const localTmpDir = `/tmp/ortho_${jobId}`;
         const gcsOutputPrefix = `${job.upload_set_gcs_prefix}outputs/`;
         const missionId = job.mission_id || null; // Fix: now correctly populated from the JOIN
 
@@ -603,7 +609,7 @@ router.post('/jobs/:jobId/submit', protect, async (req, res) => {
             jobId,
             missionId,
             files: filesRes.rows,
-            localTmpDir,
+            // Note: localTmpDir removed — v2 engine streams GCS→ODM directly, no disk needed
             gcsProcessedPrefix: gcsOutputPrefix,
             fastMode,
         };
@@ -785,6 +791,35 @@ router.patch('/jobs/:jobId/cancel', protect, authorize('admin'), async (req, res
     }
 });
 
+// ── PATCH /jobs/:jobId/reset — admin: reset a stuck/canceled/failed job to queued ──
+router.patch('/jobs/:jobId/reset', protect, authorize('admin'), async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const result = await query(`
+            UPDATE orthomosaic_jobs
+            SET status = 'queued',
+                pipeline_stage = NULL,
+                progress_pct = 0,
+                engine_job_id = NULL,
+                error_message = NULL,
+                processing_started_at = NULL,
+                processing_completed_at = NULL,
+                retry_count = retry_count + 1,
+                updated_at = NOW()
+            WHERE id = $1 AND tenant_id = $2
+              AND status IN ('canceled', 'failed', 'processing')
+            RETURNING id, status, retry_count
+        `, [jobId, tenantId(req)]);
+        if (!result.rows.length) {
+            return res.status(400).json({ success: false, message: 'Job not found or not in a resetable state.' });
+        }
+        res.json({ success: true, message: 'Job reset to queued.', data: result.rows[0] });
+    } catch (err) {
+        logger.error('[orthomosaic/reset]', err);
+        res.status(500).json({ success: false, message: 'Failed to reset job.' });
+    }
+});
+
 // ── DELETE /jobs/:jobId — delete a single job from history ───────────────────
 router.delete('/jobs/:jobId', protect, async (req, res) => {
     try {
@@ -926,6 +961,66 @@ router.get('/jobs/:jobId/preview', protect, async (req, res) => {
     } catch (err) {
         logger.error('[orthomosaic/preview]', err);
         res.status(500).json({ success: false, message: 'Failed to get preview.' });
+    }
+});
+
+// ── GET /jobs/:jobId/report — signed URL for ODM report.pdf + stats.json ──────
+router.get('/jobs/:jobId/report', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix, j.status
+             FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+        if (job.status !== 'completed') {
+            return res.status(409).json({ success: false, message: 'Job not yet completed.' });
+        }
+
+        const prefix = job.upload_set_gcs_prefix || '';
+        const pdfPath   = `${prefix}outputs/report.pdf`;
+        const statsPath = `${prefix}outputs/stats.json`;
+
+        // Extract from zip if not yet available
+        const [pdfExists]   = await gcs.bucket(GCS_BUCKET).file(pdfPath).exists().catch(() => [false]);
+        const [statsExists] = await gcs.bucket(GCS_BUCKET).file(statsPath).exists().catch(() => [false]);
+
+        if (!pdfExists || !statsExists) {
+            logger.info(`[orthomosaic/report] Extracting report assets for job ${jobId}...`);
+            await extractOrthoAssets(prefix);
+        }
+
+        // Generate signed URL for PDF (2-hour expiry)
+        let pdfUrl = null;
+        const [pdfExistsNow] = await gcs.bucket(GCS_BUCKET).file(pdfPath).exists().catch(() => [false]);
+        if (pdfExistsNow) {
+            const [url] = await gcs.bucket(GCS_BUCKET).file(pdfPath).getSignedUrl({
+                version: 'v4',
+                action: 'read',
+                expires: Date.now() + 2 * 60 * 60 * 1000,
+                responseDisposition: 'inline',
+                responseType: 'application/pdf',
+            });
+            pdfUrl = url;
+        }
+
+        // Read stats.json and parse it
+        let stats = null;
+        const [statsExistsNow] = await gcs.bucket(GCS_BUCKET).file(statsPath).exists().catch(() => [false]);
+        if (statsExistsNow) {
+            const [statsContent] = await gcs.bucket(GCS_BUCKET).file(statsPath).download().catch(() => [null]);
+            if (statsContent) {
+                try { stats = JSON.parse(statsContent.toString()); } catch { /* ignore */ }
+            }
+        }
+
+        res.json({ success: true, data: { pdfUrl, stats, hasPdf: !!pdfUrl, hasStats: !!stats } });
+    } catch (err) {
+        logger.error('[orthomosaic/report]', err);
+        res.status(500).json({ success: false, message: 'Failed to get report.' });
     }
 });
 

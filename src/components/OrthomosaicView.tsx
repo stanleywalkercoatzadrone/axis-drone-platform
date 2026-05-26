@@ -73,7 +73,32 @@ interface GeoData {
   hasPreview: boolean;
   stats: { imageCount: number; qualityTier: string; durationS: number; siteName: string; missionId: string; };
 }
-type ViewerTab = 'ortho' | '3d' | 'mission';
+type ViewerTab = 'ortho' | '3d' | 'mission' | 'report';
+
+interface OdmReportData {
+  pdfUrl: string | null;
+  hasPdf: boolean;
+  hasStats: boolean;
+  stats: {
+    processing_statistics?: {
+      steps_times?: Record<string, number>;
+      date?: string;
+      area?: number;
+    };
+    features_statistics?: {
+      detected_features?: { min: number; max: number; mean: number; median: number };
+      reconstructed_features?: { min: number; max: number; mean: number; median: number };
+    };
+    reconstruction_statistics?: {
+      components?: number;
+      has_gps?: boolean;
+      reconstructed_points_count?: number;
+      reconstructed_shots_count?: number;
+      initial_shots_count?: number;
+      reprojection_error_pixels?: number;
+    };
+  } | null;
+}
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -140,9 +165,9 @@ const OrthomosaicView: React.FC = () => {
   const [imgPos, setImgPos] = useState({ x: 0, y: 0 });
   const isDraggingImg = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
-  // Local file viewer state (open 3D/Ortho without a job)
   const [localObjUrl, setLocalObjUrl] = useState<string | null>(null);
   const [localOrthoUrl, setLocalOrthoUrl] = useState<string | null>(null);
+  const [odmReportData, setOdmReportData] = useState<OdmReportData | null>(null);
 
   // ── Load missions + jobs ──────────────────────────────────────────────────
   useEffect(() => {
@@ -389,6 +414,12 @@ const OrthomosaicView: React.FC = () => {
       setGeoData(geoRes.data?.data || null);
     } catch { /* ignore */ }
     setViewerLoading(false);
+
+    // Pre-fetch ODM report data in background
+    setOdmReportData(null);
+    apiClient.get(`/orthomosaic/jobs/${jobId}/report`)
+      .then(r => setOdmReportData(r.data?.data || null))
+      .catch(() => {});
   }, []);
 
   // ── Open report inline ────────────────────────────────────────────────────
@@ -951,9 +982,10 @@ const OrthomosaicView: React.FC = () => {
             {/* Tab nav */}
             <div className="flex items-center gap-1">
               {([
-                { key: 'ortho', label: 'Ortho Map', icon: <Map className="w-3.5 h-3.5" /> },
-                { key: '3d',    label: '3D Model',  icon: <Box className="w-3.5 h-3.5" /> },
-                { key: 'mission', label: 'Mission & Reports', icon: <FileText className="w-3.5 h-3.5" /> },
+                { key: 'ortho',   label: 'Ortho Map',          icon: <Map className="w-3.5 h-3.5" /> },
+                { key: '3d',      label: '3D Model',            icon: <Box className="w-3.5 h-3.5" /> },
+                { key: 'report',  label: 'ODM Report',          icon: <FileText className="w-3.5 h-3.5" /> },
+                { key: 'mission', label: 'Mission & Reports',   icon: <FileArchive className="w-3.5 h-3.5" /> },
               ] as { key: ViewerTab; label: string; icon: React.ReactNode }[]).map(tab => (
                 <button
                   key={tab.key}
@@ -1011,6 +1043,185 @@ const OrthomosaicView: React.FC = () => {
               </Suspense>
             )}
 
+            {/* ODM Report tab */}
+            {viewerTab === 'report' && (
+              <div className="h-full flex flex-col overflow-hidden" style={{ background: '#020817' }}>
+                {odmReportData === null ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} />
+                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#475569' }}>Loading ODM Report…</p>
+                      <p className="text-[10px]" style={{ color: '#334155' }}>Extracting from archive on first load</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-0">
+                    {/* Left: Stats dashboard */}
+                    <div className="w-72 shrink-0 overflow-y-auto p-5 space-y-4" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(2,8,23,0.95)' }}>
+                      <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Processing Stats</p>
+
+                      {odmReportData.stats?.processing_statistics && (() => {
+                        const ps = odmReportData.stats!.processing_statistics!;
+                        const rs = odmReportData.stats!.reconstruction_statistics;
+                        const fs = odmReportData.stats!.features_statistics;
+                        const totalTime = ps.steps_times?.['Total Time'];
+                        const areaSqM = ps.area || 0;
+                        const areaSqKm = (areaSqM / 1_000_000).toFixed(4);
+                        const areaHa = (areaSqM / 10_000).toFixed(2);
+                        return (
+                          <>
+                            {/* Key metrics */}
+                            <div className="grid grid-cols-2 gap-2">
+                              {[{
+                                label: 'Images Used',
+                                value: rs?.reconstructed_shots_count ?? '—',
+                                sub: `of ${rs?.initial_shots_count ?? '?'} total`,
+                                color: '#4ade80',
+                              }, {
+                                label: 'Area Covered',
+                                value: `${areaHa} ha`,
+                                sub: `${areaSqKm} km²`,
+                                color: '#38bdf8',
+                              }, {
+                                label: 'Point Cloud',
+                                value: rs?.reconstructed_points_count?.toLocaleString() ?? '—',
+                                sub: 'points',
+                                color: '#a78bfa',
+                              }, {
+                                label: 'Reprojection',
+                                value: rs?.reprojection_error_pixels != null
+                                  ? `${rs.reprojection_error_pixels.toFixed(2)}px`
+                                  : '—',
+                                sub: 'avg error',
+                                color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#4ade80' : '#facc15',
+                              }].map(m => (
+                                <div key={m.label} className="rounded-xl p-3" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                  <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#475569' }}>{m.label}</p>
+                                  <p className="text-sm font-black" style={{ color: m.color }}>{m.value}</p>
+                                  <p className="text-[10px]" style={{ color: '#334155' }}>{m.sub}</p>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Processing times */}
+                            {ps.steps_times && (
+                              <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Processing Times</p>
+                                {Object.entries(ps.steps_times)
+                                  .filter(([k]) => k !== 'Total Time')
+                                  .map(([step, secs]) => {
+                                    const mins = Math.round((secs as number) / 60);
+                                    const pct = totalTime ? Math.round(((secs as number) / (totalTime as number)) * 100) : 0;
+                                    return (
+                                      <div key={step}>
+                                        <div className="flex justify-between text-[10px] mb-1">
+                                          <span style={{ color: '#94a3b8' }}>{step}</span>
+                                          <span className="font-bold" style={{ color: '#64748b' }}>{mins}m</span>
+                                        </div>
+                                        <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
+                                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                {totalTime && (
+                                  <div className="pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                                    <div className="flex justify-between text-[10px]">
+                                      <span className="font-black" style={{ color: '#e2e8f0' }}>Total</span>
+                                      <span className="font-black" style={{ color: '#38bdf8' }}>{Math.round((totalTime as number) / 60)}m</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Feature quality */}
+                            {fs && (
+                              <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Feature Quality</p>
+                                {[{
+                                  label: 'Detected / image',
+                                  val: fs.detected_features ? `avg ${fs.detected_features.mean?.toLocaleString()}` : '—',
+                                }, {
+                                  label: 'Reconstructed / image',
+                                  val: fs.reconstructed_features ? `avg ${fs.reconstructed_features.mean?.toLocaleString()}` : '—',
+                                }].map(f => (
+                                  <div key={f.label} className="flex justify-between text-[10px]">
+                                    <span style={{ color: '#64748b' }}>{f.label}</span>
+                                    <span className="font-bold" style={{ color: '#94a3b8' }}>{f.val}</span>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between text-[10px]">
+                                  <span style={{ color: '#64748b' }}>GPS</span>
+                                  <span className="font-bold" style={{ color: rs?.has_gps ? '#4ade80' : '#f87171' }}>{rs?.has_gps ? 'Yes' : 'No'}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px]">
+                                  <span style={{ color: '#64748b' }}>Components</span>
+                                  <span className="font-bold" style={{ color: rs?.components === 1 ? '#4ade80' : '#facc15' }}>{rs?.components}</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Date */}
+                            {ps.date && (
+                              <p className="text-[10px] text-center" style={{ color: '#334155' }}>Processed {ps.date}</p>
+                            )}
+                          </>
+                        );
+                      })()}
+
+                      {!odmReportData.stats && (
+                        <p className="text-xs" style={{ color: '#334155' }}>Stats not available.</p>
+                      )}
+
+                      {/* Download PDF button */}
+                      {odmReportData.hasPdf && odmReportData.pdfUrl && (
+                        <a
+                          href={odmReportData.pdfUrl}
+                          download="odm_report.pdf"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80"
+                          style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.25)', color: '#38bdf8' }}
+                        >
+                          <Download className="w-3.5 h-3.5" /> Download Full Report PDF
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Right: PDF iframe */}
+                    <div className="flex-1 min-w-0 flex flex-col">
+                      {odmReportData.hasPdf && odmReportData.pdfUrl ? (
+                        <iframe
+                          src={odmReportData.pdfUrl}
+                          className="flex-1 w-full border-0"
+                          title="ODM Processing Report"
+                          style={{ background: '#ffffff' }}
+                        />
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center flex-col gap-3">
+                          <FileText className="w-12 h-12" style={{ color: '#1e293b' }} />
+                          <p className="text-sm font-black" style={{ color: '#334155' }}>PDF report not available</p>
+                          <p className="text-xs" style={{ color: '#1e293b' }}>The report may still be extracting from the archive</p>
+                          <button
+                            onClick={() => {
+                              setOdmReportData(null);
+                              viewerJobId && apiClient.get(`/orthomosaic/jobs/${viewerJobId}/report`)
+                                .then(r => setOdmReportData(r.data?.data || null))
+                                .catch(() => setOdmReportData({ pdfUrl: null, hasPdf: false, hasStats: false, stats: null }));
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest"
+                            style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.2)', color: '#38bdf8' }}
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Retry
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 3D Model tab */}
             {viewerTab === '3d' && (
