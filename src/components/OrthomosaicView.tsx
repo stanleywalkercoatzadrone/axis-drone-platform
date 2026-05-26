@@ -264,12 +264,14 @@ const OrthomosaicView: React.FC = () => {
         notes: customNotes,
         stats: {
           imagesUsed: odmReportData.stats?.reconstruction_statistics?.reconstructed_shots_count,
-          areaCoveredHa: odmReportData.stats?.processing_statistics?.area
-            ? (odmReportData.stats.processing_statistics.area / 10_000).toFixed(2)
+          areaCoveredHa: odmReportData.stats?.processing_statistics?.area != null
+            ? (Number(odmReportData.stats.processing_statistics.area) / 10_000).toFixed(2)
             : undefined,
-          pointsCount: odmReportData.stats?.reconstruction_statistics?.reconstructed_points_count?.toLocaleString(),
-          reprojectionError: odmReportData.stats?.reconstruction_statistics?.reprojection_error_pixels
-            ? `${odmReportData.stats.reconstruction_statistics.reprojection_error_pixels.toFixed(2)}px`
+          pointsCount: odmReportData.stats?.reconstruction_statistics?.reconstructed_points_count != null
+            ? Number(odmReportData.stats.reconstruction_statistics.reconstructed_points_count).toLocaleString()
+            : undefined,
+          reprojectionError: odmReportData.stats?.reconstruction_statistics?.reprojection_error_pixels != null
+            ? `${Number(odmReportData.stats.reconstruction_statistics.reprojection_error_pixels).toFixed(2)}px`
             : undefined,
           durationMinutes: totalTime ? Math.round(totalTime / 60) : undefined,
           gpsEnabled: odmReportData.stats?.reconstruction_statistics?.has_gps,
@@ -1514,7 +1516,7 @@ const OrthomosaicView: React.FC = () => {
                                       { label: 'Images Used', value: rs?.reconstructed_shots_count ?? '—', sub: `of ${rs?.initial_shots_count ?? '?'}`, color: '#4ade80' },
                                       { label: 'Area', value: `${areaHa} ha`, sub: 'covered', color: '#38bdf8' },
                                       { label: 'Point Cloud', value: rs?.reconstructed_points_count?.toLocaleString() ?? '—', sub: 'points', color: '#a78bfa' },
-                                      { label: 'Reprojection', value: rs?.reprojection_error_pixels != null ? `${rs.reprojection_error_pixels.toFixed(2)}px` : '—', sub: 'avg error', color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#4ade80' : '#facc15' },
+                                      { label: 'Reprojection', value: rs?.reprojection_error_pixels != null ? `${Number(rs.reprojection_error_pixels).toFixed(2)}px` : '—', sub: 'avg error', color: rs?.reprojection_error_pixels != null && Number(rs.reprojection_error_pixels) < 1.0 ? '#4ade80' : '#facc15' },
                                     ].map(m => (
                                       <div key={m.label} className="rounded-xl p-3" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                                         <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#475569' }}>{m.label}</p>
@@ -1527,7 +1529,7 @@ const OrthomosaicView: React.FC = () => {
                                     <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
                                       <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Processing Times</p>
                                       {Object.entries(ps.steps_times).filter(([k]) => k !== 'Total Time').map(([step, secs]) => {
-                                        const mins = Math.round((secs as number) / 60);
+                                        const mins = Math.round(Number(secs) / 60);
                                         const pct = totalTime ? Math.round(((secs as number) / (totalTime as number)) * 100) : 0;
                                         return (
                                           <div key={step}>
@@ -1536,7 +1538,7 @@ const OrthomosaicView: React.FC = () => {
                                           </div>
                                         );
                                       })}
-                                      {totalTime && <div className="pt-1 border-t flex justify-between text-[10px]" style={{ borderColor: 'rgba(255,255,255,0.06)' }}><span className="font-black" style={{ color: '#e2e8f0' }}>Total</span><span className="font-black" style={{ color: '#38bdf8' }}>{Math.round((totalTime as number) / 60)}m</span></div>}
+                                      {totalTime && <div className="pt-1 border-t flex justify-between text-[10px]" style={{ borderColor: 'rgba(255,255,255,0.06)' }}><span className="font-black" style={{ color: '#e2e8f0' }}>Total</span><span className="font-black" style={{ color: '#38bdf8' }}>{Math.round(Number(totalTime) / 60)}m</span></div>}
                                     </div>
                                   )}
                                   {fs && (
