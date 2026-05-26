@@ -68,6 +68,7 @@ import { SolarCommandCenter } from './src/components/dashboard/SolarCommandCente
 import SystemAIView from './src/components/SystemAIView';
 import UploadCenter from './src/components/UploadCenter';
 import AIUploadsAdmin from './src/components/AIUploadsAdmin';
+import UploadCenterHub from './src/components/UploadCenterHub';
 import PersonnelTracker from './src/components/PersonnelTracker';
 import { PilotPerformanceView } from './src/components/dashboard/PilotPerformanceView';
 import ClientList from './src/components/ClientList';
@@ -92,6 +93,7 @@ import DispatchBoard from './src/components/DispatchBoard';
 import OrganizationsView from './src/components/OrganizationsView';
 import ReportingSuite from './src/components/ReportingSuite';
 import SocialMediaSettings from './src/components/SocialMediaSettings';
+import BESSInspectionView from './src/components/BESSInspectionView';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -102,7 +104,7 @@ type NavKey =
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
   | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry'
-  | 'dispatch' | 'reports' | 'organizations' | 'social-media';
+  | 'dispatch' | 'reports' | 'organizations' | 'social-media' | 'bess';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -142,6 +144,7 @@ const NAV: NavGroup[] = [
       { key: 'orthomosaic',  label: 'nav.orthomosaic' },
       { key: 'media',        label: 'nav.mediaGallery' },
       { key: 'reports',      label: 'nav.reports' },
+      { key: 'bess',         label: 'BESS QA/QC', icon: Zap },
     ],
   },
   {
@@ -225,7 +228,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'organizations', 'social-media',
+      'dispatch', 'reports', 'organizations', 'social-media', 'bess',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -414,6 +417,7 @@ export default function AppShell() {
     'orthomosaic':           'Orthomosaic',
     'interest-inquiry':      'Interest Inquiry',
     'social-media':          'Social Media',
+    'bess':                  'BESS QA/QC',
   };
 
   function renderView() {
@@ -432,7 +436,7 @@ export default function AppShell() {
       case 'vendor-expenses':      return <ExpensesView />;
       case 'pilot-applications':   return <PilotApplications />;
       case 'pilot-network-admin':  return <PilotNetworkAdmin />;
-      case 'uploads':             return <AIUploadsAdmin />;
+      case 'uploads':             return <UploadCenterHub />;
       case 'orthomosaic':         return <OrthomosaicView />;
       case 'interest-inquiry':    return <PilotInterestInquiry />;
       case 'neural-ai':         return <SystemAIView />;
@@ -458,6 +462,7 @@ export default function AppShell() {
       case 'system-settings':  return <SettingsView />;
       case 'user-iam':         return <UserManagement />;
       case 'social-media':     return <SocialMediaSettings />;
+      case 'bess':             return <BESSInspectionView />;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>

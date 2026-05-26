@@ -906,7 +906,9 @@ router.post('/:jobId/report', async (req, res) => {
                 jobId, reportId, reportUrl,
                 missionId: j.mission_id,
                 siteName: j.site_name,
-                riskScore, riskLevel, totalIssues,
+                riskScore:   reportData.riskScore,
+                riskLevel:   reportData.riskLevel,
+                totalIssues: reportData.totalIssues,
                 generatedAt: reportData.generatedAt,
             });
         }
