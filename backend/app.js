@@ -49,6 +49,7 @@ import regionCountryRoutes from './routes/regionCountryRoutes.js';  // Geographi
 import pilotMetricsRoutes from './routes/pilotMetrics.js';          // Pilot Performance Metrics
 import missionsRoutes from './routes/missions.js';                   // RBAC Mission Management
 import lbdRoutes from './routes/lbd.js';                             // LBD Defect Tracking
+import bessRoutes from './routes/bess.js';                           // BESS QA/QC Module
 import clientPortalRoutes from './routes/clientPortal.js';           // Client Portal Scoped Views
 import vendorExpensesRoutes from './routes/expenses.js';        // Vendor & Expenses Ledger
 import migrationsRoutes from './routes/migrations.js';                // Emergency DB Migrations
@@ -220,6 +221,7 @@ app.use('/api/regions', regionCountryRoutes);           // Geographic Coverage (
 app.use('/api/pilot-metrics', pilotMetricsRoutes);     // Pilot Performance Metrics
 app.use('/api/missions', missionsRoutes);               // RBAC Mission Management
 app.use('/api/lbd', lbdRoutes);                         // LBD Defect Tracking
+app.use('/api/bess', bessRoutes);                       // BESS QA/QC Module
 app.use('/api/client', clientPortalRoutes);             // Client Portal Scoped Views
 app.use('/api/vendor-expenses', vendorExpensesRoutes);  // Vendor & Expenses Ledger
 app.use('/api/migrations', migrationsRoutes);           // Emergency DB Migrations
@@ -529,6 +531,11 @@ app.get('/api/documents', protect, async (req, res) => {
         `);
         await dbQuery(`CREATE INDEX IF NOT EXISTS idx_pilot_performance_pilot_id ON pilot_performance(pilot_id)`);
         console.log('✅ Startup migration: pilot_performance table ready');
+
+        // ── candidate_packets: country_id (was missing from original migration) ──
+        await dbQuery(`ALTER TABLE candidate_packets ADD COLUMN IF NOT EXISTS country_id UUID REFERENCES countries(id) ON DELETE SET NULL`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_candidate_packets_country ON candidate_packets(country_id)`);
+        console.log('✅ Startup migration: candidate_packets.country_id ready');
 
         // ── Phase 12: Security events table ──────────────────────────────────
         await dbQuery(`
@@ -1427,5 +1434,81 @@ console.log('✅ App Logic Loaded');
         }
     } catch (e) {
         console.warn('[social-media] startup skipped:', e.message);
+    }
+})();
+
+// ── BESS QA/QC Startup Migration ─────────────────────────────────────────────
+(async () => {
+    try {
+        await dbQuery(`
+            CREATE TABLE IF NOT EXISTS bess_inspections (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                deployment_id   UUID REFERENCES deployments(id) ON DELETE SET NULL,
+                tenant_id       UUID,
+                inspection_type TEXT NOT NULL DEFAULT 'site_survey',
+                status          TEXT NOT NULL DEFAULT 'draft',
+                site_name       TEXT,
+                site_address    TEXT,
+                inspector_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+                inspector_name  TEXT,
+                started_at      TIMESTAMPTZ DEFAULT NOW(),
+                completed_at    TIMESTAMPTZ,
+                notes           TEXT,
+                defect_count    INT DEFAULT 0,
+                critical_count  INT DEFAULT 0,
+                pass_rate       NUMERIC(5,2),
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_insp_deployment ON bess_inspections(deployment_id)`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_insp_status     ON bess_inspections(status)`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_insp_created    ON bess_inspections(created_at DESC)`);
+
+        await dbQuery(`
+            CREATE TABLE IF NOT EXISTS bess_defects (
+                id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                inspection_id    UUID NOT NULL REFERENCES bess_inspections(id) ON DELETE CASCADE,
+                component_type   TEXT NOT NULL,
+                component_id     TEXT,
+                defect_category  TEXT NOT NULL,
+                severity         TEXT NOT NULL DEFAULT 'minor',
+                description      TEXT NOT NULL,
+                lat              NUMERIC(10,7),
+                lng              NUMERIC(10,7),
+                photo_url        TEXT,
+                status           TEXT NOT NULL DEFAULT 'open',
+                is_recurring     BOOLEAN DEFAULT FALSE,
+                notes            TEXT,
+                resolved_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+                resolved_at      TIMESTAMPTZ,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                updated_at       TIMESTAMPTZ DEFAULT NOW()
+            )
+        `);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_defects_insp     ON bess_defects(inspection_id)`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_defects_severity  ON bess_defects(severity)`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_defects_status    ON bess_defects(status)`);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_defects_component ON bess_defects(component_type, defect_category)`);
+
+        await dbQuery(`
+            CREATE TABLE IF NOT EXISTS bess_checklist_responses (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                inspection_id UUID NOT NULL REFERENCES bess_inspections(id) ON DELETE CASCADE,
+                section       TEXT NOT NULL,
+                item_key      TEXT NOT NULL,
+                item_label    TEXT,
+                response      TEXT,
+                notes         TEXT,
+                photo_url     TEXT,
+                created_at    TIMESTAMPTZ DEFAULT NOW(),
+                updated_at    TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (inspection_id, item_key)
+            )
+        `);
+        await dbQuery(`CREATE INDEX IF NOT EXISTS idx_bess_checklist_insp ON bess_checklist_responses(inspection_id)`);
+        console.log('✅ Startup migration: bess_inspections, bess_defects, bess_checklist_responses tables ready');
+    } catch (e) {
+        console.warn('[bess-migration] startup skipped:', e.message);
     }
 })();

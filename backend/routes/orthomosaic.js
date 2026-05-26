@@ -993,18 +993,11 @@ router.get('/jobs/:jobId/report', protect, async (req, res) => {
             await extractOrthoAssets(prefix);
         }
 
-        // Generate signed URL for PDF (2-hour expiry)
+        // Return same-origin proxy URL to prevent auto-downloading cross-origin PDFs in iframes
         let pdfUrl = null;
         const [pdfExistsNow] = await gcs.bucket(GCS_BUCKET).file(pdfPath).exists().catch(() => [false]);
         if (pdfExistsNow) {
-            const [url] = await gcs.bucket(GCS_BUCKET).file(pdfPath).getSignedUrl({
-                version: 'v4',
-                action: 'read',
-                expires: Date.now() + 2 * 60 * 60 * 1000,
-                responseDisposition: 'inline',
-                responseType: 'application/pdf',
-            });
-            pdfUrl = url;
+            pdfUrl = `/api/orthomosaic/jobs/${jobId}/proxy-report-pdf`;
         }
 
         // Read stats.json and parse it
@@ -1410,6 +1403,33 @@ router.get('/jobs/:jobId/proxy-dsm', protect, async (req, res) => {
         file.createReadStream().pipe(res);
     } catch (err) {
         logger.error('[orthomosaic/proxy-dsm]', err);
+        res.status(500).end();
+    }
+});
+
+// ── GET /jobs/:jobId/proxy-report-pdf — stream report.pdf to browser ──────────
+router.get('/jobs/:jobId/proxy-report-pdf', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.upload_set_gcs_prefix FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).end();
+        if (!gcs) return res.status(503).end();
+        const prefix = jobRes.rows[0].upload_set_gcs_prefix || '';
+        const file = gcs.bucket(GCS_BUCKET).file(`${prefix}outputs/report.pdf`);
+        const [exists] = await file.exists();
+        if (!exists) return res.status(404).json({ success: false, message: 'Report PDF not available.' });
+        const [meta] = await file.getMetadata();
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Length', meta.size);
+        res.setHeader('Content-Disposition', 'inline');
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        file.createReadStream().pipe(res);
+    } catch (err) {
+        logger.error('[orthomosaic/proxy-report-pdf]', err);
         res.status(500).end();
     }
 });
