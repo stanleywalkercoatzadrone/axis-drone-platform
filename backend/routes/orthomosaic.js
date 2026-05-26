@@ -1017,6 +1017,92 @@ router.get('/jobs/:jobId/report', protect, async (req, res) => {
     }
 });
 
+// ── GET /jobs/:jobId/customization ──
+router.get('/jobs/:jobId/customization', protect, async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix
+             FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+
+        const prefix = job.upload_set_gcs_prefix || '';
+        const customPath = `${prefix}outputs/customization.json`;
+
+        if (!gcs) {
+            return res.json({ success: true, data: null });
+        }
+
+        const [exists] = await gcs.bucket(GCS_BUCKET).file(customPath).exists().catch(() => [false]);
+        if (!exists) {
+            return res.json({ success: true, data: null });
+        }
+
+        const [content] = await gcs.bucket(GCS_BUCKET).file(customPath).download().catch(() => [null]);
+        let data = null;
+        if (content) {
+            try {
+                data = JSON.parse(content.toString());
+            } catch (err) {
+                logger.warn(`[orthomosaic/customization] parse error:`, err);
+            }
+        }
+        res.json({ success: true, data });
+    } catch (err) {
+        logger.error('[orthomosaic/customization GET]', err);
+        res.status(500).json({ success: false, message: 'Failed to get report customization.' });
+    }
+});
+
+// ── POST /jobs/:jobId/customization ──
+router.post('/jobs/:jobId/customization', protect, async (req, res) => {
+    try {
+        if (isClientRole(req.user)) {
+            return res.status(403).json({ success: false, message: 'Client accounts cannot save report customizations.' });
+        }
+        const { jobId } = req.params;
+        const { customization } = req.body;
+        if (!customization) {
+            return res.status(400).json({ success: false, message: 'customization payload required.' });
+        }
+
+        const jobRes = await query(
+            `SELECT j.id, j.tenant_id, j.upload_set_gcs_prefix
+             FROM orthomosaic_jobs j
+             WHERE j.id = $1 AND j.tenant_id = $2`,
+            [jobId, req.user.tenantId]
+        );
+        if (!jobRes.rows.length) return res.status(404).json({ success: false, message: 'Job not found.' });
+        const job = jobRes.rows[0];
+
+        const prefix = job.upload_set_gcs_prefix || '';
+        const customPath = `${prefix}outputs/customization.json`;
+
+        if (!gcs) {
+            return res.status(503).json({ success: false, message: 'Storage service unavailable.' });
+        }
+
+        // Limit customization payload size to 2MB (DoS protection)
+        const jsonStr = JSON.stringify(customization);
+        if (jsonStr.length > 2 * 1024 * 1024) {
+            return res.status(413).json({ success: false, message: 'Customization payload too large.' });
+        }
+
+        await gcs.bucket(GCS_BUCKET).file(customPath).save(jsonStr, {
+            metadata: { contentType: 'application/json' }
+        });
+
+        res.json({ success: true, message: 'Report customization saved successfully.' });
+    } catch (err) {
+        logger.error('[orthomosaic/customization POST]', err);
+        res.status(500).json({ success: false, message: 'Failed to save report customization.' });
+    }
+});
+
 // ── GET /jobs/:jobId/linked-reports — reports linked to same mission ─────────
 router.get('/jobs/:jobId/linked-reports', protect, async (req, res) => {
     try {

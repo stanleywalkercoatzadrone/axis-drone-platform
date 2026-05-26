@@ -7,6 +7,7 @@ import {
   StopCircle, FolderOpen, Cuboid
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import { exportOrthoReportPDF } from '../../modules/ai-reporting/components/exportOrthoReportPDF';
 
 const OrthoMapViewer = lazy(() => import('./viewers/OrthoMapViewer'));
 const Model3DViewer = lazy(() => import('./viewers/Model3DViewer'));
@@ -51,11 +52,13 @@ interface OrthoJob {
   max_retries?: number;
   output_count?: number;
   outputs?: OrthoOutput[] | null;
+  flight_date?: string | null;
+  pilot_id?: string | null;
 }
 
 interface LinkedData {
   missionId: string;
-  mission: { id: string; title: string; site_name: string; type: string; status: string; date: string; location: string; } | null;
+  mission: { id: string; title: string; site_name: string; type: string; status: string; date: string; location: string; client_name?: string | null; } | null;
   reports: Array<{ id: string; title: string; status: string; approval_status: string; created_at: string; }>;
   files: Array<{ id: string; name: string; url: string; type: string; size: number; created_at: string; }>;
 }
@@ -99,6 +102,9 @@ interface OdmReportData {
     };
   } | null;
 }
+
+const today = () =>
+  new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
@@ -168,6 +174,127 @@ const OrthomosaicView: React.FC = () => {
   const [localObjUrl, setLocalObjUrl] = useState<string | null>(null);
   const [localOrthoUrl, setLocalOrthoUrl] = useState<string | null>(null);
   const [odmReportData, setOdmReportData] = useState<OdmReportData | null>(null);
+
+  // ── Customization States ──────────────────────────────────────────────────
+  interface OrthoCustomization {
+    title?: string;
+    subtitle?: string;
+    notes?: string;
+    theme?: string;
+    clientName?: string;
+    companyName?: string;
+    accentColor?: string;
+    logo?: string;
+    showStats?: boolean;
+    showFeatures?: boolean;
+    showReconstruction?: boolean;
+    showPreview?: boolean;
+  }
+
+  const [customization, setCustomization] = useState<OrthoCustomization | null>(null);
+  const [customTitle, setCustomTitle] = useState('');
+  const [customSubtitle, setCustomSubtitle] = useState('');
+  const [customNotes, setCustomNotes] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [companyName, setCompanyName] = useState('AXIS PLATFORM');
+  const [accentColor, setAccentColor] = useState('#38bdf8');
+  const [customTheme, setCustomTheme] = useState('TECHNICAL');
+  const [showStats, setShowStats] = useState(true);
+  const [showFeatures, setShowFeatures] = useState(true);
+  const [showReconstruction, setShowReconstruction] = useState(true);
+  const [showPreview, setShowPreview] = useState(true);
+  const [isEditingReport, setIsEditingReport] = useState(false);
+  const [isCustomMode, setIsCustomMode] = useState(true);
+  const [savingCustomization, setSavingCustomization] = useState(false);
+
+  const handleSaveCustomization = async () => {
+    if (!viewerJobId) return;
+    setSavingCustomization(true);
+    try {
+      const payload = {
+        title: customTitle,
+        subtitle: customSubtitle,
+        notes: customNotes,
+        clientName: clientName,
+        companyName: companyName,
+        accentColor: accentColor,
+        theme: customTheme,
+        showStats,
+        showFeatures,
+        showReconstruction,
+        showPreview
+      };
+      await apiClient.post(`/orthomosaic/jobs/${viewerJobId}/customization`, {
+        customization: payload
+      });
+      setCustomization(payload);
+      setIsEditingReport(false);
+      setSuccess('Report customization saved successfully.');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save customization.');
+      setTimeout(() => setError(''), 4000);
+    } finally {
+      setSavingCustomization(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!viewerJobId || !odmReportData) return;
+    try {
+      const rawSteps = odmReportData.stats?.processing_statistics?.steps_times || {};
+      const totalTime = rawSteps['Total Time'] || 1;
+      const stepsTimes = Object.entries(rawSteps)
+        .filter(([k]) => k !== 'Total Time')
+        .map(([step, secs]) => ({
+          step,
+          mins: Math.round((secs as number) / 60),
+          pct: Math.round(((secs as number) / totalTime) * 100)
+        }));
+
+      const activeJobObj = jobs.find(j => j.id === viewerJobId);
+      const projName = activeJobObj?.project_name || 'Orthomosaic Quality & Processing Report';
+
+      await exportOrthoReportPDF({
+        projectName: customTitle || projName,
+        siteName: activeJobObj?.site_name || '',
+        clientName: clientName || linkedData?.mission?.client_name || 'General Stakeholders',
+        flightDate: activeJobObj?.flight_date || '',
+        pilotName: activeJobObj?.pilot_id || '',
+        notes: customNotes,
+        stats: {
+          imagesUsed: odmReportData.stats?.reconstruction_statistics?.reconstructed_shots_count,
+          areaCoveredHa: odmReportData.stats?.processing_statistics?.area
+            ? (odmReportData.stats.processing_statistics.area / 10_000).toFixed(2)
+            : undefined,
+          pointsCount: odmReportData.stats?.reconstruction_statistics?.reconstructed_points_count?.toLocaleString(),
+          reprojectionError: odmReportData.stats?.reconstruction_statistics?.reprojection_error_pixels
+            ? `${odmReportData.stats.reconstruction_statistics.reprojection_error_pixels.toFixed(2)}px`
+            : undefined,
+          durationMinutes: totalTime ? Math.round(totalTime / 60) : undefined,
+          gpsEnabled: odmReportData.stats?.reconstruction_statistics?.has_gps,
+          componentsCount: odmReportData.stats?.reconstruction_statistics?.components,
+          avgFeaturesDetected: odmReportData.stats?.features_statistics?.detected_features?.mean?.toLocaleString(),
+          avgFeaturesReconstructed: odmReportData.stats?.features_statistics?.reconstructed_features?.mean?.toLocaleString(),
+          stepsTimes
+        },
+        previewUrl: previewData?.previewUrl || undefined,
+        theme: customTheme,
+        branding: {
+          primaryColor: accentColor,
+          companyName: companyName
+        },
+        config: {
+          showStats,
+          showFeatures,
+          showReconstruction,
+          showPreview
+        }
+      });
+    } catch (err: any) {
+      console.error('Failed to export PDF:', err);
+    }
+  };
 
   // ── Load missions + jobs ──────────────────────────────────────────────────
   useEffect(() => {
@@ -418,9 +545,44 @@ const OrthomosaicView: React.FC = () => {
     // Pre-fetch ODM report data in background
     setOdmReportData(null);
     apiClient.get(`/orthomosaic/jobs/${jobId}/report`)
-      .then(r => setOdmReportData(r.data?.data || null))
+      .then(r => setOdmReportData(r.data?.data || { pdfUrl: null, hasPdf: false, hasStats: false, stats: null }))
+      .catch(() => setOdmReportData({ pdfUrl: null, hasPdf: false, hasStats: false, stats: null }));
+
+    // Fetch customization
+    setCustomization(null);
+    setIsEditingReport(false);
+    apiClient.get(`/orthomosaic/jobs/${jobId}/customization`)
+      .then(res => {
+        const cust = res.data?.data;
+        if (cust) {
+          setCustomization(cust);
+          setCustomTitle(cust.title || '');
+          setCustomSubtitle(cust.subtitle || '');
+          setCustomNotes(cust.notes || '');
+          setClientName(cust.clientName || '');
+          setCompanyName(cust.companyName || 'AXIS PLATFORM');
+          setAccentColor(cust.accentColor || '#38bdf8');
+          setCustomTheme(cust.theme || 'TECHNICAL');
+          setShowStats(cust.showStats !== false);
+          setShowFeatures(cust.showFeatures !== false);
+          setShowReconstruction(cust.showReconstruction !== false);
+          setShowPreview(cust.showPreview !== false);
+        } else {
+          setCustomTitle('');
+          setCustomSubtitle('');
+          setCustomNotes('');
+          setClientName('');
+          setCompanyName('AXIS PLATFORM');
+          setAccentColor('#38bdf8');
+          setCustomTheme('TECHNICAL');
+          setShowStats(true);
+          setShowFeatures(true);
+          setShowReconstruction(true);
+          setShowPreview(true);
+        }
+      })
       .catch(() => {});
-  }, []);
+  }, [jobs, linkedData]);
 
   // ── Open report inline ────────────────────────────────────────────────────
   const openReport = useCallback(async (reportId: string) => {
@@ -1045,176 +1207,309 @@ const OrthomosaicView: React.FC = () => {
 
             {/* ODM Report tab */}
             {viewerTab === 'report' && (
-              <div className="h-full flex flex-col overflow-hidden" style={{ background: '#020817' }}>
-                {odmReportData === null ? (
+              <div className="h-full flex flex-col" style={{ background: '#020817' }}>
+
+                {/* ── Top action bar — ALWAYS VISIBLE ─────────────────────────── */}
+                <div className="shrink-0 flex items-center justify-between px-6 py-3" style={{ background: '#0f172a', borderBottom: '2px solid #0ea5e9' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#475569' }}>View</span>
+                    <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid rgba(14,165,233,0.3)', background: '#020817' }}>
+                      <button
+                        id="btn-branded-report"
+                        onClick={() => setIsCustomMode(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                        style={isCustomMode ? { background: '#0ea5e9', color: '#fff' } : { background: 'transparent', color: '#475569' }}
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        Branded Report
+                      </button>
+                      <button
+                        id="btn-standard-report"
+                        onClick={() => { setIsCustomMode(false); setIsEditingReport(false); }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                        style={!isCustomMode ? { background: '#0ea5e9', color: '#fff' } : { background: 'transparent', color: '#475569' }}
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        Raw ODM Report
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isCustomMode && (
+                      <button
+                        id="btn-customize-branding"
+                        onClick={() => setIsEditingReport(!isEditingReport)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest cursor-pointer transition-all"
+                        style={{
+                          background: isEditingReport ? 'rgba(234,179,8,0.15)' : 'rgba(255,255,255,0.05)',
+                          border: `1px solid ${isEditingReport ? 'rgba(234,179,8,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          color: isEditingReport ? '#facc15' : '#94a3b8'
+                        }}
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        {isEditingReport ? 'Hide Settings' : 'Customize'}
+                      </button>
+                    )}
+                    <button
+                      id="btn-export-pdf"
+                      onClick={handleExportPDF}
+                      disabled={odmReportData === null}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-[11px] font-black uppercase tracking-widest cursor-pointer transition-all disabled:opacity-40"
+                      style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export PDF
+                    </button>
+                  </div>
+                </div>
+
+                {/* Loading */}
+                {odmReportData === null && (
                   <div className="flex-1 flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="w-8 h-8 animate-spin" style={{ color: '#38bdf8' }} />
-                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#475569' }}>Loading ODM Report…</p>
-                      <p className="text-[10px]" style={{ color: '#334155' }}>Extracting from archive on first load</p>
+                      <p className="text-xs font-black uppercase tracking-widest" style={{ color: '#475569' }}>Loading report data…</p>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex h-full min-h-0">
-                    {/* Left: Stats dashboard */}
-                    <div className="w-72 shrink-0 overflow-y-auto p-5 space-y-4" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(2,8,23,0.95)' }}>
-                      <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Processing Stats</p>
+                )}
 
-                      {odmReportData.stats?.processing_statistics && (() => {
-                        const ps = odmReportData.stats!.processing_statistics!;
-                        const rs = odmReportData.stats!.reconstruction_statistics;
-                        const fs = odmReportData.stats!.features_statistics;
-                        const totalTime = ps.steps_times?.['Total Time'];
-                        const areaSqM = ps.area || 0;
-                        const areaSqKm = (areaSqM / 1_000_000).toFixed(4);
-                        const areaHa = (areaSqM / 10_000).toFixed(2);
-                        return (
-                          <>
-                            {/* Key metrics */}
-                            <div className="grid grid-cols-2 gap-2">
-                              {[{
-                                label: 'Images Used',
-                                value: rs?.reconstructed_shots_count ?? '—',
-                                sub: `of ${rs?.initial_shots_count ?? '?'} total`,
-                                color: '#4ade80',
-                              }, {
-                                label: 'Area Covered',
-                                value: `${areaHa} ha`,
-                                sub: `${areaSqKm} km²`,
-                                color: '#38bdf8',
-                              }, {
-                                label: 'Point Cloud',
-                                value: rs?.reconstructed_points_count?.toLocaleString() ?? '—',
-                                sub: 'points',
-                                color: '#a78bfa',
-                              }, {
-                                label: 'Reprojection',
-                                value: rs?.reprojection_error_pixels != null
-                                  ? `${rs.reprojection_error_pixels.toFixed(2)}px`
-                                  : '—',
-                                sub: 'avg error',
-                                color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#4ade80' : '#facc15',
-                              }].map(m => (
-                                <div key={m.label} className="rounded-xl p-3" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                  <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#475569' }}>{m.label}</p>
-                                  <p className="text-sm font-black" style={{ color: m.color }}>{m.value}</p>
-                                  <p className="text-[10px]" style={{ color: '#334155' }}>{m.sub}</p>
+                {/* Content */}
+                {odmReportData !== null && (
+                  <div className="flex-1 flex min-h-0 overflow-hidden">
+                    {/* Customization sidebar */}
+                    {isCustomMode && isEditingReport && (
+                      <div className="w-72 shrink-0 overflow-y-auto p-5 space-y-4" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(15,23,42,0.98)' }}>
+                        <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#475569' }}>Report Settings</p>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Report Title</label>
+                          <input type="text" value={customTitle} placeholder={geoData?.stats?.siteName || 'Processing & Quality Report'} onChange={e => setCustomTitle(e.target.value)} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Subtitle</label>
+                          <input type="text" value={customSubtitle} placeholder="Photogrammetry Quality Audit" onChange={e => setCustomSubtitle(e.target.value)} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Client Name</label>
+                          <input type="text" value={clientName} placeholder="General Stakeholders" onChange={e => setClientName(e.target.value)} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Company Name</label>
+                          <input type="text" value={companyName} placeholder="AXIS PLATFORM" onChange={e => setCompanyName(e.target.value)} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Theme</label>
+                          <select value={customTheme} onChange={e => setCustomTheme(e.target.value)} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500">
+                            <option value="TECHNICAL">TECHNICAL (Dark Slate)</option>
+                            <option value="EXECUTIVE">EXECUTIVE (Premium Ivory)</option>
+                            <option value="MINIMAL">MINIMAL (Monochrome)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Accent Color</label>
+                          <div className="flex items-center gap-2">
+                            <input type="color" value={accentColor} onChange={e => setAccentColor(e.target.value)} className="w-8 h-8 rounded border-0 cursor-pointer bg-transparent" />
+                            <span className="text-xs font-mono text-slate-300 uppercase">{accentColor}</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Notes & Observations</label>
+                          <textarea value={customNotes} placeholder="Enter observations..." onChange={e => setCustomNotes(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-lg text-xs font-bold text-white bg-slate-800 border border-slate-700 outline-none focus:border-sky-500 resize-y" />
+                        </div>
+                        <div className="space-y-2 pt-2 border-t border-slate-800">
+                          <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#334155' }}>Sections</p>
+                          {([
+                            { label: 'Statistics', val: showStats, set: setShowStats },
+                            { label: 'Feature Details', val: showFeatures, set: setShowFeatures },
+                            { label: 'Step Distribution', val: showReconstruction, set: setShowReconstruction },
+                            { label: 'Map Preview', val: showPreview, set: setShowPreview },
+                          ] as { label: string; val: boolean; set: (v: boolean) => void }[]).map(({ label, val, set }) => (
+                            <label key={label} className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
+                              <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} className="rounded border-slate-700 bg-slate-800" />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button onClick={handleSaveCustomization} disabled={savingCustomization} className="flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest text-white disabled:opacity-40" style={{ background: 'linear-gradient(135deg, #0ea5e9, #0284c7)' }}>
+                            {savingCustomization ? 'Saving…' : 'Save'}
+                          </button>
+                          <button onClick={() => setIsEditingReport(false)} className="px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest bg-slate-800 border border-slate-700 text-slate-300">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Main panel */}
+                    <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+                      {isCustomMode ? (
+                        <div className="flex-1 overflow-y-auto p-8 flex justify-center" style={{ background: '#0a0f1d' }}>
+                          <div
+                            id="ortho-branded-report-preview"
+                            className="w-[700px] min-h-[905px] p-12 flex flex-col justify-between shadow-2xl relative"
+                            style={{ fontFamily: 'Arial, sans-serif', color: customTheme === 'TECHNICAL' ? '#f8fafc' : '#1e293b', background: customTheme === 'TECHNICAL' ? '#0b0f19' : '#ffffff', border: customTheme === 'MINIMAL' ? '1px solid #e2e8f0' : 'none' }}
+                          >
+                            {customTheme === 'TECHNICAL' && (
+                              <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+                                <div className="absolute top-0 right-0 w-[400px] h-[400px] rounded-full opacity-10" style={{ background: `radial-gradient(circle, ${accentColor} 0%, transparent 70%)` }} />
+                                <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+                              </div>
+                            )}
+                            <div className="relative z-10 space-y-6">
+                              <div className="flex justify-between items-start border-b pb-4" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.1)' : '#e2e8f0' }}>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded flex items-center justify-center font-black text-white text-base shadow-md" style={{ background: `linear-gradient(135deg, ${accentColor}, #2563eb)` }}>A</div>
+                                  <div>
+                                    <p className="text-xs font-black uppercase tracking-wider" style={{ color: customTheme === 'TECHNICAL' ? '#fff' : '#0f172a' }}>{companyName}</p>
+                                    <p className="text-[8px] font-black uppercase tracking-widest opacity-60">Orthomosaic QC Deliverable</p>
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
-
-                            {/* Processing times */}
-                            {ps.steps_times && (
-                              <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Processing Times</p>
-                                {Object.entries(ps.steps_times)
-                                  .filter(([k]) => k !== 'Total Time')
-                                  .map(([step, secs]) => {
-                                    const mins = Math.round((secs as number) / 60);
-                                    const pct = totalTime ? Math.round(((secs as number) / (totalTime as number)) * 100) : 0;
-                                    return (
-                                      <div key={step}>
-                                        <div className="flex justify-between text-[10px] mb-1">
-                                          <span style={{ color: '#94a3b8' }}>{step}</span>
-                                          <span className="font-bold" style={{ color: '#64748b' }}>{mins}m</span>
-                                        </div>
-                                        <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(30,41,59,0.8)' }}>
-                                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} />
-                                        </div>
+                                <div className="text-right text-[9px] font-bold text-slate-500">
+                                  <p>REPORT DATE: {today()}</p>
+                                  {geoData?.stats?.qualityTier && <p>PROCESSING: {geoData.stats.qualityTier.toUpperCase()}</p>}
+                                </div>
+                              </div>
+                              <div>
+                                <h2 className="text-2xl font-black tracking-tight" style={{ color: customTheme === 'TECHNICAL' ? '#fff' : '#0f172a' }}>
+                                  {customTitle || geoData?.stats?.siteName || 'Processing & Quality Report'}
+                                </h2>
+                                <p className="text-xs font-black uppercase tracking-widest mt-1" style={{ color: accentColor }}>{customSubtitle || 'Photogrammetry Quality Audit'}</p>
+                                <p className="text-xs mt-2" style={{ color: customTheme === 'TECHNICAL' ? '#cbd5e1' : '#475569' }}>
+                                  Client: <strong style={{ color: customTheme === 'TECHNICAL' ? '#fff' : '#0f172a' }}>{clientName || 'General Stakeholders'}</strong>
+                                </p>
+                              </div>
+                              {customNotes && (
+                                <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', borderLeft: `4px solid ${accentColor}` }}>
+                                  <p className="text-[9px] font-black uppercase tracking-widest mb-1.5" style={{ color: accentColor }}>Notes & Observations</p>
+                                  <p className="text-xs leading-relaxed" style={{ color: customTheme === 'TECHNICAL' ? '#cbd5e1' : '#334155' }}>{customNotes}</p>
+                                </div>
+                              )}
+                              {showStats && odmReportData.stats?.processing_statistics && (
+                                <div className="space-y-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Quality & Coverage Metrics</p>
+                                  <div className="grid grid-cols-3 gap-3">
+                                    {[
+                                      { label: 'Area Covered', val: `${(odmReportData.stats.processing_statistics.area / 10_000).toFixed(2)} ha`, color: '#16a34a', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#bbf7d0' },
+                                      { label: 'Points', val: odmReportData.stats.reconstruction_statistics?.reconstructed_points_count?.toLocaleString() || '—', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#bfdbfe' },
+                                      { label: 'Reprojection', val: odmReportData.stats.reconstruction_statistics?.reprojection_error_pixels ? `${odmReportData.stats.reconstruction_statistics.reprojection_error_pixels.toFixed(2)}px` : '—', color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e9d5ff' },
+                                    ].map(m => (
+                                      <div key={m.label} className="p-3.5 rounded-xl border text-center" style={{ background: m.bg, borderColor: m.bd }}>
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">{m.label}</p>
+                                        <p className="text-lg font-black mt-1" style={{ color: m.color }}>{m.val}</p>
                                       </div>
-                                    );
-                                  })}
-                                {totalTime && (
-                                  <div className="pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                                    <div className="flex justify-between text-[10px]">
-                                      <span className="font-black" style={{ color: '#e2e8f0' }}>Total</span>
-                                      <span className="font-black" style={{ color: '#38bdf8' }}>{Math.round((totalTime as number) / 60)}m</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="grid grid-cols-2 gap-4">
+                                {showFeatures && odmReportData.stats?.features_statistics && (
+                                  <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Feature Quality</p>
+                                    <div className="space-y-2 text-xs">
+                                      <div className="flex justify-between"><span className="text-slate-500">Detected / image</span><span className="font-bold">{odmReportData.stats.features_statistics.detected_features?.mean?.toLocaleString() || '—'}</span></div>
+                                      <div className="flex justify-between"><span className="text-slate-500">Reconstructed / image</span><span className="font-bold">{odmReportData.stats.features_statistics.reconstructed_features?.mean?.toLocaleString() || '—'}</span></div>
+                                    </div>
+                                  </div>
+                                )}
+                                {showReconstruction && odmReportData.stats?.processing_statistics?.steps_times && (
+                                  <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Processing Times</p>
+                                    <div className="space-y-1.5 text-[10px]">
+                                      {Object.entries(odmReportData.stats.processing_statistics.steps_times).filter(([k]) => k !== 'Total Time').slice(0, 3).map(([step, secs]) => {
+                                        const total = odmReportData.stats!.processing_statistics!.steps_times!['Total Time'] || 1;
+                                        return <div key={step} className="flex justify-between"><span className="text-slate-500 truncate">{step}</span><span className="font-bold">{Math.round((secs as number) / 60)}m</span></div>;
+                                      })}
                                     </div>
                                   </div>
                                 )}
                               </div>
-                            )}
-
-                            {/* Feature quality */}
-                            {fs && (
-                              <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Feature Quality</p>
-                                {[{
-                                  label: 'Detected / image',
-                                  val: fs.detected_features ? `avg ${fs.detected_features.mean?.toLocaleString()}` : '—',
-                                }, {
-                                  label: 'Reconstructed / image',
-                                  val: fs.reconstructed_features ? `avg ${fs.reconstructed_features.mean?.toLocaleString()}` : '—',
-                                }].map(f => (
-                                  <div key={f.label} className="flex justify-between text-[10px]">
-                                    <span style={{ color: '#64748b' }}>{f.label}</span>
-                                    <span className="font-bold" style={{ color: '#94a3b8' }}>{f.val}</span>
+                              {showPreview && previewData?.previewUrl && (
+                                <div className="space-y-2">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Visual Map Overview</p>
+                                  <div className="w-full h-44 rounded-xl border overflow-hidden" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}>
+                                    <img src={previewData.previewUrl} className="w-full h-full object-cover" alt="Orthomosaic preview" />
                                   </div>
-                                ))}
-                                <div className="flex justify-between text-[10px]">
-                                  <span style={{ color: '#64748b' }}>GPS</span>
-                                  <span className="font-bold" style={{ color: rs?.has_gps ? '#4ade80' : '#f87171' }}>{rs?.has_gps ? 'Yes' : 'No'}</span>
                                 </div>
-                                <div className="flex justify-between text-[10px]">
-                                  <span style={{ color: '#64748b' }}>Components</span>
-                                  <span className="font-bold" style={{ color: rs?.components === 1 ? '#4ade80' : '#facc15' }}>{rs?.components}</span>
-                                </div>
+                              )}
+                            </div>
+                            <div className="border-t pt-4 text-center text-[8px] text-slate-400 relative z-10" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
+                              © {new Date().getFullYear()} {companyName} · Confidential Quality Verification Report
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex min-h-0 overflow-hidden">
+                          <div className="w-72 shrink-0 overflow-y-auto p-5 space-y-4" style={{ borderRight: '1px solid rgba(255,255,255,0.06)', background: 'rgba(2,8,23,0.95)' }}>
+                            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Processing Stats</p>
+                            {odmReportData.stats?.processing_statistics && (() => {
+                              const ps = odmReportData.stats!.processing_statistics!;
+                              const rs = odmReportData.stats!.reconstruction_statistics;
+                              const fs = odmReportData.stats!.features_statistics;
+                              const totalTime = ps.steps_times?.['Total Time'];
+                              const areaHa = ((ps.area || 0) / 10_000).toFixed(2);
+                              return (
+                                <>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                      { label: 'Images Used', value: rs?.reconstructed_shots_count ?? '—', sub: `of ${rs?.initial_shots_count ?? '?'}`, color: '#4ade80' },
+                                      { label: 'Area', value: `${areaHa} ha`, sub: 'covered', color: '#38bdf8' },
+                                      { label: 'Point Cloud', value: rs?.reconstructed_points_count?.toLocaleString() ?? '—', sub: 'points', color: '#a78bfa' },
+                                      { label: 'Reprojection', value: rs?.reprojection_error_pixels != null ? `${rs.reprojection_error_pixels.toFixed(2)}px` : '—', sub: 'avg error', color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#4ade80' : '#facc15' },
+                                    ].map(m => (
+                                      <div key={m.label} className="rounded-xl p-3" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color: '#475569' }}>{m.label}</p>
+                                        <p className="text-sm font-black" style={{ color: m.color }}>{m.value}</p>
+                                        <p className="text-[10px]" style={{ color: '#334155' }}>{m.sub}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {ps.steps_times && (
+                                    <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Processing Times</p>
+                                      {Object.entries(ps.steps_times).filter(([k]) => k !== 'Total Time').map(([step, secs]) => {
+                                        const mins = Math.round((secs as number) / 60);
+                                        const pct = totalTime ? Math.round(((secs as number) / (totalTime as number)) * 100) : 0;
+                                        return (
+                                          <div key={step}>
+                                            <div className="flex justify-between text-[10px] mb-1"><span style={{ color: '#94a3b8' }}>{step}</span><span className="font-bold" style={{ color: '#64748b' }}>{mins}m</span></div>
+                                            <div className="h-1 rounded-full" style={{ background: 'rgba(30,41,59,0.8)' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #2563eb, #38bdf8)' }} /></div>
+                                          </div>
+                                        );
+                                      })}
+                                      {totalTime && <div className="pt-1 border-t flex justify-between text-[10px]" style={{ borderColor: 'rgba(255,255,255,0.06)' }}><span className="font-black" style={{ color: '#e2e8f0' }}>Total</span><span className="font-black" style={{ color: '#38bdf8' }}>{Math.round((totalTime as number) / 60)}m</span></div>}
+                                    </div>
+                                  )}
+                                  {fs && (
+                                    <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#475569' }}>Feature Quality</p>
+                                      {[
+                                        { label: 'Detected / image', val: fs.detected_features ? `avg ${fs.detected_features.mean?.toLocaleString()}` : '—' },
+                                        { label: 'Reconstructed / image', val: fs.reconstructed_features ? `avg ${fs.reconstructed_features.mean?.toLocaleString()}` : '—' },
+                                      ].map(f => <div key={f.label} className="flex justify-between text-[10px]"><span style={{ color: '#64748b' }}>{f.label}</span><span className="font-bold" style={{ color: '#94a3b8' }}>{f.val}</span></div>)}
+                                      <div className="flex justify-between text-[10px]"><span style={{ color: '#64748b' }}>GPS</span><span className="font-bold" style={{ color: rs?.has_gps ? '#4ade80' : '#f87171' }}>{rs?.has_gps ? 'Yes' : 'No'}</span></div>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                            {!odmReportData.stats && <p className="text-xs" style={{ color: '#334155' }}>Stats not available.</p>}
+                            {odmReportData.hasPdf && odmReportData.pdfUrl && (
+                              <a href={odmReportData.pdfUrl} download="odm_report.pdf" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest hover:opacity-80 transition-all" style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.25)', color: '#38bdf8' }}>
+                                <Download className="w-3.5 h-3.5" /> Download PDF
+                              </a>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 flex flex-col">
+                            {odmReportData.hasPdf && odmReportData.pdfUrl ? (
+                              <iframe src={odmReportData.pdfUrl} className="flex-1 w-full border-0" title="ODM Processing Report" style={{ background: '#ffffff' }} />
+                            ) : (
+                              <div className="flex-1 flex items-center justify-center flex-col gap-3">
+                                <FileText className="w-12 h-12" style={{ color: '#1e293b' }} />
+                                <p className="text-sm font-black" style={{ color: '#334155' }}>PDF report not available</p>
+                                <button onClick={() => { setOdmReportData(null); viewerJobId && apiClient.get(`/orthomosaic/jobs/${viewerJobId}/report`).then(r => setOdmReportData(r.data?.data || { pdfUrl: null, hasPdf: false, hasStats: false, stats: null })).catch(() => setOdmReportData({ pdfUrl: null, hasPdf: false, hasStats: false, stats: null })); }} className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest" style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.2)', color: '#38bdf8' }}>
+                                  <RefreshCw className="w-3.5 h-3.5" /> Retry
+                                </button>
                               </div>
                             )}
-
-                            {/* Date */}
-                            {ps.date && (
-                              <p className="text-[10px] text-center" style={{ color: '#334155' }}>Processed {ps.date}</p>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      {!odmReportData.stats && (
-                        <p className="text-xs" style={{ color: '#334155' }}>Stats not available.</p>
-                      )}
-
-                      {/* Download PDF button */}
-                      {odmReportData.hasPdf && odmReportData.pdfUrl && (
-                        <a
-                          href={odmReportData.pdfUrl}
-                          download="odm_report.pdf"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80"
-                          style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.25)', color: '#38bdf8' }}
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download Full Report PDF
-                        </a>
-                      )}
-                    </div>
-
-                    {/* Right: PDF iframe */}
-                    <div className="flex-1 min-w-0 flex flex-col">
-                      {odmReportData.hasPdf && odmReportData.pdfUrl ? (
-                        <iframe
-                          src={odmReportData.pdfUrl}
-                          className="flex-1 w-full border-0"
-                          title="ODM Processing Report"
-                          style={{ background: '#ffffff' }}
-                        />
-                      ) : (
-                        <div className="flex-1 flex items-center justify-center flex-col gap-3">
-                          <FileText className="w-12 h-12" style={{ color: '#1e293b' }} />
-                          <p className="text-sm font-black" style={{ color: '#334155' }}>PDF report not available</p>
-                          <p className="text-xs" style={{ color: '#1e293b' }}>The report may still be extracting from the archive</p>
-                          <button
-                            onClick={() => {
-                              setOdmReportData(null);
-                              viewerJobId && apiClient.get(`/orthomosaic/jobs/${viewerJobId}/report`)
-                                .then(r => setOdmReportData(r.data?.data || null))
-                                .catch(() => setOdmReportData({ pdfUrl: null, hasPdf: false, hasStats: false, stats: null }));
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest"
-                            style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.2)', color: '#38bdf8' }}
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" /> Retry
-                          </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1222,7 +1517,6 @@ const OrthomosaicView: React.FC = () => {
                 )}
               </div>
             )}
-
             {/* 3D Model tab */}
             {viewerTab === '3d' && (
               <Suspense fallback={
