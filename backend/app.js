@@ -50,6 +50,7 @@ import pilotMetricsRoutes from './routes/pilotMetrics.js';          // Pilot Per
 import missionsRoutes from './routes/missions.js';                   // RBAC Mission Management
 import lbdRoutes from './routes/lbd.js';                             // LBD Defect Tracking
 import bessRoutes from './routes/bess.js';                           // BESS QA/QC Module
+import solarFarmRoutes from './routes/solarFarm.js';                  // Solar Farm Intelligence Platform
 import clientPortalRoutes from './routes/clientPortal.js';           // Client Portal Scoped Views
 import vendorExpensesRoutes from './routes/expenses.js';        // Vendor & Expenses Ledger
 import migrationsRoutes from './routes/migrations.js';                // Emergency DB Migrations
@@ -222,6 +223,7 @@ app.use('/api/pilot-metrics', pilotMetricsRoutes);     // Pilot Performance Metr
 app.use('/api/missions', missionsRoutes);               // RBAC Mission Management
 app.use('/api/lbd', lbdRoutes);                         // LBD Defect Tracking
 app.use('/api/bess', bessRoutes);                       // BESS QA/QC Module
+app.use('/api/solar-farm', solarFarmRoutes);            // Solar Farm Intelligence Platform
 app.use('/api/client', clientPortalRoutes);             // Client Portal Scoped Views
 app.use('/api/vendor-expenses', vendorExpensesRoutes);  // Vendor & Expenses Ledger
 app.use('/api/migrations', migrationsRoutes);           // Emergency DB Migrations

@@ -94,6 +94,7 @@ import OrganizationsView from './src/components/OrganizationsView';
 import ReportingSuite from './src/components/ReportingSuite';
 import SocialMediaSettings from './src/components/SocialMediaSettings';
 import BESSInspectionView from './src/components/BESSInspectionView';
+import SolarIntelligenceHub from './modules/solar-intelligence/SolarIntelligenceHub';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -104,7 +105,7 @@ type NavKey =
   | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
   | 'protocol-lists' | 'checklist-items'
   | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry'
-  | 'dispatch' | 'reports' | 'organizations' | 'social-media' | 'bess';
+  | 'dispatch' | 'reports' | 'organizations' | 'social-media' | 'bess' | 'solar-intelligence';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -141,10 +142,11 @@ const NAV: NavGroup[] = [
     title: 'nav.mediaDeliverables',
     items: [
       { key: 'uploads',      label: 'nav.pilotUploadsLabel' },
-      { key: 'orthomosaic',  label: 'nav.orthomosaic' },
+      { key: 'orthomosaic',  label: 'nav.orthomosaic', adminOnly: true },
       { key: 'media',        label: 'nav.mediaGallery' },
-      { key: 'reports',      label: 'nav.reports' },
+      { key: 'reports',      label: 'nav.reports',      adminOnly: true },
       { key: 'bess',         label: 'BESS QA/QC', icon: Zap },
+      { key: 'solar-intelligence', label: 'Solar Farm Intelligence', icon: Sun },
     ],
   },
   {
@@ -228,7 +230,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'organizations', 'social-media', 'bess',
+      'dispatch', 'reports', 'organizations', 'social-media', 'bess', 'solar-intelligence',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -418,6 +420,7 @@ export default function AppShell() {
     'interest-inquiry':      'Interest Inquiry',
     'social-media':          'Social Media',
     'bess':                  'BESS QA/QC',
+    'solar-intelligence':    'Solar Farm Intelligence',
   };
 
   function renderView() {
@@ -463,6 +466,7 @@ export default function AppShell() {
       case 'user-iam':         return <UserManagement />;
       case 'social-media':     return <SocialMediaSettings />;
       case 'bess':             return <BESSInspectionView />;
+      case 'solar-intelligence': return <SolarIntelligenceHub />;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>
