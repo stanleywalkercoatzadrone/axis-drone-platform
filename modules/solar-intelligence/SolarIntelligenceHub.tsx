@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Sun, ChevronRight, LayoutDashboard, Map, TrendingUp, CheckSquare, Thermometer, Package, FileText, PlusCircle } from 'lucide-react';
+import { Sun, ChevronRight, LayoutDashboard, Map, TrendingUp, CheckSquare, Thermometer, Package, FileText, PlusCircle, BarChart3, Layers } from 'lucide-react';
+import { useMediaDeliverable } from '../../src/context/MediaDeliverableContext';
 
 import SiteListPage from './pages/SiteListPage';
 import SiteDashboard from './pages/SiteDashboard';
@@ -34,6 +35,7 @@ const SolarIntelligenceHub: React.FC = () => {
   const [activeSiteId, setActiveSiteId] = useState<string | null>(null);
   const [activeSiteName, setActiveSiteName] = useState<string>('');
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const { navigateToTab, setActiveSolarSite } = useMediaDeliverable();
 
   const handleSelectSite = (id: string, name: string) => {
     setActiveSiteId(id);
@@ -125,13 +127,34 @@ const SolarIntelligenceHub: React.FC = () => {
           )}
 
           <div className="ml-auto flex items-center gap-2">
+            {/* Cross-module shortcuts — set solar context then navigate */}
             {activeSiteId && (
-              <button
-                onClick={handleBackToList}
-                className="px-3 py-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
-              >
-                ← Back to Portfolio
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setActiveSolarSite(activeSiteId, activeSiteName);
+                    navigateToTab('reports');
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 rounded-lg transition-all"
+                >
+                  <BarChart3 size={12} /> Reports
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSolarSite(activeSiteId, activeSiteName);
+                    navigateToTab('orthomosaic');
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-sky-500/30 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 rounded-lg transition-all"
+                >
+                  <Layers size={12} /> Orthomosaic
+                </button>
+                <button
+                  onClick={handleBackToList}
+                  className="px-3 py-1.5 text-xs text-slate-400 border border-slate-700 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
+                >
+                  ← Back to Portfolio
+                </button>
+              </>
             )}
           </div>
         </div>

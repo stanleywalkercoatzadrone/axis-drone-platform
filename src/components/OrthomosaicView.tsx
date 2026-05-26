@@ -7,6 +7,7 @@ import {
   StopCircle, FolderOpen, Cuboid
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
 import { exportOrthoReportPDF } from '../../modules/ai-reporting/components/exportOrthoReportPDF';
 
 const OrthoMapViewer = lazy(() => import('./viewers/OrthoMapViewer'));
@@ -140,6 +141,7 @@ function outputTypeLabel(type: string) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 const OrthomosaicView: React.FC = () => {
+  const { navigateToTab } = useMediaDeliverable();
   const [missions, setMissions] = useState<Mission[]>([]);
   const [jobs, setJobs] = useState<OrthoJob[]>([]);
   const [selectedMission, setSelectedMission] = useState('');
@@ -1800,10 +1802,16 @@ const OrthomosaicView: React.FC = () => {
                     <p className="text-xs py-4" style={{ color: '#334155' }}>No reports linked to this mission yet.</p>
                   )}
                   <button
-                    onClick={() => { setViewerOpen(false); window.dispatchEvent(new CustomEvent('axis:navigate', { detail: { key: 'reports' } })); }}
+                    onClick={() => { setViewerOpen(false); navigateToTab('reports'); }}
                     className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80"
                     style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', color: '#a78bfa' }}>
                     <FileText className="w-3.5 h-3.5" /> Create Inspection Report
+                  </button>
+                  <button
+                    onClick={() => navigateToTab('media')}
+                    className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all hover:opacity-80 mt-2"
+                    style={{ background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.25)', color: '#38bdf8' }}>
+                    <Image className="w-3.5 h-3.5" /> Browse Media Gallery
                   </button>
                 </div>
               </div>

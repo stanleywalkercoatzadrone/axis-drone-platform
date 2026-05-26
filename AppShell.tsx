@@ -95,6 +95,7 @@ import ReportingSuite from './src/components/ReportingSuite';
 import SocialMediaSettings from './src/components/SocialMediaSettings';
 import BESSInspectionView from './src/components/BESSInspectionView';
 import SolarIntelligenceHub from './modules/solar-intelligence/SolarIntelligenceHub';
+import { MediaDeliverableProvider, type MediaNavKey } from './src/context/MediaDeliverableContext';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -423,14 +424,42 @@ export default function AppShell() {
     'solar-intelligence':    'Solar Farm Intelligence',
   };
 
+  // ── Media & Deliverables cross-nav handler ─────────────────────────────────
+  const handleMediaNavigation = React.useCallback((tab: MediaNavKey) => {
+    navigate(tab as NavKey);
+  }, []);
+
+  const MEDIA_KEYS: NavKey[] = [
+    'uploads', 'orthomosaic', 'media', 'reports', 'bess', 'solar-intelligence'
+  ];
+
+  function renderMediaContent() {
+    switch (activeKey) {
+      case 'uploads':            return <UploadCenterHub />;
+      case 'orthomosaic':        return <OrthomosaicView />;
+      case 'media':              return <MediaGallery />;
+      case 'reports':            return <ReportingSuite />;
+      case 'bess':               return <BESSInspectionView />;
+      case 'solar-intelligence': return <SolarIntelligenceHub />;
+      default:                   return null;
+    }
+  }
+
   function renderView() {
+    // ── Media & Deliverables group — wrap with shared context ───────────────
+    if (MEDIA_KEYS.includes(activeKey)) {
+      return (
+        <MediaDeliverableProvider onNavigate={handleMediaNavigation}>
+          {renderMediaContent()}
+        </MediaDeliverableProvider>
+      );
+    }
+
     switch (activeKey) {
       case 'dashboard':            return <DeploymentTracker countryFilter={activeCountryId} countryIsoCode={activeCountry?.iso_code ?? null} />;
       case 'weather':              return <WeatherDashboard />;
       case 'dispatch':             return <DispatchBoard />;
       case 'construction':         return <ConstructionDashboard />;
-      case 'media':                return <MediaGallery />;
-      case 'reports':              return <ReportingSuite />;
       case 'intelligence':         return <IntelligenceHub />;
       case 'mission-intelligence': return <MissionIntelligenceWorkspace />;
       case 'pilot-directory':      return <PersonnelTracker />;
@@ -439,11 +468,9 @@ export default function AppShell() {
       case 'vendor-expenses':      return <ExpensesView />;
       case 'pilot-applications':   return <PilotApplications />;
       case 'pilot-network-admin':  return <PilotNetworkAdmin />;
-      case 'uploads':             return <UploadCenterHub />;
-      case 'orthomosaic':         return <OrthomosaicView />;
-      case 'interest-inquiry':    return <PilotInterestInquiry />;
-      case 'neural-ai':         return <SystemAIView />;
-      case 'organizations':     return <OrganizationsView />;
+      case 'interest-inquiry':     return <PilotInterestInquiry />;
+      case 'neural-ai':            return <SystemAIView />;
+      case 'organizations':        return <OrganizationsView />;
       case 'clients':
         if (selectedClientId) {
           return <ClientDetail clientId={selectedClientId} onBack={() => setSelectedClientId(null)} />;
@@ -465,8 +492,6 @@ export default function AppShell() {
       case 'system-settings':  return <SettingsView />;
       case 'user-iam':         return <UserManagement />;
       case 'social-media':     return <SocialMediaSettings />;
-      case 'bess':             return <BESSInspectionView />;
-      case 'solar-intelligence': return <SolarIntelligenceHub />;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import apiClient from '../services/apiClient';
 import { InspectionReport } from '../types';
+import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
 const ReportViewer = lazy(() => import('./viewers/ReportViewer'));
 import {
     BarChart,
@@ -66,6 +67,7 @@ const ReportingSuite: React.FC = () => {
     const [reports, setReports] = useState<InspectionReport[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeReport, setActiveReport] = useState<InspectionReport | null>(null);
+    const { navigateToTab } = useMediaDeliverable();
 
     const openReport = async (reportId: string) => {
         try {
@@ -250,6 +252,27 @@ const ReportingSuite: React.FC = () => {
                 <div>
                     <h2 className="text-lg font-semibold text-slate-900">Analytics Suite</h2>
                     <p className="text-sm text-slate-500">Multi-level intelligence and reporting dashboard.</p>
+                </div>
+                {/* Cross-module shortcuts */}
+                <div className="flex gap-2 flex-wrap self-start">
+                    <button
+                        onClick={() => navigateToTab('media')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 text-xs font-bold transition-all"
+                    >
+                        <Download className="w-3 h-3" /> Media Gallery
+                    </button>
+                    <button
+                        onClick={() => navigateToTab('orthomosaic')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 text-xs font-bold transition-all"
+                    >
+                        <TrendingUp className="w-3 h-3" /> Orthomosaic
+                    </button>
+                    <button
+                        onClick={() => navigateToTab('solar-intelligence')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-xs font-bold transition-all"
+                    >
+                        <Building2 className="w-3 h-3" /> Solar Sites
+                    </button>
                 </div>
                 <div className="flex items-center bg-slate-100 p-1 rounded-lg self-start">
                     {(['Executive', 'Operational', 'Asset'] as ReportLevel[]).map((level) => (

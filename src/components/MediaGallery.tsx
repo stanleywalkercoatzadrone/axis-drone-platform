@@ -10,6 +10,7 @@ import {
     ArrowLeft, TriangleAlert, Brain, Zap, CheckCircle2
 } from 'lucide-react';
 import apiClient from '../services/apiClient';
+import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -926,6 +927,7 @@ function GalleryTab() {
 // ──────────────────────────────────────────────────────────────────────────────
 export default function MediaGallery() {
     const [tab, setTab] = useState<Tab>('gallery');
+    const { navigateToTab } = useMediaDeliverable();
 
     return (
         <div className="p-4 md:p-6 space-y-4">
@@ -934,6 +936,27 @@ export default function MediaGallery() {
                 <div>
                     <h2 className="text-xl font-black text-white uppercase tracking-tight">Media Gallery</h2>
                     <p className="text-[10px] text-slate-500 mt-0.5">Gallery · S3 Info · GCS Browser</p>
+                </div>
+                {/* Cross-module shortcuts */}
+                <div className="flex gap-2 flex-wrap">
+                    <button
+                        onClick={() => navigateToTab('orthomosaic')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 text-xs font-bold transition-all"
+                    >
+                        <Layers size={12} /> Orthomosaic
+                    </button>
+                    <button
+                        onClick={() => navigateToTab('reports')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 text-xs font-bold transition-all"
+                    >
+                        <FileText size={12} /> Reports
+                    </button>
+                    <button
+                        onClick={() => navigateToTab('uploads')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-bold transition-all"
+                    >
+                        <FolderOpen size={12} /> Uploads
+                    </button>
                 </div>
             </div>
 

@@ -9,10 +9,11 @@
  * This replaces the previous direct routing of `uploads` → AIUploadsAdmin.
  */
 import React, { useState } from 'react';
-import { Upload, Activity } from 'lucide-react';
+import { Upload, Activity, Image, Layers } from 'lucide-react';
 import UploadCenter from './UploadCenter';
 import AIUploadsAdmin from './AIUploadsAdmin';
 import { useAuth } from '../../context/AuthContext';
+import { useMediaDeliverable } from '../../context/MediaDeliverableContext';
 
 type Tab = 'upload' | 'monitor';
 
@@ -20,6 +21,7 @@ const UploadCenterHub: React.FC = () => {
   const { user } = useAuth();
   const userRole = (user?.role || '').toLowerCase();
   const isAdmin = userRole.includes('admin') || userRole.includes('superadmin');
+  const { navigateToTab } = useMediaDeliverable();
 
   const [tab, setTab] = useState<Tab>('upload');
 
@@ -89,6 +91,52 @@ const UploadCenterHub: React.FC = () => {
         >
           <Activity size={12} />
           AI Monitor
+        </button>
+        <button
+          onClick={() => navigateToTab('media')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            background: 'none',
+            border: '1px solid rgba(14,165,233,0.25)',
+            borderRadius: 10,
+            cursor: 'pointer',
+            color: '#38bdf8',
+            fontSize: 11,
+            fontWeight: 800,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.1em',
+            transition: 'all 0.15s',
+            marginLeft: 'auto',
+          }}
+        >
+          <Image size={12} />
+          Media Gallery
+        </button>
+
+        <button
+          onClick={() => navigateToTab('orthomosaic')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            background: 'none',
+            border: '1px solid rgba(139,92,246,0.25)',
+            borderRadius: 10,
+            cursor: 'pointer',
+            color: '#a78bfa',
+            fontSize: 11,
+            fontWeight: 800,
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.1em',
+            transition: 'all 0.15s',
+          }}
+        >
+          <Layers size={12} />
+          Orthomosaic
         </button>
       </div>
 
