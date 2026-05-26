@@ -203,6 +203,7 @@ const OrthomosaicView: React.FC = () => {
   const [showFeatures, setShowFeatures] = useState(true);
   const [showReconstruction, setShowReconstruction] = useState(true);
   const [showPreview, setShowPreview] = useState(true);
+  const [showFullPdf, setShowFullPdf] = useState(true);
   const [isEditingReport, setIsEditingReport] = useState(false);
   const [isCustomMode, setIsCustomMode] = useState(true);
   const [savingCustomization, setSavingCustomization] = useState(false);
@@ -222,7 +223,8 @@ const OrthomosaicView: React.FC = () => {
         showStats,
         showFeatures,
         showReconstruction,
-        showPreview
+        showPreview,
+        showFullPdf,
       };
       await apiClient.post(`/orthomosaic/jobs/${viewerJobId}/customization`, {
         customization: payload
@@ -290,7 +292,8 @@ const OrthomosaicView: React.FC = () => {
           showStats,
           showFeatures,
           showReconstruction,
-          showPreview
+          showPreview,
+          showFullPdf,
         }
       });
     } catch (err: any) {
@@ -569,6 +572,7 @@ const OrthomosaicView: React.FC = () => {
           setShowFeatures(cust.showFeatures !== false);
           setShowReconstruction(cust.showReconstruction !== false);
           setShowPreview(cust.showPreview !== false);
+          setShowFullPdf(cust.showFullPdf !== false);
         } else {
           setCustomTitle('');
           setCustomSubtitle('');
@@ -1324,6 +1328,7 @@ const OrthomosaicView: React.FC = () => {
                             { label: 'Feature Details', val: showFeatures, set: setShowFeatures },
                             { label: 'Step Distribution', val: showReconstruction, set: setShowReconstruction },
                             { label: 'Map Preview', val: showPreview, set: setShowPreview },
+                            { label: 'Full ODM Report', val: showFullPdf, set: setShowFullPdf },
                           ] as { label: string; val: boolean; set: (v: boolean) => void }[]).map(({ label, val, set }) => (
                             <label key={label} className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
                               <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} className="rounded border-slate-700 bg-slate-800" />
@@ -1491,6 +1496,27 @@ const OrthomosaicView: React.FC = () => {
                                   <div className="w-full h-44 rounded-xl border overflow-hidden" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}>
                                     <img src={previewData.previewUrl} className="w-full h-full object-cover" alt="Orthomosaic preview" />
                                   </div>
+                                </div>
+                              )}
+                              {showFullPdf && odmReportData.hasPdf && odmReportData.pdfUrl && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[9px] font-black uppercase tracking-widest" style={{ color: '#64748b' }}>Full ODM Technical Report</p>
+                                    <a href={odmReportData.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[9px] font-black uppercase tracking-widest" style={{ color: accentColor }}>Open PDF ↗</a>
+                                  </div>
+                                  <div className="w-full rounded-xl overflow-hidden border" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', height: '1100px' }}>
+                                    <iframe
+                                      src={odmReportData.pdfUrl}
+                                      className="w-full h-full border-0"
+                                      title="ODM Processing Report"
+                                      style={{ background: '#ffffff' }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                              {showFullPdf && odmReportData.hasStats && !odmReportData.hasPdf && (
+                                <div className="p-4 rounded-xl border text-center" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e2e8f0', background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc' }}>
+                                  <p className="text-xs font-bold" style={{ color: '#64748b' }}>ODM PDF report not yet available</p>
                                 </div>
                               )}
                             </div>
