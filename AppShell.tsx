@@ -99,14 +99,14 @@ import { MediaDeliverableProvider, type MediaNavKey } from './src/context/MediaD
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
-  | 'dashboard' | 'weather'
-  | 'intelligence' | 'mission-intelligence'
-  | 'pilot-directory' | 'performance'
+  | 'dashboard' | 'weather' | 'dispatch' | 'construction'
+  | 'intelligence' | 'mission-intelligence' | 'neural-ai'
+  | 'pilot-directory' | 'performance' | 'pilot-network-admin' | 'pilot-applications' | 'interest-inquiry'
   | 'payroll' | 'vendor-expenses'
-  | 'clients' | 'org-onboarding' | 'system-settings' | 'user-iam' | 'neural-ai'
-  | 'protocol-lists' | 'checklist-items'
-  | 'media' | 'uploads' | 'pilot-applications' | 'pilot-network-admin' | 'construction' | 'orthomosaic' | 'interest-inquiry'
-  | 'dispatch' | 'reports' | 'organizations' | 'social-media' | 'bess' | 'solar-intelligence';
+  | 'uploads' | 'orthomosaic' | 'media' | 'reports'
+  | 'bess' | 'solar-intelligence'
+  | 'clients' | 'organizations' | 'org-onboarding'
+  | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -114,60 +114,66 @@ type NavGroup = { title: string; items: NavItem[] }
 // ── Navigation definition ───────────────────────────────────────────────────
 const NAV: NavGroup[] = [
   {
-    title: 'nav.operations',
+    title: 'Operations',
     items: [
-      { key: 'dashboard',  label: 'nav.missionTerminal' },
-      { key: 'weather',    label: 'nav.weather' },
-      { key: 'dispatch',   label: 'nav.dispatch' },
+      { key: 'dashboard',    label: 'Mission Terminal' },
+      { key: 'weather',      label: 'Weather & Skies' },
+      { key: 'dispatch',     label: 'Dispatch Center' },
+      { key: 'construction', label: 'Construction Monitoring' },
     ],
   },
   {
-    title: 'nav.intelligenceGroup',
+    title: 'Intelligence',
     items: [
-      { key: 'mission-intelligence', label: 'nav.missionIntelligence', icon: BrainCircuit },
-      { key: 'intelligence',         label: 'nav.intelligence',         icon: BrainCircuit },
-      { key: 'neural-ai',            label: 'nav.neuralAI' },
+      { key: 'mission-intelligence', label: 'Mission Intelligence', icon: BrainCircuit },
+      { key: 'intelligence',         label: 'AI Hub',               icon: BrainCircuit },
+      { key: 'neural-ai',            label: 'Neural AI' },
     ],
   },
   {
-    title: 'nav.pilots',
+    title: 'Pilots',
     items: [
-      { key: 'pilot-network-admin',  label: 'nav.pilotNetworkAdmin' },
-      { key: 'pilot-applications',   label: 'nav.applicationPackets', adminOnly: true },
-      { key: 'pilot-directory',      label: 'nav.pilotRoster' },
-      { key: 'performance',          label: 'nav.performance' },
-      { key: 'interest-inquiry',     label: 'nav.interestInquiry', adminOnly: true },
+      { key: 'pilot-network-admin', label: 'Network Admin',   adminOnly: true },
+      { key: 'pilot-applications',  label: 'Applications',    adminOnly: true },
+      { key: 'pilot-directory',     label: 'Pilot Roster' },
+      { key: 'performance',         label: 'Performance' },
     ],
   },
   {
-    title: 'nav.mediaDeliverables',
+    title: 'Inspections',
     items: [
-      { key: 'uploads',      label: 'nav.pilotUploadsLabel' },
-      { key: 'orthomosaic',  label: 'nav.orthomosaic', adminOnly: true },
-      { key: 'media',        label: 'nav.mediaGallery' },
-      { key: 'reports',      label: 'nav.reports',      adminOnly: true },
-      { key: 'bess',         label: 'BESS QA/QC', icon: Zap },
-      { key: 'solar-intelligence', label: 'Solar Farm Intelligence', icon: Sun },
+      { key: 'bess',              label: 'BESS QA/QC',             icon: Zap },
+      { key: 'solar-intelligence',label: 'Solar Farm Intelligence', icon: Sun },
     ],
   },
   {
-    title: 'nav.finance',
+    title: 'Media & Deliverables',
     items: [
-      { key: 'payroll',         label: 'nav.pilotPayroll',   adminOnly: true },
-      { key: 'vendor-expenses', label: 'nav.expenses',       adminOnly: true },
+      { key: 'uploads',     label: 'Pilot Uploads' },
+      { key: 'orthomosaic', label: 'Orthomosaic',    adminOnly: true },
+      { key: 'media',       label: 'Media Gallery' },
+      { key: 'reports',     label: 'Reports',        adminOnly: true },
     ],
   },
   {
-    title: 'nav.administration',
+    title: 'Finance',
     items: [
-      { key: 'clients',         label: 'nav.clients' },
-      { key: 'organizations',   label: 'nav.organizations' },
-      { key: 'org-onboarding',  label: 'nav.onboardOrg' },
-      { key: 'user-iam',        label: 'nav.userIAM' },
-      { key: 'protocol-lists',  label: 'nav.operationalProtocols', adminOnly: true },
-      { key: 'checklist-items', label: 'nav.myChecklist' },
-      { key: 'system-settings', label: 'nav.systemSettings' },
-      { key: 'social-media',    label: 'Social Media', icon: Share2 },
+      { key: 'payroll',         label: 'Pilot Payroll',    adminOnly: true },
+      { key: 'vendor-expenses', label: 'Vendor & Expenses', adminOnly: true },
+    ],
+  },
+  {
+    title: 'Administration',
+    items: [
+      { key: 'clients',         label: 'Clients' },
+      { key: 'organizations',   label: 'Organizations' },
+      { key: 'org-onboarding',  label: 'Onboard Org',          adminOnly: true },
+      { key: 'interest-inquiry',label: 'Interest Inquiries',   adminOnly: true },
+      { key: 'user-iam',        label: 'User Management',      adminOnly: true },
+      { key: 'protocol-lists',  label: 'Protocols',            adminOnly: true },
+      { key: 'checklist-items', label: 'My Checklist' },
+      { key: 'social-media',    label: 'Social Media',         icon: Share2 },
+      { key: 'system-settings', label: 'System Settings',      adminOnly: true },
     ],
   },
 ];
@@ -397,31 +403,31 @@ export default function AppShell() {
     'dashboard':             'Mission Terminal',
     'weather':               'Weather & Skies',
     'dispatch':              'Dispatch Center',
-    'media':                 'Media Gallery',
-    'uploads':               'Pilot Uploads',
-    'reports':               'Reports',
-    'pilot-applications':    'Pilot Applications',
-    'pilot-network-admin':   'Pilot Network Applications',
-    'intelligence':          'AI Intelligence Hub',
+    'construction':          'Construction Monitoring',
+    'intelligence':          'AI Hub',
     'mission-intelligence':  'Mission Intelligence',
+    'neural-ai':             'Neural AI',
     'pilot-directory':       'Pilot Roster',
-    'performance':           'Performance',
+    'performance':           'Pilot Performance',
+    'pilot-network-admin':   'Pilot Network Admin',
+    'pilot-applications':    'Pilot Applications',
+    'interest-inquiry':      'Interest Inquiries',
     'payroll':               'Pilot Payroll',
     'vendor-expenses':       'Vendor & Expenses',
+    'bess':                  'BESS QA/QC',
+    'solar-intelligence':    'Solar Farm Intelligence',
+    'uploads':               'Pilot Uploads',
+    'orthomosaic':           'Orthomosaic',
+    'media':                 'Media Gallery',
+    'reports':               'Reports',
     'clients':               'Clients',
     'organizations':         'Organizations',
     'org-onboarding':        'Onboard Organization',
-    'system-settings':       'System Settings',
-    'user-iam':              'User IAM',
-    'neural-ai':             'Neural AI',
+    'user-iam':              'User Management',
     'protocol-lists':        'Operational Protocols',
-    'checklist-items':       'My Checklist Items',
-    'construction':          'Construction Monitoring',
-    'orthomosaic':           'Orthomosaic',
-    'interest-inquiry':      'Interest Inquiry',
+    'checklist-items':       'My Checklist',
     'social-media':          'Social Media',
-    'bess':                  'BESS QA/QC',
-    'solar-intelligence':    'Solar Farm Intelligence',
+    'system-settings':       'System Settings',
   };
 
   // ── Media & Deliverables cross-nav handler ─────────────────────────────────
@@ -430,18 +436,16 @@ export default function AppShell() {
   }, []);
 
   const MEDIA_KEYS: NavKey[] = [
-    'uploads', 'orthomosaic', 'media', 'reports', 'bess', 'solar-intelligence'
+    'uploads', 'orthomosaic', 'media', 'reports',
   ];
 
   function renderMediaContent() {
     switch (activeKey) {
-      case 'uploads':            return <UploadCenterHub />;
-      case 'orthomosaic':        return <OrthomosaicView />;
-      case 'media':              return <MediaGallery />;
-      case 'reports':            return <ReportingSuite />;
-      case 'bess':               return <BESSInspectionView />;
-      case 'solar-intelligence': return <SolarIntelligenceHub />;
-      default:                   return null;
+      case 'uploads':     return <UploadCenterHub />;
+      case 'orthomosaic': return <OrthomosaicView />;
+      case 'media':       return <MediaGallery />;
+      case 'reports':     return <ReportingSuite />;
+      default:            return null;
     }
   }
 
@@ -460,6 +464,8 @@ export default function AppShell() {
       case 'weather':              return <WeatherDashboard />;
       case 'dispatch':             return <DispatchBoard />;
       case 'construction':         return <ConstructionDashboard />;
+      case 'bess':                 return <BESSInspectionView />;
+      case 'solar-intelligence':   return <SolarIntelligenceHub />;
       case 'intelligence':         return <IntelligenceHub />;
       case 'mission-intelligence': return <MissionIntelligenceWorkspace />;
       case 'pilot-directory':      return <PersonnelTracker />;
@@ -640,12 +646,15 @@ export default function AppShell() {
             </div>
             {/* All nav groups */}
             <div style={{ flex: 1, padding: '12px 8px' }}>
-              {NAV.map(group => (
+              {NAV.map(group => {
+                const visibleItems = group.items.filter(item => !item.adminOnly || userIsAdmin);
+                if (visibleItems.length === 0) return null;
+                return (
                 <div key={group.title} style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 9, fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.2em', padding: '0 8px', marginBottom: 4 }}>
                     {group.title}
                   </div>
-                  {group.items.map(item => {
+                  {visibleItems.map(item => {
                     const isActive = item.key === activeKey;
                     return (
                       <button
@@ -665,7 +674,8 @@ export default function AppShell() {
                     );
                   })}
                 </div>
-              ))}
+                );
+              })}
             </div>
             {/* Drawer footer */}
             <div style={{ padding: '12px 16px', borderTop: '1px solid #1e293b' }}>
