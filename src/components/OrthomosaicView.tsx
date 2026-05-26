@@ -1382,44 +1382,102 @@ const OrthomosaicView: React.FC = () => {
                                   <p className="text-xs leading-relaxed" style={{ color: customTheme === 'TECHNICAL' ? '#cbd5e1' : '#334155' }}>{customNotes}</p>
                                 </div>
                               )}
-                              {showStats && odmReportData.stats?.processing_statistics && (
-                                <div className="space-y-3">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Quality & Coverage Metrics</p>
-                                  <div className="grid grid-cols-3 gap-3">
-                                    {[
-                                      { label: 'Area Covered', val: `${(odmReportData.stats.processing_statistics.area / 10_000).toFixed(2)} ha`, color: '#16a34a', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#bbf7d0' },
-                                      { label: 'Points', val: odmReportData.stats.reconstruction_statistics?.reconstructed_points_count?.toLocaleString() || '—', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#bfdbfe' },
-                                      { label: 'Reprojection', val: odmReportData.stats.reconstruction_statistics?.reprojection_error_pixels ? `${odmReportData.stats.reconstruction_statistics.reprojection_error_pixels.toFixed(2)}px` : '—', color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.08)' : '#e9d5ff' },
-                                    ].map(m => (
-                                      <div key={m.label} className="p-3.5 rounded-xl border text-center" style={{ background: m.bg, borderColor: m.bd }}>
-                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-500">{m.label}</p>
-                                        <p className="text-lg font-black mt-1" style={{ color: m.color }}>{m.val}</p>
+                              {showStats && odmReportData.stats?.processing_statistics && (() => {
+                                const ps = odmReportData.stats!.processing_statistics!;
+                                const rs = odmReportData.stats!.reconstruction_statistics;
+                                const areaHa = (ps.area / 10_000).toFixed(2);
+                                const areaSqKm = (ps.area / 1_000_000).toFixed(4);
+                                const imgUsed = rs?.reconstructed_shots_count ?? null;
+                                const imgTotal = rs?.initial_shots_count ?? null;
+                                const imgPct = (imgUsed != null && imgTotal != null && imgTotal > 0) ? Math.round((imgUsed / imgTotal) * 100) : null;
+                                const sparsePoints = rs?.reconstructed_points_count ?? null;
+                                const densePoints = (rs as any)?.dense_reconstruction?.points_count ?? (odmReportData.stats as any)?.dense_reconstruction?.points_count ?? null;
+                                const gsd = ps.gsd ?? (odmReportData.stats as any)?.gsd ?? null;
+                                const gpsErr = (rs as any)?.gps_errors ?? (odmReportData.stats as any)?.gps_errors ?? null;
+                                const totalTime = ps.steps_times?.['Total Time'];
+                                const cellBg = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.02)' : '#f8fafc';
+                                const cellBd = customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.07)' : '#e2e8f0';
+                                const labelCol = customTheme === 'TECHNICAL' ? '#64748b' : '#6b7280';
+                                const valCol = customTheme === 'TECHNICAL' ? '#f1f5f9' : '#0f172a';
+                                return (
+                                  <div className="space-y-4">
+                                    {/* Dataset summary row */}
+                                    <div>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Dataset Summary</p>
+                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                        {[
+                                          { label: 'Area Covered', val: `${areaHa} ha (${areaSqKm} km²)` },
+                                          { label: 'Images Reconstructed', val: imgUsed != null ? `${imgUsed}${imgTotal != null ? ` of ${imgTotal} (${imgPct}%)` : ''}` : '—' },
+                                          ...(gsd != null ? [{ label: 'Avg GSD', val: gsd < 0.1 ? `${(gsd * 100).toFixed(1)} cm` : `${gsd.toFixed(2)} m` }] : []),
+                                          ...(gpsErr != null ? [{ label: 'GPS Error', val: `${gpsErr.toFixed(2)} m` }] : []),
+                                          { label: 'Geographic Ref', val: rs?.has_gps ? 'GPS' : 'None' },
+                                          ...(ps.date ? [{ label: 'Processed', val: ps.date }] : []),
+                                        ].map(({ label, val }) => (
+                                          <div key={label} className="p-2.5 rounded-lg border" style={{ background: cellBg, borderColor: cellBd }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest mb-0.5" style={{ color: labelCol }}>{label}</p>
+                                            <p className="text-[11px] font-bold" style={{ color: valCol }}>{val}</p>
+                                          </div>
+                                        ))}
                                       </div>
-                                    ))}
+                                    </div>
+
+                                    {/* Key metrics 3-up */}
+                                    <div>
+                                      <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: '#64748b' }}>Reconstruction Quality</p>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {[
+                                          { label: 'Sparse Points', val: sparsePoints?.toLocaleString() ?? '—', color: '#2563eb', bg: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.08)' : '#eff6ff', bd: customTheme === 'TECHNICAL' ? 'rgba(37,99,235,0.2)' : '#bfdbfe' },
+                                          ...(densePoints != null ? [{ label: 'Dense Points', val: densePoints.toLocaleString(), color: '#7c3aed', bg: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.08)' : '#faf5ff', bd: customTheme === 'TECHNICAL' ? 'rgba(124,58,237,0.2)' : '#e9d5ff' }] : []),
+                                          { label: 'Reprojection', val: rs?.reprojection_error_pixels != null ? `${rs.reprojection_error_pixels.toFixed(2)}px` : '—', color: rs?.reprojection_error_pixels != null && rs.reprojection_error_pixels < 1.0 ? '#16a34a' : '#d97706', bg: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.06)' : '#f0fdf4', bd: customTheme === 'TECHNICAL' ? 'rgba(22,163,74,0.2)' : '#bbf7d0' },
+                                        ].map(m => (
+                                          <div key={m.label} className="p-3 rounded-xl border text-center" style={{ background: m.bg, borderColor: m.bd }}>
+                                            <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: labelCol }}>{m.label}</p>
+                                            <p className="text-base font-black mt-0.5" style={{ color: m.color }}>{m.val}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                               <div className="grid grid-cols-2 gap-4">
-                                {showFeatures && odmReportData.stats?.features_statistics && (
-                                  <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Feature Quality</p>
-                                    <div className="space-y-2 text-xs">
-                                      <div className="flex justify-between"><span className="text-slate-500">Detected / image</span><span className="font-bold">{odmReportData.stats.features_statistics.detected_features?.mean?.toLocaleString() || '—'}</span></div>
-                                      <div className="flex justify-between"><span className="text-slate-500">Reconstructed / image</span><span className="font-bold">{odmReportData.stats.features_statistics.reconstructed_features?.mean?.toLocaleString() || '—'}</span></div>
+                                {showFeatures && odmReportData.stats?.features_statistics && (() => {
+                                  const fs = odmReportData.stats!.features_statistics!;
+                                  const rs = odmReportData.stats!.reconstruction_statistics;
+                                  return (
+                                    <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
+                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Feature Quality</p>
+                                      <div className="space-y-1.5 text-xs">
+                                        <div className="flex justify-between"><span className="text-slate-500">Detected / image</span><span className="font-bold">{fs.detected_features?.mean?.toLocaleString() ?? '—'}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-500">Reconstructed / image</span><span className="font-bold">{fs.reconstructed_features?.mean?.toLocaleString() ?? '—'}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-500">GPS tagged</span><span className="font-bold" style={{ color: rs?.has_gps ? '#16a34a' : '#dc2626' }}>{rs?.has_gps ? 'Yes' : 'No'}</span></div>
+                                        {rs?.components != null && <div className="flex justify-between"><span className="text-slate-500">Components</span><span className="font-bold" style={{ color: rs.components === 1 ? '#16a34a' : '#d97706' }}>{rs.components}</span></div>}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                                {showReconstruction && odmReportData.stats?.processing_statistics?.steps_times && (
-                                  <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Processing Times</p>
-                                    <div className="space-y-1.5 text-[10px]">
-                                      {Object.entries(odmReportData.stats.processing_statistics.steps_times).filter(([k]) => k !== 'Total Time').slice(0, 3).map(([step, secs]) => {
-                                        const total = odmReportData.stats!.processing_statistics!.steps_times!['Total Time'] || 1;
-                                        return <div key={step} className="flex justify-between"><span className="text-slate-500 truncate">{step}</span><span className="font-bold">{Math.round((secs as number) / 60)}m</span></div>;
-                                      })}
+                                  );
+                                })()}
+                                {showReconstruction && odmReportData.stats?.processing_statistics?.steps_times && (() => {
+                                  const ps = odmReportData.stats!.processing_statistics!;
+                                  const totalTime = ps.steps_times!['Total Time'];
+                                  return (
+                                    <div className="p-4 rounded-xl border" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.01)' : '#fff', borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}>
+                                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 border-b pb-1.5 mb-2" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}>Processing Times</p>
+                                      <div className="space-y-1.5 text-[10px]">
+                                        {Object.entries(ps.steps_times!).filter(([k]) => k !== 'Total Time').map(([step, secs]) => {
+                                          const total = (totalTime as number) || 1;
+                                          const pct = Math.round(((secs as number) / total) * 100);
+                                          return (
+                                            <div key={step}>
+                                              <div className="flex justify-between mb-0.5"><span className="text-slate-500 truncate">{step}</span><span className="font-bold">{Math.round((secs as number) / 60)}m</span></div>
+                                              <div className="h-0.5 rounded-full" style={{ background: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}><div className="h-full rounded-full" style={{ width: `${pct}%`, background: accentColor }} /></div>
+                                            </div>
+                                          );
+                                        })}
+                                        {totalTime && <div className="flex justify-between pt-1 border-t text-[10px]" style={{ borderColor: customTheme === 'TECHNICAL' ? 'rgba(255,255,255,0.06)' : '#e5e7eb' }}><span className="font-black">Total</span><span className="font-black" style={{ color: accentColor }}>{Math.round((totalTime as number) / 60)}m</span></div>}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
+                                  );
+                                })()}
                               </div>
                               {showPreview && previewData?.previewUrl && (
                                 <div className="space-y-2">
