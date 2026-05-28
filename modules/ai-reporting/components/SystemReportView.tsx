@@ -65,7 +65,7 @@ const SeverityBadge: React.FC<{ severity?: string }> = ({ severity }) => {
     );
 };
 
-const Section: React.FC<{ title: string; icon: React.ElementType; children: React.ReactNode; accent?: string }> = ({ title, icon: Icon, children, accent = '#6366f1' }) => (
+const Section: React.FC<{ title: string; icon: React.ComponentType<{ size?: number; color?: string }>; children: React.ReactNode; accent?: string }> = ({ title, icon: Icon, children, accent = '#6366f1' }) => (
     <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <div style={{ background: `${accent}18`, border: `1px solid ${accent}30`, borderRadius: 8, padding: 6 }}>
@@ -77,7 +77,7 @@ const Section: React.FC<{ title: string; icon: React.ElementType; children: Reac
     </div>
 );
 
-const KPI: React.FC<{ label: string; value: string | number; color: string; icon?: React.ElementType }> = ({ label, value, color, icon: Icon }) => (
+const KPI: React.FC<{ label: string; value: string | number; color: string; icon?: React.ComponentType<{ size?: number; color?: string; style?: React.CSSProperties }> }> = ({ label, value, color, icon: Icon }) => (
     <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${color}, transparent)` }} />
         {Icon && <Icon size={14} color={color} style={{ marginBottom: 6, opacity: 0.7 }} />}

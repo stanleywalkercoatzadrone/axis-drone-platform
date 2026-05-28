@@ -46,12 +46,7 @@ export const PilotChecklist: React.FC<PilotChecklistProps> = ({ missionId, onBac
                 }
             } catch (error) {
                 console.error("Failed to fetch checklist", error);
-                // Fallback to mock data for V1 presentation if no items mapped yet
-                setItems([
-                    { id: '1', title: 'Site Arrival & Safety Sweep', description: 'Confirm perimeter safety.', status: 'completed', is_required: true, requires_photo: false },
-                    { id: '2', title: 'Drone Pre-Flight Calibration', description: 'Run standard IMU and Compass checks.', status: 'pending', is_required: true, requires_photo: true },
-                    { id: '3', title: 'Airspace Authorization (LAANC)', description: 'Verify clearance is active.', status: 'pending', is_required: true, requires_photo: false },
-                ]);
+                setItems([]);
             } finally {
                 setIsLoading(false);
             }

@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Axis Ortho — Setup</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #060d1a;
+      --surface:  #0f1e35;
+      --surface2: #162644;
+      --border:   rgba(255,255,255,0.07);
+      --blue:     #38bdf8;
+      --blue-dim: rgba(56,189,248,0.12);
+      --blue-b:   rgba(56,189,248,0.25);
+      --green:    #4ade80;
+      --green-dim:rgba(74,222,128,0.10);
+      --red:      #f87171;
+      --red-dim:  rgba(248,113,113,0.10);
+      --yellow:   #fbbf24;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --subtle:   #334155;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+
+    /* ── Background glow ── */
+    .bg-glow {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 25% 20%, rgba(56,189,248,0.07) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 40% at 80% 80%, rgba(74,222,128,0.05) 0%, transparent 70%);
+    }
+
+    .wizard {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column;
+      height: 100vh;
+      padding: 32px;
+      gap: 28px;
+    }
+
+    /* ── Top row: logo + step indicators ── */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      -webkit-app-region: drag;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      -webkit-app-region: no-drag;
+    }
+
+    .logo-icon {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, rgba(56,189,248,0.2), rgba(56,189,248,0.05));
+      border: 1px solid rgba(56,189,248,0.3);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .logo-icon svg { width: 20px; height: 20px; }
+    .logo-text { font-size: 15px; font-weight: 800; letter-spacing: -0.3px; }
+    .logo-text span { color: var(--blue); }
+
+    .steps {
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .step-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--subtle); transition: all 0.3s ease;
+    }
+    .step-dot.active { background: var(--blue); box-shadow: 0 0 8px var(--blue); width: 24px; border-radius: 4px; }
+    .step-dot.done   { background: var(--green); }
+
+    /* ── Main card ── */
+    .card {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      overflow: hidden;
+    }
+
+    /* Step panels */
+    .step-panel { display: none; flex-direction: column; gap: 24px; height: 100%; }
+    .step-panel.visible { display: flex; animation: fadeSlideIn 0.35s ease; }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Step 1 — Welcome */
+    .welcome-hero {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 20px; text-align: center;
+    }
+
+    .hero-icon {
+      width: 80px; height: 80px; border-radius: 22px;
+      background: linear-gradient(135deg, rgba(56,189,248,0.15), rgba(56,189,248,0.04));
+      border: 1px solid rgba(56,189,248,0.25);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 40px rgba(56,189,248,0.12);
+    }
+
+    .hero-icon svg { width: 44px; height: 44px; }
+
+    .welcome-title {
+      font-size: 28px; font-weight: 900; letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #ffffff, #94a3b8);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    .welcome-subtitle {
+      font-size: 14px; color: var(--muted); line-height: 1.6; max-width: 380px;
+    }
+
+    .feature-pills {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    }
+
+    .pill {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 100px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      color: var(--muted);
+    }
+
+    .pill svg { width: 12px; height: 12px; }
+    .pill.blue { background: var(--blue-dim); border-color: var(--blue-b); color: var(--blue); }
+    .pill.green { background: var(--green-dim); border-color: rgba(74,222,128,0.25); color: var(--green); }
+
+    /* Step 2 — Docker check */
+    .check-list { display: flex; flex-direction: column; gap: 12px; flex: 1; }
+
+    .check-item {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 16px 18px; border-radius: 14px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+    }
+
+    .check-item.ok     { background: var(--green-dim); border-color: rgba(74,222,128,0.2); }
+    .check-item.fail   { background: var(--red-dim);   border-color: rgba(248,113,113,0.2); }
+    .check-item.warn   { background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.2); }
+    .check-item.loading { opacity: 0.7; }
+
+    .check-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .check-icon svg { width: 16px; height: 16px; }
+
+    .check-icon.ok-icon   { background: rgba(74,222,128,0.15); }
+    .check-icon.fail-icon { background: rgba(248,113,113,0.15); }
+    .check-icon.warn-icon { background: rgba(251,191,36,0.15); }
+    .check-icon.spin-icon { background: rgba(56,189,248,0.1); }
+
+    .check-body h3 { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+    .check-body p  { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .check-body a  { color: var(--blue); text-decoration: none; font-weight: 600; }
+    .check-body a:hover { text-decoration: underline; }
+
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Step 3 — Sign in */
+    .signin-body { display: flex; flex-direction: column; gap: 20px; flex: 1; }
+
+    .account-method {
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    .method-label {
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--muted);
+    }
+
+    .token-input-wrap {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+
+    .token-input-wrap label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--muted);
+    }
+
+    .token-input {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 13px; font-family: 'Inter', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+      -webkit-app-region: no-drag;
+    }
+
+    .token-input:focus { border-color: var(--blue); }
+    .token-input::placeholder { color: var(--subtle); }
+
+    .token-hint {
+      font-size: 11px; color: var(--muted); line-height: 1.5;
+    }
+    .token-hint a { color: var(--blue); text-decoration: none; }
+    .token-hint a:hover { text-decoration: underline; }
+
+    .datadir-row {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .datadir-row .token-input { flex: 1; }
+
+    .btn-browse {
+      padding: 12px 16px; border-radius: 12px;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+      color: var(--muted); font-size: 12px; font-weight: 700;
+      cursor: pointer; white-space: nowrap;
+      -webkit-app-region: no-drag;
+      transition: all 0.2s;
+    }
+    .btn-browse:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+    .keychain-note {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-radius: 10px;
+      background: var(--blue-dim); border: 1px solid var(--blue-b);
+      font-size: 11px; color: var(--blue);
+    }
+    .keychain-note svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+    /* ── Bottom nav ── */
+    .nav-row {
+      display: flex; align-items: center; justify-content: space-between;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 24px; border-radius: 12px;
+      font-size: 13px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase;
+      cursor: pointer; border: none; outline: none; transition: all 0.2s;
+      -webkit-app-region: no-drag;
+    }
+    .btn svg { width: 16px; height: 16px; }
+
+    .btn-ghost {
+      background: transparent; color: var(--muted);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563eb, #0ea5e9);
+      color: #fff;
+      box-shadow: 0 0 28px rgba(37,99,235,0.35);
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+
+    .btn-green {
+      background: linear-gradient(135deg, #16a34a, #22c55e);
+      color: #fff;
+      box-shadow: 0 0 28px rgba(34,197,94,0.3);
+    }
+    .btn-green:hover { filter: brightness(1.1); }
+
+    .step-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--subtle);
+    }
+
+    /* ── Status message ── */
+    .status-msg {
+      display: none;
+      padding: 10px 14px; border-radius: 10px;
+      font-size: 12px; font-weight: 600;
+    }
+    .status-msg.error { display: flex; background: var(--red-dim); border: 1px solid rgba(248,113,113,0.2); color: var(--red); gap: 8px; align-items: center; }
+    .status-msg.success { display: flex; background: var(--green-dim); border: 1px solid rgba(74,222,128,0.2); color: var(--green); gap: 8px; align-items: center; }
+  </style>
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<div class="wizard">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="logo-text">Axis <span>Ortho</span></div>
+    </div>
+    <div class="steps">
+      <div class="step-dot active" id="dot-0"></div>
+      <div class="step-dot" id="dot-1"></div>
+      <div class="step-dot" id="dot-2"></div>
+    </div>
+  </div>
+
+  <!-- Card -->
+  <div class="card">
+
+    <!-- Step 1: Welcome -->
+    <div class="step-panel visible" id="step-0">
+      <div class="welcome-hero">
+        <div class="hero-icon">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Drone body -->
+            <rect x="18" y="18" width="12" height="12" rx="3" fill="rgba(56,189,248,0.3)" stroke="#38bdf8" stroke-width="1.5"/>
+            <!-- Arms -->
+            <line x1="18" y1="18" x2="8"  y2="8"  stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="30" y1="18" x2="40" y2="8"  stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="18" y1="30" x2="8"  y2="40" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="30" y1="30" x2="40" y2="40" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round"/>
+            <!-- Props -->
+            <ellipse cx="8"  cy="8"  rx="5" ry="2" stroke="#38bdf8" stroke-width="1.2" fill="rgba(56,189,248,0.1)"/>
+            <ellipse cx="40" cy="8"  rx="5" ry="2" stroke="#38bdf8" stroke-width="1.2" fill="rgba(56,189,248,0.1)"/>
+            <ellipse cx="8"  cy="40" rx="5" ry="2" stroke="#38bdf8" stroke-width="1.2" fill="rgba(56,189,248,0.1)"/>
+            <ellipse cx="40" cy="40" rx="5" ry="2" stroke="#38bdf8" stroke-width="1.2" fill="rgba(56,189,248,0.1)"/>
+            <!-- Center dot -->
+            <circle cx="24" cy="24" r="3" fill="#38bdf8"/>
+            <!-- Scan rings -->
+            <circle cx="24" cy="24" r="10" stroke="rgba(56,189,248,0.2)" stroke-width="1" fill="none"/>
+            <circle cx="24" cy="24" r="18" stroke="rgba(56,189,248,0.1)" stroke-width="1" fill="none"/>
+          </svg>
+        </div>
+
+        <div>
+          <h1 class="welcome-title">Welcome to Axis Ortho</h1>
+          <p class="welcome-subtitle" style="margin-top:8px">
+            Process drone imagery into professional orthomosaics right on your machine —
+            offline, fast, and automatically synced to your Axis Platform account when you're online.
+          </p>
+        </div>
+
+        <div class="feature-pills">
+          <div class="pill blue">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+            20–40 min Lightning
+          </div>
+          <div class="pill blue">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1v14M1 8h14"/></svg>
+            Runs Offline
+          </div>
+          <div class="pill green">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8l3 3 7-7"/></svg>
+            Auto-Sync to Cloud
+          </div>
+          <div class="pill green">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M5 5h6M5 11h4"/></svg>
+            PDF Reports
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: System Check -->
+    <div class="step-panel" id="step-1">
+      <div>
+        <h2 style="font-size:20px;font-weight:900;letter-spacing:-0.3px">System Check</h2>
+        <p style="font-size:13px;color:var(--muted);margin-top:6px">
+          Axis Ortho uses Docker + NodeODM to process images locally. Let's verify your setup.
+        </p>
+      </div>
+
+      <div class="check-list" id="check-list">
+
+        <div class="check-item loading" id="check-docker">
+          <div class="check-icon spin-icon">
+            <svg class="spin" viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="1.5">
+              <path d="M8 1a7 7 0 1 0 7 7" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="check-body">
+            <h3>Docker Desktop</h3>
+            <p>Checking if Docker is running…</p>
+          </div>
+        </div>
+
+        <div class="check-item loading" id="check-odm">
+          <div class="check-icon spin-icon">
+            <svg class="spin" viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="1.5">
+              <path d="M8 1a7 7 0 1 0 7 7" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="check-body">
+            <h3>NodeODM Container</h3>
+            <p>Checking for opendronemap/nodeodm image…</p>
+          </div>
+        </div>
+
+        <div class="check-item loading" id="check-disk">
+          <div class="check-icon spin-icon">
+            <svg class="spin" viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="1.5">
+              <path d="M8 1a7 7 0 1 0 7 7" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="check-body">
+            <h3>Disk Space</h3>
+            <p>Checking available storage…</p>
+          </div>
+        </div>
+
+        <div class="check-item loading" id="check-mem">
+          <div class="check-icon spin-icon">
+            <svg class="spin" viewBox="0 0 16 16" fill="none" stroke="#38bdf8" stroke-width="1.5">
+              <path d="M8 1a7 7 0 1 0 7 7" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="check-body">
+            <h3>Memory</h3>
+            <p>Checking RAM available to Docker…</p>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="status-msg" id="check-status"></div>
+    </div>
+
+    <!-- Step 3: Sign In -->
+    <div class="step-panel" id="step-2">
+      <div>
+        <h2 style="font-size:20px;font-weight:900;letter-spacing:-0.3px">Connect to Axis Platform</h2>
+        <p style="font-size:13px;color:var(--muted);margin-top:6px">
+          Link this machine to your Axis Platform account so completed jobs sync automatically.
+        </p>
+      </div>
+
+      <div class="signin-body">
+        <div class="account-method">
+          <div class="method-label">Axis Platform API Token</div>
+          <div class="token-input-wrap">
+            <label for="token-field">Your API Token</label>
+            <input
+              id="token-field"
+              class="token-input"
+              type="password"
+              placeholder="axs_live_••••••••••••••••••••••••••••••••"
+              autocomplete="off"
+            />
+            <p class="token-hint">
+              Find your token at
+              <a href="#" onclick="openExternal('https://axisplatform.app/settings/api')">
+                axisplatform.app/settings/api
+              </a>
+              → "Generate Desktop Token"
+            </p>
+          </div>
+        </div>
+
+        <div class="account-method">
+          <div class="method-label">Local Data Directory</div>
+          <div class="token-input-wrap">
+            <label for="datadir-field">Where to store jobs &amp; outputs</label>
+            <div class="datadir-row">
+              <input id="datadir-field" class="token-input" type="text" readonly />
+              <button class="btn-browse" onclick="browseDataDir()">Browse…</button>
+            </div>
+            <p class="token-hint">Default: ~/AxisOrtho — make sure you have 50 GB+ free.</p>
+          </div>
+        </div>
+
+        <div class="keychain-note">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="4" y="7" width="8" height="7" rx="1.5"/>
+            <path d="M6 7V5a2 2 0 0 1 4 0v2"/>
+          </svg>
+          Your token is stored securely in the macOS Keychain — never written to disk in plaintext.
+        </div>
+
+        <div class="status-msg" id="signin-status"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Nav -->
+  <div class="nav-row">
+    <button class="btn btn-ghost" id="btn-back" onclick="prevStep()" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10 12L6 8l4-4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back
+    </button>
+    <div class="step-label" id="step-label">Step 1 of 3</div>
+    <button class="btn btn-primary" id="btn-next" onclick="nextStep()">
+      Get Started
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M6 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </div>
+
+</div>
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let currentStep = 0;
+  let checksOk = false;
+
+  const api = window.axisOrtho;
+
+  // Set default data dir (async IPC call)
+  async function initDataDir() {
+    try {
+      const defaultDir = await api?.getDefaultDataDir?.();
+      document.getElementById('datadir-field').value = defaultDir || '~/AxisOrtho';
+    } catch {
+      document.getElementById('datadir-field').value = '~/AxisOrtho';
+    }
+  }
+  initDataDir();
+
+  // ── Navigation ───────────────────────────────────────────────────────────
+  function showStep(n) {
+    document.querySelectorAll('.step-panel').forEach((p, i) => {
+      p.classList.toggle('visible', i === n);
+    });
+    document.querySelectorAll('.step-dot').forEach((d, i) => {
+      d.classList.remove('active', 'done');
+      if (i === n) d.classList.add('active');
+      if (i < n)  d.classList.add('done');
+    });
+    document.getElementById('step-label').textContent = `Step ${n + 1} of 3`;
+    document.getElementById('btn-back').style.display = n > 0 ? 'flex' : 'none';
+
+    // Step 2: run checks
+    if (n === 1 && !checksOk) runChecks();
+
+    // Step 3: final
+    const btnNext = document.getElementById('btn-next');
+    if (n === 2) {
+      btnNext.textContent = '';
+      btnNext.innerHTML = 'Finish Setup <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l4 4 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      btnNext.classList.remove('btn-primary');
+      btnNext.classList.add('btn-green');
+    } else {
+      btnNext.className = 'btn btn-primary';
+      btnNext.innerHTML = (n === 0 ? 'Get Started' : 'Continue') +
+        ' <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    }
+  }
+
+  function nextStep() {
+    if (currentStep === 1 && !checksOk) {
+      showStatus('check-status', 'error', 'Please resolve the issues above before continuing.');
+      return;
+    }
+    if (currentStep === 2) {
+      finishSetup();
+      return;
+    }
+    currentStep++;
+    showStep(currentStep);
+  }
+
+  function prevStep() {
+    if (currentStep > 0) { currentStep--; showStep(currentStep); }
+  }
+
+  // ── System Checks ─────────────────────────────────────────────────────────
+  async function runChecks() {
+    let allOk = true;
+
+    // Docker
+    try {
+      const dockerOk = await api?.checkDocker?.();
+      setCheck('check-docker',
+        dockerOk ? 'ok' : 'fail',
+        'Docker Desktop',
+        dockerOk
+          ? 'Docker is running ✓'
+          : 'Docker is not running. <a href="#" onclick="openExternal(\'https://www.docker.com/products/docker-desktop/\')">Download Docker Desktop →</a>'
+      );
+      if (!dockerOk) allOk = false;
+    } catch {
+      setCheck('check-docker', 'fail', 'Docker Desktop', 'Could not check Docker status.');
+      allOk = false;
+    }
+
+    // NodeODM image
+    try {
+      const odmOk = await api?.checkOdmImage?.();
+      setCheck('check-odm',
+        odmOk ? 'ok' : 'warn',
+        'NodeODM Container',
+        odmOk
+          ? 'opendronemap/nodeodm image found ✓'
+          : 'Image not pulled yet — Axis Ortho will pull it automatically on first job. (~1.5 GB)'
+      );
+    } catch {
+      setCheck('check-odm', 'warn', 'NodeODM Container', 'Will pull on first run (~1.5 GB).');
+    }
+
+    // Disk space
+    try {
+      const gb = await api?.checkDiskSpace?.();
+      const enough = gb == null || gb >= 20;
+      setCheck('check-disk',
+        enough ? 'ok' : 'warn',
+        'Disk Space',
+        gb != null
+          ? `${gb.toFixed(1)} GB available${enough ? ' — looks good ✓' : ' — recommend 50 GB+ for large flights'}`
+          : 'Could not determine disk space.'
+      );
+    } catch {
+      setCheck('check-disk', 'ok', 'Disk Space', 'Check skipped — ensure 50 GB+ free.');
+    }
+
+    // Memory
+    try {
+      const mb = await api?.checkMemory?.();
+      const enough = mb == null || mb >= 4000;
+      setCheck('check-mem',
+        enough ? 'ok' : 'warn',
+        'Memory',
+        mb != null
+          ? `${(mb / 1024).toFixed(1)} GB RAM${enough ? ' ✓' : ' — 8 GB+ recommended for large datasets'}`
+          : 'Memory check skipped.'
+      );
+    } catch {
+      setCheck('check-mem', 'ok', 'Memory', 'Check skipped.');
+    }
+
+    checksOk = allOk;
+    if (!allOk) {
+      showStatus('check-status', 'error', 'Fix the issues above, then click Continue.');
+    } else {
+      hideStatus('check-status');
+    }
+  }
+
+  function setCheck(id, state, title, message) {
+    const el = document.getElementById(id);
+    el.className = `check-item ${state}`;
+    const iconEl = el.querySelector('.check-icon');
+    const bodyEl = el.querySelector('.check-body');
+
+    const icons = {
+      ok:   `<svg viewBox="0 0 16 16" fill="none" stroke="#4ade80" stroke-width="2"><path d="M3 8l4 4 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+      fail: `<svg viewBox="0 0 16 16" fill="none" stroke="#f87171" stroke-width="2"><path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round"/></svg>`,
+      warn: `<svg viewBox="0 0 16 16" fill="none" stroke="#fbbf24" stroke-width="2"><path d="M8 5v4M8 11v1" stroke-linecap="round"/><path d="M7 2.5L1.5 13h13L9 2.5z"/></svg>`,
+    };
+
+    const iconClass = { ok: 'ok-icon', fail: 'fail-icon', warn: 'warn-icon' }[state] || 'spin-icon';
+    iconEl.className = `check-icon ${iconClass}`;
+    iconEl.innerHTML = icons[state] || '';
+    bodyEl.querySelector('h3').textContent = title;
+    bodyEl.querySelector('p').innerHTML = message;
+  }
+
+  // ── Sign In & Finish ──────────────────────────────────────────────────────
+  async function finishSetup() {
+    const token = document.getElementById('token-field').value.trim();
+    const dataDir = document.getElementById('datadir-field').value.trim();
+
+    if (!token) {
+      showStatus('signin-status', 'error', 'Please enter your Axis Platform API token.');
+      return;
+    }
+
+    document.getElementById('btn-next').disabled = true;
+    showStatus('signin-status', 'info', 'Verifying token…');
+
+    try {
+      const result = await api?.saveSetup?.({ token, dataDir });
+      if (result?.ok) {
+        showStatus('signin-status', 'success', '✓ Token saved. Launching Axis Ortho…');
+        setTimeout(() => api?.completeSetup?.(), 1200);
+      } else {
+        showStatus('signin-status', 'error', result?.error || 'Could not verify token. Check it and try again.');
+        document.getElementById('btn-next').disabled = false;
+      }
+    } catch (e) {
+      showStatus('signin-status', 'error', 'Setup failed: ' + (e.message || 'unknown error'));
+      document.getElementById('btn-next').disabled = false;
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function showStatus(id, type, msg) {
+    const el = document.getElementById(id);
+    el.className = `status-msg ${type}`;
+    el.textContent = msg;
+  }
+
+  function hideStatus(id) {
+    document.getElementById(id).className = 'status-msg';
+  }
+
+  function openExternal(url) {
+    api?.openExternal?.(url);
+  }
+
+  async function browseDataDir() {
+    const dir = await api?.chooseDirectory?.();
+    if (dir) document.getElementById('datadir-field').value = dir;
+  }
+</script>
+</body>
+</html>

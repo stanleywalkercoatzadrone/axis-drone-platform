@@ -12,21 +12,11 @@ interface AnalyticsData {
     flywheel?: { total: number; verified: number; unverified: number; lbd: number; };
 }
 
-const MOCK: AnalyticsData = {
-    statusCounts: [
-        { status: 'identified', count: 48 },
-        { status: 'in_progress', count: 31 },
-        { status: 'resolved', count: 103 },
-    ],
-    blockCounts: [
-        { block: 'B1', total: 42, resolved: 30 },
-        { block: 'B2', total: 38, resolved: 25 },
-        { block: 'B3', total: 29, resolved: 22 },
-        { block: 'B4', total: 19, resolved: 14 },
-        { block: 'B5', total: 14, resolved: 12 },
-    ],
+const EMPTY_DATA: AnalyticsData = {
+    statusCounts: [],
+    blockCounts: [],
     recentEntries: [],
-    flywheel: { total: 1450, verified: 320, unverified: 1130, lbd: 450 },
+    flywheel: { total: 0, verified: 0, unverified: 0, lbd: 0 },
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,15 +24,15 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const LBDAnalytics: React.FC = () => {
-    const [data, setData] = useState<AnalyticsData>(MOCK);
+    const [data, setData] = useState<AnalyticsData>(EMPTY_DATA);
     const [loading, setLoading] = useState(true);
     const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
     const fetchData = () => {
         setLoading(true);
         Promise.all([
-            apiClient.get('/lbd/analytics').catch(() => ({ data: { data: MOCK } })),
-            apiClient.get('/v1/training/flywheel/stats').catch(() => ({ data: { data: MOCK.flywheel } }))
+            apiClient.get('/lbd/analytics').catch(() => ({ data: { data: EMPTY_DATA } })),
+            apiClient.get('/v1/training/flywheel/stats').catch(() => ({ data: { data: EMPTY_DATA.flywheel } }))
         ]).then(([lbdRes, flyRes]) => {
             const fd = flyRes.data.data;
             setData({ ...lbdRes.data.data, flywheel: fd });

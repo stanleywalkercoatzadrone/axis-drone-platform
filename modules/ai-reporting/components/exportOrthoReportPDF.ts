@@ -36,6 +36,8 @@ interface OrthoPDFParams {
         showFeatures?: boolean;
         showReconstruction?: boolean;
         showPreview?: boolean;
+        showFullPdf?: boolean;
+        showCertification?: boolean;
     };
 }
 

@@ -41,6 +41,7 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
 
     const renderNavButton = (item: { id: string; label: string; icon: React.ElementType }) => {
         const isActive = currentPath === item.id;
+        const NavIcon = item.icon as React.ComponentType<{ size?: number; className?: string }>;
         return (
             <button
                 key={item.id}
@@ -53,7 +54,7 @@ const PilotNavV2: React.FC<PilotNavV2Props> = ({ activeTab, onNavigate }) => {
                     : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
                     }`}
             >
-                <item.icon className={`shrink-0 transition-transform duration-300 ${isActive ? 'scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'group-hover:scale-110'}`} size={20} />
+                <NavIcon className={`shrink-0 transition-transform duration-300 ${isActive ? 'scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'group-hover:scale-110'}`} size={20} />
                 {isSidebarOpen && (
                     <span className={`ml-4 text-xs font-black uppercase tracking-wider ${isActive ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'}`}>
                         {item.label}

@@ -70,15 +70,7 @@ const BLANK_FORM: NewIssueForm = {
   description: '', lat: '', lng: '', assignee_name: '', assignee_email: '',
 };
 
-// ─── Demo data ────────────────────────────────────────────────────────────────
 
-const DEMO_ISSUES: QAIssue[] = [
-  { id: 'q1', title: 'Module misalignment Block 4A', issue_type: 'misalignment', severity: 'high', status: 'open', assignee_name: 'J. Rodriguez', created_at: '2025-05-20T10:00:00Z', description: 'Modules out of alignment by ~15cm on rows 12-16 in Block 4A' },
-  { id: 'q2', title: 'Missing module Row 22', issue_type: 'missing_module', severity: 'critical', status: 'open', assignee_name: 'M. Chen', created_at: '2025-05-19T08:30:00Z', description: 'Four modules absent from tracker row 22, section B3' },
-  { id: 'q3', title: 'Pile out of tolerance Zone C', issue_type: 'pile_tolerance', severity: 'medium', status: 'in_progress', assignee_name: 'T. Park', created_at: '2025-05-18T14:00:00Z' },
-  { id: 'q4', title: 'Drainage blockage west perimeter', issue_type: 'drainage', severity: 'high', status: 'open', created_at: '2025-05-17T09:00:00Z' },
-  { id: 'q5', title: 'Erosion on eastern access road', issue_type: 'erosion', severity: 'low', status: 'resolved', created_at: '2025-05-15T11:00:00Z' },
-];
 
 // ─── SeverityBadge ────────────────────────────────────────────────────────────
 
@@ -125,14 +117,14 @@ const QAQCPage: React.FC<Props> = ({ siteId }) => {
         apiClient.get(`/api/solar-farm/sites/${siteId}/surveys`),
       ]);
       if (issuesRes.status === 'fulfilled') setIssues(issuesRes.value.data ?? []);
-      else setIssues(DEMO_ISSUES);
+      else setIssues([]);
       if (surveysRes.status === 'fulfilled') {
         const s: Survey[] = surveysRes.value.data ?? [];
         setSurveys(s);
         if (s.length > 0 && !selectedSurveyId) setSelectedSurveyId(s[0].id);
       }
     } catch {
-      setIssues(DEMO_ISSUES);
+      setIssues([]);
     } finally {
       setLoading(false);
     }

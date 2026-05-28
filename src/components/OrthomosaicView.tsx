@@ -4,8 +4,9 @@ import {
   CloudUpload, ImageIcon, ChevronDown, RefreshCw, Download,
   Layers, AlertTriangle, Play, X, RotateCcw, FileArchive, Satellite,
   TrendingUp, Eye, FileText, ExternalLink, BarChart3, Timer, Image, Box,
-  StopCircle, FolderOpen, Cuboid
+  StopCircle, FolderOpen, Cuboid, WifiOff, Monitor, CloudOff, Cloud, FolderSync
 } from 'lucide-react';
+
 import apiClient from '../services/apiClient';
 import { useMediaDeliverable } from '../context/MediaDeliverableContext';
 import { exportOrthoReportPDF } from '../../modules/ai-reporting/components/exportOrthoReportPDF';
@@ -177,6 +178,65 @@ const OrthomosaicView: React.FC = () => {
   const [localOrthoUrl, setLocalOrthoUrl] = useState<string | null>(null);
   const [odmReportData, setOdmReportData] = useState<OdmReportData | null>(null);
 
+  // ── Local mode (Electron desktop app) ────────────────────────────────────────
+  const isElectron = !!(window as any).axisOrtho?.isElectron;
+  const [localStatus, setLocalStatus] = useState<{
+    online: boolean;
+    odmPort?: number;
+    dataDir?: string;
+  } | null>(null);
+  const [localStats, setLocalStats] = useState<{
+    total: number;
+    pending_sync: number;
+    processing: number;
+    syncing?: boolean;
+  } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
+
+  // Poll local status every 15s when in Electron
+  useEffect(() => {
+    if (!isElectron) return;
+    const fetchLocalStatus = async () => {
+      try {
+        const [statusRes, statsRes] = await Promise.all([
+          (window as any).axisOrtho.getStatus(),
+          fetch('/api/local/status').then(r => r.json()).catch(() => null),
+        ]);
+        setLocalStatus(statusRes);
+        if (statsRes?.jobs) setLocalStats(statsRes.jobs);
+      } catch {}
+    };
+    fetchLocalStatus();
+    const iv = setInterval(fetchLocalStatus, 15_000);
+    // Listen for sync-complete events from main process
+    (window as any).axisOrtho?.onSyncComplete?.((data: any) => {
+      setSyncing(false);
+      setSyncMsg(data?.synced > 0 ? `✓ ${data.synced} job(s) synced to Axis Platform` : 'All jobs already synced.');
+      setTimeout(() => setSyncMsg(''), 5000);
+      fetchLocalStatus();
+    });
+    return () => {
+      clearInterval(iv);
+      (window as any).axisOrtho?.removeSyncListener?.();
+    };
+  }, [isElectron]);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      if ((window as any).axisOrtho?.syncNow) {
+        await (window as any).axisOrtho.syncNow();
+      } else {
+        const r = await fetch('/api/local/sync', { method: 'POST' });
+        const d = await r.json();
+        setSyncMsg(d.synced > 0 ? `✓ ${d.synced} job(s) synced` : 'Nothing to sync.');
+        setSyncing(false);
+      }
+    } catch { setSyncing(false); setSyncMsg('Sync failed — check connection.'); }
+  };
+
   // ── Customization States ──────────────────────────────────────────────────
   interface OrthoCustomization {
     title?: string;
@@ -191,6 +251,8 @@ const OrthomosaicView: React.FC = () => {
     showFeatures?: boolean;
     showReconstruction?: boolean;
     showPreview?: boolean;
+    showFullPdf?: boolean;
+    showCertification?: boolean;
   }
 
   const [customization, setCustomization] = useState<OrthoCustomization | null>(null);
@@ -655,7 +717,63 @@ const OrthomosaicView: React.FC = () => {
         </button>
       </div>
 
-      {/* ── On-demand viewer buttons ── */}
+      {/* ── Local Mode Banner (Electron desktop app only) ── */}
+      {isElectron && (
+        <div className="flex items-center justify-between px-4 py-3 rounded-2xl" style={{
+          background: localStatus?.online
+            ? 'rgba(34,197,94,0.08)'
+            : 'rgba(234,179,8,0.08)',
+          border: `1px solid ${localStatus?.online ? 'rgba(34,197,94,0.2)' : 'rgba(234,179,8,0.2)'}`,
+        }}>
+          <div className="flex items-center gap-3">
+            <div className="p-1.5 rounded-lg" style={{
+              background: localStatus?.online ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)',
+            }}>
+              {localStatus?.online
+                ? <Cloud className="w-4 h-4" style={{ color: '#4ade80' }} />
+                : <CloudOff className="w-4 h-4" style={{ color: '#facc15' }} />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <Monitor className="w-3 h-3" style={{ color: '#64748b' }} />
+                <span className="text-xs font-black uppercase tracking-widest" style={{ color: '#94a3b8' }}>
+                  Local Mode — Processing on this machine
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-black uppercase" style={{
+                  background: localStatus?.online ? 'rgba(34,197,94,0.15)' : 'rgba(234,179,8,0.15)',
+                  color: localStatus?.online ? '#4ade80' : '#facc15',
+                }}>
+                  {localStatus?.online ? 'Online' : 'Offline'}
+                </span>
+              </div>
+              {localStats && localStats.pending_sync > 0 && (
+                <p className="text-[10px] mt-0.5" style={{ color: '#64748b' }}>
+                  {localStats.pending_sync} job{localStats.pending_sync !== 1 ? 's' : ''} pending sync to Axis Platform
+                </p>
+              )}
+              {syncMsg && (
+                <p className="text-[10px] mt-0.5 font-bold" style={{ color: '#4ade80' }}>{syncMsg}</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={handleSyncNow}
+            disabled={syncing || !localStatus?.online}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-80 active:scale-95"
+            style={{
+              background: localStatus?.online ? 'rgba(34,197,94,0.12)' : 'rgba(100,116,139,0.12)',
+              border: `1px solid ${localStatus?.online ? 'rgba(34,197,94,0.3)' : 'rgba(100,116,139,0.2)'}`,
+              color: localStatus?.online ? '#4ade80' : '#64748b',
+            }}
+          >
+            {syncing
+              ? <><Loader2 className="w-3 h-3 animate-spin" /> Syncing…</>
+              : <><FolderSync className="w-3 h-3" /> Sync Now</>}
+          </button>
+        </div>
+      )}
+
+
       {/* Hidden inputs for local file selection */}
       <input ref={localObjInputRef} type="file" accept=".obj" className="hidden"
         onChange={e => {
@@ -1407,7 +1525,7 @@ const OrthomosaicView: React.FC = () => {
                                 const imgPct = (imgUsed != null && imgTotal != null && imgTotal > 0) ? Math.round((imgUsed / imgTotal) * 100) : null;
                                 const sparsePoints = rs?.reconstructed_points_count != null ? Number(rs.reconstructed_points_count) : null;
                                 const densePoints = (rs as any)?.dense_reconstruction?.points_count != null ? Number((rs as any).dense_reconstruction.points_count) : (odmReportData.stats as any)?.dense_reconstruction?.points_count != null ? Number((odmReportData.stats as any).dense_reconstruction.points_count) : null;
-                                const gsdRaw = ps.gsd ?? (odmReportData.stats as any)?.gsd ?? null;
+                                const gsdRaw = (ps as any).gsd ?? (odmReportData.stats as any)?.gsd ?? null;
                                 const gsd = gsdRaw != null ? Number(gsdRaw) : null;
                                 const gpsErrRaw = (rs as any)?.gps_errors ?? (odmReportData.stats as any)?.gps_errors ?? null;
                                 const gpsErr = gpsErrRaw != null ? Number(gpsErrRaw) : null;

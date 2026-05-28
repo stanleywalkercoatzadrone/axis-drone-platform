@@ -42,6 +42,7 @@
   "exclude": [
     "node_modules",
     "components",
-    "report-wizard"
+    "report-wizard",
+    "capacitor.config.ts"
   ]
 }

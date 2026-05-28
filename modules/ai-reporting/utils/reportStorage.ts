@@ -13,7 +13,8 @@ export type ReportIndustry =
     | 'solar'
     | 'utilities'
     | 'construction'
-    | 'telecom';
+    | 'telecom'
+    | 'orthomosaic';
 
 export interface ReportMeta {
     id: string;

@@ -62,6 +62,19 @@ import chunkedUploadRoutes from './routes/chunkedUploads.js';              // §
 import pilotNetworkRoutes from './routes/pilotNetwork.js';                // Pilot Network Applications (public /join form)
 import orthomosaicRoutes from './routes/orthomosaic.js';                  // Orthomosaic Photogrammetry Pipeline
 import socialMediaRoutes from './routes/socialMedia.js';                  // Social Media Blast
+import constructionRoutes from './routes/constructionRoutes.js';           // Construction Evidence Portal
+import weatherRoutes from './routes/weather.js';                          // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
+import downloadsRoutes from './routes/downloads.js';                       // Axis Ortho desktop app distribution
+
+// ── Local mode routes (Electron desktop app only) ─────────────────────────────
+// Only imported and mounted when AXIS_LOCAL_MODE=true (set by Electron main.js).
+// Zero impact on the cloud deployment — this block is never reached otherwise.
+let localRoutes = null;
+if (process.env.AXIS_LOCAL_MODE === 'true') {
+    const { default: lr } = await import('./routes/local.js');
+    localRoutes = lr;
+    console.log('🖥️  Axis Ortho: Local mode active — mounting /api/local routes');
+}
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -118,16 +131,22 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com"],  // unpkg: Leaflet runtime injection (WeatherDashboard)
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],  // unpkg: Leaflet CSS
             imgSrc: ["'self'", "data:", "https:", "blob:"],
             connectSrc: [
                 "'self'",
                 "https://api.openai.com",
                 "https://generativelanguage.googleapis.com",
-                "https://api.open-meteo.com",               // Weather widget
+                "https://api.open-meteo.com",               // Weather widget (primary)
                 "https://geocoding-api.open-meteo.com",     // City autocomplete geocoding
                 "https://tile.openweathermap.org",          // Weather tiles
+                "https://wttr.in",                          // Weather widget (secondary source)
+                "https://unpkg.com",                        // Leaflet marker icons (runtime fetch)
+                "https://basemaps.cartocdn.com",            // Dark map tile CDN (react-leaflet)
+                "https://a.basemaps.cartocdn.com",          // Leaflet tile subdomains
+                "https://b.basemaps.cartocdn.com",
+                "https://c.basemaps.cartocdn.com",
             ],
             fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
             objectSrc: ["'none'"],
@@ -236,6 +255,14 @@ app.use('/api/client', clientReportsRoutes);             // Client AI reports
 app.use('/api/pilot-network', pilotNetworkRoutes);       // Pilot Network Applications (public apply + admin review)
 app.use('/api/orthomosaic', orthomosaicRoutes);          // Orthomosaic Photogrammetry Pipeline
 app.use('/api/social', socialMediaRoutes);               // Social Media Blast
+app.use('/api/construction', constructionRoutes);        // Construction Evidence Portal
+app.use('/api/weather', weatherRoutes);                  // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
+app.use('/api/downloads', downloadsRoutes);              // Axis Ortho desktop app distribution
+
+// ── Local mode (Electron desktop app) ────────────────────────────────────────
+if (localRoutes) {
+    app.use('/api/local', localRoutes);                  // Local job management, file serving, sync trigger
+}
 
 // ── /api/documents — global document query (by personnelId) ──────────────────
 // Called from: DocumentExplorer.tsx and compliance.ts with ?personnelId=X

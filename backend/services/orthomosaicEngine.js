@@ -1,18 +1,27 @@
 /**
  * orthomosaicEngine.js — OpenDroneMap Integration (Streaming v2)
  *
- * Fixes critical Cloud Run failures from v1:
- *  - v1 downloaded ALL images to /tmp before uploading → crashed Cloud Run's
- *    512 MB tmpfs for large missions (345+ images = 1-7 GB).
- *  - v1 used POST /task/new with a single huge multipart body → timed out.
- *  - v1 buffered entire output files in RAM → OOM on large GeoTIFFs.
+ * Supports two processing backends (auto-selected via env vars):
  *
- * v2 fix:
+ *  ── WebODM Lightning (cloud, recommended) ───────────────────────────────────
+ *    Set LIGHTNING_ODM_TOKEN in .env.local to activate.
+ *    Lightning is NodeODM-compatible so the same API is used end-to-end.
+ *    Endpoint: https://spark1.webodm.net (or override via LIGHTNING_ODM_URL)
+ *    Auth:     Authorization: Token <LIGHTNING_ODM_TOKEN>
+ *    Pricing:  ~$0.02/image at webodm.net
+ *
+ *  ── Local Mode (Electron desktop app) ──────────────────────────────────────
+ *    Set AXIS_LOCAL_MODE=true to activate.
+ *    Reads images from LOCAL_DATA_DIR filesystem, writes outputs to local disk.
+ *    ODM runs on localhost via Docker (port set by ODM_URL env var).
+ *    No GCS or PostgreSQL required.
+ *
+ *  Pipeline (same for all backends):
  *  1. POST /task/new/init          — get a task UUID, no images yet.
- *  2. POST /task/new/upload/<id>   — stream each image from GCS → ODM (no local disk).
- *  3. POST /task/new/commit/<id>   — start ODM processing with options.
+ *  2. POST /task/new/upload/<id>   — stream each image to ODM.
+ *  3. POST /task/new/commit/<id>   — start ODM processing with quality options.
  *  4. GET  /task/<id>/info         — poll every 8s until done.
- *  5. GET  /task/<id>/download/... — stream outputs ODM → GCS (no RAM buffering).
+ *  5. GET  /task/<id>/download/... — stream outputs to storage (GCS or local disk).
  *
  *  NOTE: NodeODM v2.x uses /task/new/upload and /task/new/commit paths.
  *  The shorter /task/<id>/upload path was removed in v2 and returns 404.
@@ -20,37 +29,93 @@
 
 import FormData from 'form-data';
 import fetch from 'node-fetch';
-import { Storage } from '@google-cloud/storage';
-import { logger } from './logger.js';
-import { query } from '../config/database.js';
 import { pipeline } from 'stream/promises';
+import { logger } from './logger.js';
 
-const ODM_URL    = process.env.ODM_URL        || 'http://35.185.234.59:3000';
+// ── Engine & mode selection ───────────────────────────────────────────────────
+
+const LOCAL_MODE      = process.env.AXIS_LOCAL_MODE === 'true';
+const LIGHTNING_TOKEN = process.env.LIGHTNING_ODM_TOKEN;
+const LIGHTNING_URL   = process.env.LIGHTNING_ODM_URL || 'https://spark1.webodm.net';
+const SELFHOST_URL    = process.env.ODM_URL            || 'http://35.185.234.59:3000';
+
+const ODM_URL = LOCAL_MODE
+    ? (process.env.ODM_URL || 'http://localhost:58000') // Docker NodeODM on Electron port
+    : (LIGHTNING_TOKEN ? LIGHTNING_URL : SELFHOST_URL);
+
+const USING_LIGHTNING = !LOCAL_MODE && !!LIGHTNING_TOKEN;
+
+// Upload concurrency: Lightning handles more parallel connections
+const UPLOAD_CONCURRENCY = USING_LIGHTNING ? 10 : 5;
+
+logger.info(
+    LOCAL_MODE
+        ? `[Orthomosaic] Engine: LOCAL (Docker NodeODM at ${ODM_URL})`
+        : USING_LIGHTNING
+            ? `[Orthomosaic] Engine: WebODM Lightning (${LIGHTNING_URL})`
+            : `[Orthomosaic] Engine: Self-hosted NodeODM (${SELFHOST_URL})`
+);
+
+// ── Storage setup ─────────────────────────────────────────────────────────────
+// In local mode: use filesystem adapter. In cloud mode: use GCS.
+
 const GCS_BUCKET = process.env.GCS_BUCKET_NAME || 'axis-platform-uploads';
+let gcs = null;
+let localStore = null;
 
-let gcs;
-try {
-    gcs = new Storage({ projectId: process.env.GCS_PROJECT_ID });
-} catch (e) {
-    logger.warn('[Orthomosaic] GCS init failed:', e.message);
+if (LOCAL_MODE) {
+    const { default: ls } = await import('./localStorageAdapter.js').catch(() => ({ default: null }));
+    localStore = ls;
+    logger.info('[Orthomosaic] Using local filesystem storage.');
+} else {
+    try {
+        const { Storage } = await import('@google-cloud/storage');
+        gcs = new (Storage)({ projectId: process.env.GCS_PROJECT_ID });
+    } catch (e) {
+        logger.warn('[Orthomosaic] GCS init failed:', e.message);
+    }
 }
 
-// ── Upload images in small batches to avoid ODM connection limits ─────────────
-const UPLOAD_CONCURRENCY = 5; // stream 5 images simultaneously
+// DB helper — no-ops in local mode (localDatabase handles persistence separately)
+async function dbQuery(sql, params) {
+    if (LOCAL_MODE) return; // caller uses localDatabase directly
+    const { query } = await import('../config/database.js');
+    return query(sql, params);
+}
+
+// ── Auth helper ───────────────────────────────────────────────────────────────
+// Returns an Authorization header when using Lightning, empty otherwise.
+
+function odmAuthHeaders(extra = {}) {
+    return {
+        ...extra,
+        ...(LIGHTNING_TOKEN ? { Authorization: `Token ${LIGHTNING_TOKEN}` } : {}),
+    };
+}
+
+// ── Upload images in batches ──────────────────────────────────────────────
 
 async function uploadBatch(taskId, batch) {
     await Promise.all(batch.map(async (file) => {
         const form = new FormData();
-        // Stream directly from GCS — no local disk write at all
-        const gcsStream = gcs.bucket(GCS_BUCKET).file(file.gcsPath).createReadStream();
-        form.append('images', gcsStream, {
+
+        // In local mode: read from filesystem. In cloud mode: stream from GCS.
+        let fileStream;
+        if (LOCAL_MODE) {
+            const { createReadStream } = await import('fs');
+            fileStream = createReadStream(file.localPath || file.gcsPath);
+        } else {
+            fileStream = gcs.bucket(GCS_BUCKET).file(file.gcsPath).createReadStream();
+        }
+
+        form.append('images', fileStream, {
             filename: file.name,
             contentType: 'image/jpeg',
         });
         const res = await fetch(`${ODM_URL}/task/new/upload/${taskId}`, {
-            method: 'POST',
-            body: form,
-            headers: form.getHeaders(),
+            method:  'POST',
+            body:    form,
+            headers: odmAuthHeaders(form.getHeaders()),
             timeout: 120_000, // 2 min per image upload
         });
         if (!res.ok) {
@@ -61,81 +126,111 @@ async function uploadBatch(taskId, batch) {
     }));
 }
 
+// ── Health check (called on startup / before job submission) ──────────────────
+
+export async function checkOdmHealth() {
+    try {
+        const res = await fetch(`${ODM_URL}/info`, {
+            headers: odmAuthHeaders(),
+            timeout: 10_000,
+        });
+        if (!res.ok) return { healthy: false, engine: ODM_URL, status: res.status };
+        const info = await res.json();
+        return {
+            healthy:  true,
+            engine:   USING_LIGHTNING ? 'lightning' : 'self-hosted',
+            url:      ODM_URL,
+            version:  info.version || 'unknown',
+        };
+    } catch (e) {
+        return { healthy: false, engine: ODM_URL, error: e.message };
+    }
+}
+
 /**
- * @param {object} imageSet
- *   { jobId, missionId, files: [{name, gcsPath}], gcsProcessedPrefix, fastMode }
+ * runOrthomosaic — process images through ODM, save outputs to storage.
+ *
+ * Cloud mode: { jobId, missionId, files: [{name, gcsPath}], gcsProcessedPrefix, fastMode }
+ * Local mode: { jobId, missionId, files: [{name, localPath}], outputDir, fastMode }
+ *
+ * @param {object}   imageSet
  * @param {function} onProgress  (pct: number) => void
- * @returns {Promise<{orthomosaicGcsUri, dsmGcsUri, archiveGcsUri}>}
+ * @returns {Promise<{orthomosaicPath, dsmPath, archivePath}|{orthomosaicGcsUri, dsmGcsUri, archiveGcsUri}>}
  */
 export async function runOrthomosaic(imageSet, onProgress) {
-    const { jobId, missionId, files, gcsProcessedPrefix, fastMode = false } = imageSet;
+    const { jobId, missionId, files, gcsProcessedPrefix, outputDir, fastMode = false } = imageSet;
 
     if (!files || files.length === 0) {
         throw new Error('No images provided for orthomosaic processing.');
     }
-    if (!gcs) {
+    if (!LOCAL_MODE && !gcs) {
         throw new Error('GCS storage not initialised — check GCS_PROJECT_ID env var.');
     }
 
-    logger.info(`[Orthomosaic] Starting streaming pipeline for job ${jobId} — ${files.length} images (fastMode=${fastMode})`);
+    const engineLabel = LOCAL_MODE ? 'local' : USING_LIGHTNING ? 'Lightning' : 'self-hosted';
+    logger.info(
+        `[Orthomosaic] Starting pipeline for job ${jobId} — ` +
+        `${files.length} images (fastMode=${fastMode}, engine=${engineLabel})`
+    );
 
-    // ── Step 1: Initialise ODM task (get UUID) ────────────────────────────────
-    logger.info(`[Orthomosaic] Initialising NodeODM task at ${ODM_URL}...`);
+    // ── Step 1: Initialise ODM task (get UUID) ─────────────────────────────────────
+    logger.info(`[Orthomosaic] Initialising task at ${ODM_URL}...`);
     const initRes = await fetch(`${ODM_URL}/task/new/init`, {
-        method: 'POST',
+        method:  'POST',
+        headers: odmAuthHeaders(),
         timeout: 30_000,
     });
     if (!initRes.ok) {
         const txt = await initRes.text().catch(() => '');
-        throw new Error(`NodeODM /task/new/init failed: ${initRes.status} ${txt}`);
+        throw new Error(`ODM /task/new/init failed: ${initRes.status} ${txt}`);
     }
     const { uuid: taskId } = await initRes.json();
-    logger.info(`[Orthomosaic] ODM task UUID: ${taskId}`);
+    logger.info(`[Orthomosaic] Task UUID: ${taskId}`);
 
-    // Persist taskId immediately so the job can be recovered if the container restarts
+    // Persist taskId so the job can be recovered if the container restarts
     await query(
         `UPDATE orthomosaic_jobs SET engine_job_id = $1, pipeline_stage = 'Uploading Images', updated_at = NOW() WHERE id = $2`,
         [taskId, jobId]
     ).catch(() => {});
 
     // ── Step 2: Stream images GCS → ODM (batched, no local disk) ─────────────
-    logger.info(`[Orthomosaic] Streaming ${files.length} images to ODM (${UPLOAD_CONCURRENCY} concurrent)...`);
+    logger.info(`[Orthomosaic] Streaming ${files.length} images (${UPLOAD_CONCURRENCY} concurrent)...`);
     let uploaded = 0;
     for (let i = 0; i < files.length; i += UPLOAD_CONCURRENCY) {
         const batch = files.slice(i, i + UPLOAD_CONCURRENCY);
         await uploadBatch(taskId, batch);
         uploaded += batch.length;
-        const pct = Math.round((uploaded / files.length) * 30); // 0-30% = upload phase
+        const pct = Math.round((uploaded / files.length) * 30); // 0–30% = upload phase
         onProgress(pct);
         logger.info(`[Orthomosaic] Uploaded ${uploaded}/${files.length} images`);
     }
 
     // ── Step 3: Commit task with processing options ───────────────────────────
-    logger.info(`[Orthomosaic] Committing ODM task ${taskId}...`);
+    logger.info(`[Orthomosaic] Committing task ${taskId}...`);
     const options = [
-        { name: 'auto-boundary',    value: true },
-        { name: 'dsm',             value: true },
-        { name: 'fast-orthophoto', value: fastMode },
-        { name: 'feature-quality', value: fastMode ? 'low' : 'high' },
-        { name: 'min-num-features', value: fastMode ? 4000 : 8000 },
+        { name: 'auto-boundary',     value: true },
+        { name: 'dsm',               value: true },
+        { name: 'fast-orthophoto',   value: fastMode },
+        { name: 'feature-quality',   value: fastMode ? 'low' : 'high' },
+        { name: 'min-num-features',  value: fastMode ? 4000 : 8000 },
     ];
 
     const commitRes = await fetch(`${ODM_URL}/task/new/commit/${taskId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ options }),
+        method:  'POST',
+        headers: odmAuthHeaders({ 'Content-Type': 'application/json' }),
+        body:    JSON.stringify({ options }),
         timeout: 30_000,
     });
     if (!commitRes.ok) {
         const txt = await commitRes.text().catch(() => '');
-        throw new Error(`NodeODM commit failed: ${commitRes.status} ${txt}`);
+        throw new Error(`ODM commit failed: ${commitRes.status} ${txt}`);
     }
 
     await query(
         `UPDATE orthomosaic_jobs SET pipeline_stage = 'ODM Running', updated_at = NOW() WHERE id = $1`,
         [jobId]
     ).catch(() => {});
-    logger.info(`[Orthomosaic] ODM task committed. Processing started.`);
+    logger.info(`[Orthomosaic] Task committed. Processing started.`);
 
     // ── Step 4: Poll until complete ───────────────────────────────────────────
     let isCompleted = false;
@@ -145,7 +240,10 @@ export async function runOrthomosaic(imageSet, onProgress) {
 
         let info;
         try {
-            const infoRes = await fetch(`${ODM_URL}/task/${taskId}/info`, { timeout: 15_000 });
+            const infoRes = await fetch(`${ODM_URL}/task/${taskId}/info`, {
+                headers: odmAuthHeaders(),
+                timeout: 15_000,
+            });
             if (!infoRes.ok) { consecutiveErrors++; continue; }
             info = await infoRes.json();
             consecutiveErrors = 0;
@@ -165,13 +263,13 @@ export async function runOrthomosaic(imageSet, onProgress) {
             isCompleted = true;
             onProgress(100);
         } else {
-            // Map ODM 0-100 progress into 30-95% of our overall progress scale
+            // Map ODM 0-100 progress into 30–95% of our overall progress scale
             const rawPct = info.progress || 0;
             onProgress(30 + Math.round(rawPct * 0.65));
         }
     }
 
-    logger.info(`[Orthomosaic] ODM processing complete. Streaming outputs to GCS...`);
+    logger.info(`[Orthomosaic] Processing complete. Streaming outputs to GCS...`);
 
     // ── Step 5: Stream outputs ODM → GCS (no in-memory buffering) ────────────
     const outputsToFetch = [
@@ -184,7 +282,10 @@ export async function runOrthomosaic(imageSet, onProgress) {
 
     for (const { url, name, contentType } of outputsToFetch) {
         try {
-            const r = await fetch(url, { timeout: 300_000 }); // 5 min per output
+            const r = await fetch(url, {
+                headers: odmAuthHeaders(),
+                timeout: 300_000, // 5 min per output file
+            });
             if (!r.ok) {
                 logger.warn(`[Orthomosaic] Output ${name} not available (${r.status})`);
                 continue;
@@ -192,8 +293,8 @@ export async function runOrthomosaic(imageSet, onProgress) {
 
             const gcsPath = `${gcsProcessedPrefix}${name}`;
             const writeStream = gcs.bucket(GCS_BUCKET).file(gcsPath).createWriteStream({
-                metadata: { contentType },
-                resumable: true, // resumable for large files
+                metadata:  { contentType },
+                resumable: true, // resumable for large GeoTIFFs
             });
 
             // Pipe ODM response stream → GCS write stream (zero RAM buffering)
@@ -211,10 +312,12 @@ export async function runOrthomosaic(imageSet, onProgress) {
     }
 
     // ── Step 6: Cleanup ODM task from server ─────────────────────────────────
-    fetch(`${ODM_URL}/task/${taskId}/remove`, { method: 'POST' })
-        .catch(e => logger.warn(`[Orthomosaic] Could not clean up ODM task: ${e.message}`));
+    fetch(`${ODM_URL}/task/${taskId}/remove`, {
+        method:  'POST',
+        headers: odmAuthHeaders(),
+    }).catch(e => logger.warn(`[Orthomosaic] Could not clean up ODM task: ${e.message}`));
 
     return results;
 }
 
-export default { runOrthomosaic };
+export default { runOrthomosaic, checkOdmHealth };

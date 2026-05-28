@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, ChevronRight, BarChart3, TrendingUp, Sun, Zap, Shield, Grid, Box, Map, CheckSquare, HardHat, Cpu, Wrench, Mountain } from 'lucide-react';
+import { CheckCircle2, ChevronRight, BarChart3, TrendingUp, Sun, Zap, Shield, Grid, Box, Map, CheckSquare, HardHat, Cpu, Wrench, Mountain, ArrowDownToLine } from 'lucide-react';
 
 export default function PhaseProgressTracker({ phases, observations, projectId, onProgressUpdate }) {
     // Map latest observation for each phase
@@ -14,7 +14,7 @@ export default function PhaseProgressTracker({ phases, observations, projectId, 
         const n = name.toLowerCase();
         if (n.includes('civil') || n.includes('grad') || n.includes('road')) return Mountain;
         if (n.includes('fenc')) return Shield;
-        if (n.includes('pile')) return ArrowDownToDot;
+        if (n.includes('pile')) return ArrowDownToLine;
         if (n.includes('rack')) return Grid;
         if (n.includes('module') || n.includes('panel')) return Sun;
         if (n.includes('electrical') || n.includes('cable') || n.includes('trench')) return Zap;

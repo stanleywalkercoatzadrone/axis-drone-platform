@@ -176,7 +176,7 @@ export default function BESSInspectionView() {
   const [error, setError] = useState('');
 
   // Detail: defect form
-  const [defectForm, setDefectForm] = useState({ component_type: 'container', component_id: '', defect_category: '', severity: 'minor' as const, description: '' });
+  const [defectForm, setDefectForm] = useState<{ component_type: string; component_id: string; defect_category: string; severity: 'critical' | 'major' | 'minor' | 'observation'; description: string }>({ component_type: 'container', component_id: '', defect_category: '', severity: 'minor', description: '' });
   const [addingDefect, setAddingDefect] = useState(false);
   const [expandedDefect, setExpandedDefect] = useState<string | null>(null);
 

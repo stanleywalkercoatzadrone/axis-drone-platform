@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
     FileText, Download, Trash2, Eye, X, ChevronLeft,
     Building2, Sun, Zap, HardHat, Radio, Search,
-    Archive, AlertCircle, Shield
+    Archive, AlertCircle, Shield, Brain
 } from 'lucide-react';
 import {
     listReports,
@@ -33,6 +33,7 @@ export const INDUSTRY_CONFIG: Record<ReportIndustry, {
     utilities: { label: 'Utilities', emoji: '⚡', color: '#8b5cf6', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
     construction: { label: 'Construction', emoji: '🏗️', color: '#06b6d4', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
     telecom: { label: 'Telecom', emoji: '📡', color: '#10b981', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+    orthomosaic: { label: 'Orthomosaic', emoji: '🗺️', color: '#3b82f6', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,12 +70,12 @@ const ReportDashboard: React.FC<{ meta: ReportMeta; onClose?: () => void; onDown
                         <div>
                             <div className="flex items-center gap-2 mb-3">
                                 <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                                    <ShieldIcon size={12} /> Insurance Intelligence
+                                    <Shield size={12} /> Insurance Intelligence
                                 </span>
                             </div>
                             <h1 className="text-3xl font-black text-white tracking-tight leading-none mb-2">{report.title}</h1>
                             <p className="text-slate-400 font-medium flex items-center gap-2">
-                                <MapPinIcon size={14} className="text-slate-500" /> {report.propertyAddress}
+                                <MapPin size={14} className="text-slate-500" /> {report.propertyAddress}
                             </p>
                         </div>
                         <div className="text-right">
@@ -110,7 +111,7 @@ const ReportDashboard: React.FC<{ meta: ReportMeta; onClose?: () => void; onDown
                     {/* Summary */}
                     <div className="bg-indigo-600/5 border border-indigo-500/20 rounded-3xl p-8 relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-10">
-                            <BrainIcon size={80} />
+                            <Brain size={80} />
                         </div>
                         <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                              Executive Tactical Summary
@@ -193,14 +194,14 @@ const ReportDashboard: React.FC<{ meta: ReportMeta; onClose?: () => void; onDown
                     <div className="grid grid-cols-4 gap-4">
                          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative group overflow-hidden">
                             <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <ZapIcon size={32} />
+                                <Zap size={32} />
                             </div>
                             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Anomalies</p>
                             <p className="text-3xl font-black text-white">{findings.length}</p>
                         </div>
                         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 relative group overflow-hidden">
                             <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
-                                <ShieldIcon size={32} />
+                                <Shield size={32} />
                             </div>
                             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">System Health</p>
                             <p className="text-3xl font-black text-emerald-400">92.4%</p>
@@ -218,7 +219,7 @@ const ReportDashboard: React.FC<{ meta: ReportMeta; onClose?: () => void; onDown
                     {/* AI Summary */}
                     <div className="bg-[#0f172a] border border-slate-800 rounded-3xl p-8 shadow-2xl">
                         <h3 className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                             <BrainIcon size={14} /> Neural Summary Insight
+                             <Brain size={14} /> Neural Summary Insight
                         </h3>
                         <p className="text-xl text-slate-300 leading-relaxed font-inter italic">
                             "{aiSummary || "Site analysis demonstrates normal thermal signature variance. No immediate intervention required."}"

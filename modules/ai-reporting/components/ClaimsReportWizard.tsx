@@ -434,9 +434,9 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
         if (!generatedReport || !selectedMissionId) return;
         setSavingToMission(true);
         try {
-            const res = await saveReportToMission(selectedMissionId, generatedReport);
-            if (res.success) {
-                setSavedToMissionId(res.reportId);
+            const savedId = await saveReportToMission(selectedMissionId, generatedReport, {});
+            if (savedId) {
+                setSavedToMissionId(savedId);
             }
         } catch (err) {
             console.error('Save to mission failed', err);
@@ -695,7 +695,7 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
 
                             <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden"
                                 onChange={e => { const f = Array.from(e.target.files || []); if (f.length) handleFileUpload(f); e.target.value = ''; }} />
-                            <input ref={folderInputRef} type="file" webkitdirectory="" directory="" className="hidden"
+                            <input ref={folderInputRef} type="file" {...{ webkitdirectory: '', directory: '' } as any} className="hidden"
                                 onChange={e => { const f = Array.from(e.target.files || []); if (f.length) handleFileUpload(f); e.target.value = ''; }} />
                         </div>
 
@@ -1287,7 +1287,7 @@ const ClaimsReportWizard: React.FC<Props> = ({ initialReport, onBack, onSaved })
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-2">
                                         <User className="w-3 h-3" /> Lead Adjuster
                                     </p>
-                                    <p className="text-sm font-bold text-white">{form.adjusterName || user?.full_name || 'System Auto-Agent'}</p>
+                                    <p className="text-sm font-bold text-white">{form.adjusterName || user?.fullName || 'System Auto-Agent'}</p>
                                     <p className="text-[11px] text-slate-500 mt-1">{form.adjusterEmail || user?.email}</p>
                                 </div>
                                 <div>

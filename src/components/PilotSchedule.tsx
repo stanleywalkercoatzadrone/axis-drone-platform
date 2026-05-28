@@ -120,7 +120,6 @@ const PilotSchedule: React.FC<PilotScheduleProps> = ({ pilotId }) => {
                 )}
             </div>
 
-            {/* Add Block Modal Stub */}
             {showAddModal && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">

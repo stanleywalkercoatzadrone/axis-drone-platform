@@ -22,15 +22,7 @@ const METRICS: PerformanceMetric[] = [
     { id: 'speed', label: 'Speed Score (V2)', description: 'Response time and deliverable upload speed.', icon: Zap, enabledKey: 'speed_enabled', weightKey: 'speed_weight', color: 'cyan' }
 ];
 
-const SAMPLE_PILOT = {
-    acceptance: 95,
-    completion: 90,
-    qa: 85,
-    rating: 92,
-    reliability: 100,
-    travel: 70,
-    speed: 80
-};
+
 
 export const PerformanceConfigPanel: React.FC = () => {
     const [config, setConfig] = useState<any>({});
@@ -64,8 +56,7 @@ export const PerformanceConfigPanel: React.FC = () => {
         METRICS.forEach(m => {
             if (config[m.enabledKey]) {
                 const weight = parseInt(config[m.weightKey]) || 0;
-                const pilotScore = (SAMPLE_PILOT as any)[m.id] || 0;
-                totalWeightedScore += (pilotScore * weight);
+                totalWeightedScore += weight; // preview = max-weight sum when no pilot selected
                 totalWeight += weight;
             }
         });

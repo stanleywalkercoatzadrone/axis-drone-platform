@@ -65,7 +65,7 @@ const weatherLabel = (code?: number) => {
     return 'Severe Storm';
 };
 
-const STATUS_CFG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string; pulse?: boolean }> = {
+const STATUS_CFG: Record<string, { icon: React.ComponentType<{ size?: number; className?: string }>; color: string; bg: string; label: string; pulse?: boolean }> = {
     completed:   { icon: CheckCircle,   color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', label: 'Completed' },
     in_flight:   { icon: Plane,         color: 'text-sky-400',     bg: 'bg-sky-500/10 border-sky-500/30',         label: 'In Flight', pulse: true },
     in_progress: { icon: Activity,      color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/30',       label: 'In Progress', pulse: true },
@@ -74,12 +74,7 @@ const STATUS_CFG: Record<string, { icon: React.ElementType; color: string; bg: s
     cancelled:   { icon: XCircle,       color: 'text-rose-400',    bg: 'bg-rose-500/10 border-rose-500/30',       label: 'Cancelled' },
 };
 
-const MOCK: Mission[] = [
-    { id:'1', mission_name:'Block A North Thermal Scan', site:'Riverstart Solar — Indiana', flight_date:'2026-03-05', status:'completed', project_name:'Riverstart Solar Phase I' },
-    { id:'2', mission_name:'Block B RGB Survey',         site:'Riverstart Solar — Indiana', flight_date:'2026-03-07', status:'in_flight', project_name:'Riverstart Solar Phase I' },
-    { id:'3', mission_name:'Block C Thermal Scan',       site:'Riverstart Solar — Indiana', flight_date:'2026-03-14', status:'scheduled', project_name:'Riverstart Solar Phase I' },
-    { id:'4', mission_name:'Section 1 Full Survey',      site:'Desert Ridge — Arizona',     flight_date:'2026-03-07', status:'completed', project_name:'Desert Ridge Solar Farm' },
-];
+
 
 // ── Weather Panel (per-mission live data) ─────────────────────────────────────
 const WeatherPanel: React.FC<{ missionId: string }> = ({ missionId }) => {
@@ -276,7 +271,7 @@ const ClientMissions: React.FC = () => {
             const r = await apiClient.get('/client/missions');
             setMissions(r.data.data ?? []);
         } catch {
-            setMissions(MOCK);
+            setMissions([]);
         } finally {
             setLoading(false);
             setLastUpdated(Date.now());
@@ -309,7 +304,8 @@ const ClientMissions: React.FC = () => {
     const sorted = [...filtered].sort((a, b) => (sortOrder[a.status] ?? 5) - (sortOrder[b.status] ?? 5));
 
     return (
-        <div className="p-6 md:p-8 max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-6">
+        <div className="min-h-screen bg-slate-950">
+        <div className="p-6 md:p-8 max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-6 pb-24 md:pb-8">
 
             {/* Header */}
             <div className="flex items-start justify-between flex-wrap gap-4">
@@ -424,6 +420,7 @@ const ClientMissions: React.FC = () => {
                     </div>
                 )}
             </div>
+        </div>
         </div>
     );
 };

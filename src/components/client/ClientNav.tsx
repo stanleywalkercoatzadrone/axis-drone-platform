@@ -13,6 +13,7 @@ import {
     BrainCircuit,
     AlertTriangle,
     Radio,
+    Image,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
     { id: 'lbd',          label: 'Defect Tracking',    icon: AlertTriangle },
     { id: 'reports',      label: 'AI Reports',          icon: BrainCircuit },
     { id: 'deliverables', label: 'Deliverables',        icon: Download },
+    { id: 'map',          label: 'Imagery',             icon: Image },
 ];
 
 const ClientNav: React.FC = () => {

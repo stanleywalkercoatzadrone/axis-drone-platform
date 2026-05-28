@@ -393,7 +393,7 @@ const IntelligenceHub: React.FC = () => {
                 <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {TABS.map(tab => {
                         const isActive = tab.key === activeTab;
-                        const Icon = tab.icon;
+                        const Icon = tab.icon as React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
                         return (
                             <button
                                 key={tab.key}
@@ -408,7 +408,7 @@ const IntelligenceHub: React.FC = () => {
                                     transition: 'all 0.18s', textAlign: 'left',
                                 }}
                             >
-                                <Icon size={15} style={{ flexShrink: 0 }} />
+                                <span style={{ flexShrink: 0, display: 'flex' }}><Icon size={15} /></span>
                                 <div>
                                     <div style={{ fontSize: 13, fontWeight: isActive ? 700 : 500, lineHeight: 1.2 }}>{tab.label}</div>
                                     <div style={{ fontSize: 10, color: isActive ? tab.color + 'aa' : '#334155', marginTop: 1 }}>{tab.desc}</div>
@@ -459,7 +459,7 @@ const IntelligenceHub: React.FC = () => {
                     <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                         {TABS.map(tab => {
                             const isActive = tab.key === activeTab;
-                            const Icon = tab.icon;
+                            const Icon = tab.icon as React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
                             return (
                                 <button
                                     key={tab.key}

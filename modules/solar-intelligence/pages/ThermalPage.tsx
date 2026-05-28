@@ -69,13 +69,7 @@ const BLANK_FORM: NewFindingForm = {
   lat: '', lng: '', notes: '',
 };
 
-const DEMO_FINDINGS: ThermalFinding[] = [
-  { id: 't1', finding_type: 'hotspot', severity: 'critical', delta_t_celsius: 42.5, module_id: 'B4-R22-M14', string_id: 'STR-022', status: 'open', created_at: '2025-05-20T10:00:00Z' },
-  { id: 't2', finding_type: 'offline_string', severity: 'high', delta_t_celsius: 28.0, string_id: 'STR-041', status: 'open', created_at: '2025-05-20T10:00:00Z' },
-  { id: 't3', finding_type: 'soiling', severity: 'medium', delta_t_celsius: 12.3, module_id: 'B2-R08-M03', string_id: 'STR-008', status: 'under_review', created_at: '2025-05-18T08:00:00Z' },
-  { id: 't4', finding_type: 'shading', severity: 'low', delta_t_celsius: 6.1, module_id: 'B1-R01-M22', status: 'open', created_at: '2025-05-17T15:00:00Z' },
-  { id: 't5', finding_type: 'faulty_module', severity: 'high', delta_t_celsius: 31.8, module_id: 'B6-R15-M07', string_id: 'STR-063', status: 'resolved', created_at: '2025-05-15T11:00:00Z' },
-];
+
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
@@ -150,7 +144,7 @@ const ThermalPage: React.FC<Props> = ({ siteId }) => {
         apiClient.get(`/api/solar-farm/sites/${siteId}/surveys`),
       ]);
       if (thermalRes.status === 'fulfilled') setFindings(thermalRes.value.data ?? []);
-      else setFindings(DEMO_FINDINGS);
+      else setFindings([]);
       if (surveysRes.status === 'fulfilled') {
         const s: Survey[] = surveysRes.value.data ?? [];
         setSurveys(s);

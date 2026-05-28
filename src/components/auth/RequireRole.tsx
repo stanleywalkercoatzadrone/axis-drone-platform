@@ -20,7 +20,7 @@ export const RequireRole: React.FC<RequireRoleProps> = ({ children, allowedRoles
 
     if (!isAuthenticated || !user) {
         // Redirect to login but save the attempted url
-        return <Navigate to="/auth" state={{ from: location }} replace />;
+        return <Navigate to="/login" state={{ from: location }} replace />;
     }
 
     // Normalize the user's role (handles FIELD_OPERATOR → field_operator, etc.)

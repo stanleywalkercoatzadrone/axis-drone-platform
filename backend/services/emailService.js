@@ -913,3 +913,96 @@ export const sendMissionNotSelectedEmail = async (pilot, mission) => {
     `;
     return sendEmail(pilot.email, subject, html);
 };
+
+/**
+ * Send Axis Ortho desktop app download link
+ * @param {object} params { to, fullName, downloadUrlArm64, downloadUrlX64, version }
+ */
+export const sendAxisOrthoDownloadEmail = async ({ to, fullName, downloadUrlArm64, downloadUrlX64, version = '1.0.0' }) => {
+    const year = new Date().getFullYear();
+    const subject = `Your Axis Ortho Download — v${version}`;
+
+    const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        </head>
+        <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;">
+            <div style="max-width:600px;margin:40px auto;padding:0 20px;">
+
+                <!-- Header -->
+                <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px 16px 0 0;padding:32px;text-align:center;">
+                    <div style="font-size:11px;font-weight:700;color:#64748b;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:6px;">Axis Enterprise Platform</div>
+                    <div style="font-size:32px;font-weight:900;color:#38bdf8;letter-spacing:-0.05em;">Axis Ortho</div>
+                    <div style="font-size:13px;color:#94a3b8;margin-top:6px;">Offline Orthomosaic Processing · v${version}</div>
+                    <div style="width:48px;height:3px;background:linear-gradient(90deg,#38bdf8,#818cf8);border-radius:999px;margin:16px auto 0;"></div>
+                </div>
+
+                <!-- Body -->
+                <div style="background:#ffffff;padding:36px 32px;border:1px solid #e2e8f0;border-top:none;">
+                    <p style="font-size:16px;line-height:1.6;margin-bottom:8px;">Hi <strong>${fullName}</strong>,</p>
+                    <p style="font-size:14px;color:#475569;line-height:1.7;margin-top:0;">
+                        Your download of <strong>Axis Ortho</strong> is ready. This desktop app processes drone images locally using OpenDroneMap and automatically syncs completed orthomosaics to Axis Platform when you're back online.
+                    </p>
+
+                    <!-- Requirements -->
+                    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin:20px 0;">
+                        <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;">Requirements</p>
+                        <ul style="margin:0;padding-left:18px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li>macOS 10.12 or later</li>
+                            <li>Docker Desktop (free) — <a href="https://www.docker.com/products/docker-desktop/" style="color:#38bdf8;text-decoration:none;">download here</a></li>
+                            <li>~500 MB disk space for the app + processing engine</li>
+                        </ul>
+                    </div>
+
+                    <!-- Download buttons -->
+                    <p style="font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;">Choose your Mac version:</p>
+                    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+                        <tr>
+                            <td style="padding-right:8px;">
+                                <a href="${downloadUrlArm64}"
+                                   style="display:block;background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#ffffff;padding:14px 20px;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px;text-align:center;">
+                                    &#8659; Apple Silicon
+                                    <div style="font-size:11px;font-weight:400;opacity:0.85;margin-top:2px;">M1 / M2 / M3 &middot; 109 MB</div>
+                                </a>
+                            </td>
+                            <td style="padding-left:8px;">
+                                <a href="${downloadUrlX64}"
+                                   style="display:block;background:#1e293b;color:#ffffff;padding:14px 20px;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px;text-align:center;border:1px solid #334155;">
+                                    &#8659; Intel Mac
+                                    <div style="font-size:11px;font-weight:400;opacity:0.75;margin-top:2px;">x64 &middot; 116 MB</div>
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+
+                    <!-- Gatekeeper note -->
+                    <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:12px 16px;margin-top:16px;">
+                        <p style="margin:0;font-size:12px;color:#92400e;line-height:1.6;">
+                            <strong>First launch:</strong> macOS may show a security warning. Right-click the app &rarr; <em>Open</em> to bypass it. This only happens once.
+                        </p>
+                    </div>
+
+                    <p style="font-size:13px;color:#64748b;line-height:1.6;margin-top:24px;">
+                        If you run into any issues, reach out to your operations admin or contact us directly.
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div style="background:#0f172a;border-radius:0 0 16px 16px;padding:20px;text-align:center;">
+                    <p style="font-size:11px;color:#475569;margin:0;">
+                        &copy; ${year} CoatzaDrone. All rights reserved.<br>
+                        This is an automated message &mdash; please do not reply.
+                    </p>
+                </div>
+
+            </div>
+        </body>
+        </html>
+    `;
+
+    return sendEmail(to, subject, html);
+};
+

@@ -84,7 +84,6 @@ export const getOnboardingPortal = async (req, res) => {
             success: true,
             data: {
                 personnelName: pkg.full_name,
-                email: pkg.email,
                 role: pkg.role,
                 status: pkg.status,
                 documents: pkg.documents.map(doc => ({
@@ -92,7 +91,8 @@ export const getOnboardingPortal = async (req, res) => {
                     type: doc.document_type,
                     name: doc.document_name,
                     status: doc.status,
-                    completedAt: doc.completed_at
+                    completedAt: doc.completed_at,
+                    templateUrl: doc.template_url || null
                 })),
                 expiresAt: pkg.expires_at
             }

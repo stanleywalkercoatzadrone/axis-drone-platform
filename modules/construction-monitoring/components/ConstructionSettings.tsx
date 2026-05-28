@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Bell, Shield, Database, Trash2, Save, Users, Zap } from 'lucide-react';
+import { Settings, Bell, Shield, Database, Trash2, Save, Users, Zap, CheckSquare } from 'lucide-react';
 import apiClient from '../../../src/services/apiClient';
 
 export default function ConstructionSettings({ project, initialSettings, onSettingsSaved }) {

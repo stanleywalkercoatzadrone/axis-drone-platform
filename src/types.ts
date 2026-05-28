@@ -252,6 +252,9 @@ export interface Fault {
   severity: Severity;
   description: string;
   imageId: string;
+  x?: number;
+  y?: number;
+  createdAt?: string;
   coordinates?: {
     lat: number;
     lng: number;

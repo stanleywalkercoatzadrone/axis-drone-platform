@@ -1,150 +1,335 @@
-import React, { useState, useEffect } from 'react';
-import { Map, Loader2, Image, ChevronLeft, ChevronRight, X, MapPin, Calendar, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    Camera, Search, X, ChevronLeft, ChevronRight,
+    Download, Loader2, Image as ImageIcon, Film, FileText, Globe,
+} from 'lucide-react';
 import apiClient from '../../../../services/apiClient';
 
+// ── Types ──────────────────────────────────────────────────────────────────────
 interface MediaFile {
-    id: string; name: string; url: string; type: string;
-    mission_title?: string; created_at?: string;
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    mission_title?: string;
+    created_at?: string;
 }
 
-const MOCK: MediaFile[] = [
-    { id:'1', name:'Block_A_RGB_001.jpg',     url:'https://via.placeholder.com/640x480/1e293b/10b981?text=RGB+Image',    type:'image/jpeg', mission_title:'Block A RGB Survey', created_at:'2026-03-05' },
-    { id:'2', name:'Block_A_Thermal_001.tif', url:'https://via.placeholder.com/640x480/1e293b/f59e0b?text=Thermal+Image', type:'image/tiff',  mission_title:'Block A Thermal Scan', created_at:'2026-03-05' },
-    { id:'3', name:'Block_B_RGB_002.jpg',     url:'https://via.placeholder.com/640x480/1e293b/6366f1?text=RGB+Image+2',  type:'image/jpeg', mission_title:'Block B Survey', created_at:'2026-03-07' },
-];
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function getFileCategory(file: MediaFile): 'thermal' | 'rgb' | 'video' | 'other' {
+    const n = file.name.toLowerCase();
+    const t = file.type.toLowerCase();
+    if (n.includes('thermal') || n.includes('ir') || t.includes('tiff')) return 'thermal';
+    if (t.startsWith('video/') || n.endsWith('.mp4') || n.endsWith('.mov')) return 'video';
+    if (t.startsWith('image/')) return 'rgb';
+    return 'other';
+}
 
-// Simple pin-map component (no external map library required)
-function MiniMap({ files }: { files: MediaFile[] }) {
+function FileBadge({ cat }: { cat: ReturnType<typeof getFileCategory> }) {
+    const cfg = {
+        thermal: { label: 'Thermal', color: 'text-orange-400 bg-orange-500/20 border-orange-500/30' },
+        rgb:     { label: 'RGB',     color: 'text-sky-400 bg-sky-500/20 border-sky-500/30' },
+        video:   { label: 'Video',   color: 'text-violet-400 bg-violet-500/20 border-violet-500/30' },
+        other:   { label: 'File',    color: 'text-slate-400 bg-slate-700/40 border-slate-600/40' },
+    };
+    const c = cfg[cat];
     return (
-        <div className="relative w-full h-48 bg-slate-900 rounded-xl border border-slate-700/50 overflow-hidden flex items-center justify-center">
-            <div className="absolute inset-0 opacity-10"
-                style={{ backgroundImage: 'radial-gradient(circle, #10b981 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-            <div className="text-center z-10">
-                <MapPin size={28} className="text-emerald-400 mx-auto mb-2" />
-                <p className="text-xs text-slate-400 font-bold">{files.length} media files</p>
-                <p className="text-[10px] text-slate-600">Map integration coming soon</p>
-            </div>
-        </div>
+        <span className={`inline-flex items-center px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider border rounded-md ${c.color}`}>
+            {c.label}
+        </span>
     );
 }
 
-function Lightbox({ files, index, onClose, onPrev, onNext }: {
-    files: MediaFile[]; index: number; onClose:()=>void; onPrev:()=>void; onNext:()=>void;
-}) {
-    const f = files[index];
+function FileTypeIcon({ type }: { type: string }) {
+    const t = type.toLowerCase();
+    if (t.startsWith('image/')) return <ImageIcon size={32} className="text-slate-500" />;
+    if (t.startsWith('video/')) return <Film size={32} className="text-slate-500" />;
+    if (t.includes('pdf'))      return <FileText size={32} className="text-slate-500" />;
+    return <Globe size={32} className="text-slate-500" />;
+}
+
+function fmtDate(d?: string) {
+    if (!d) return '';
+    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+    catch { return d; }
+}
+
+function isImage(file: MediaFile) {
+    return file.type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|tif|tiff)$/i.test(file.name);
+}
+
+// ── Lightbox ───────────────────────────────────────────────────────────────────
+const Lightbox: React.FC<{
+    files: MediaFile[];
+    index: number;
+    onClose: () => void;
+    onNav: (i: number) => void;
+}> = ({ files, index, onClose, onNav }) => {
+    const file = files[index];
+
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
-            if (e.key === 'ArrowLeft') onPrev();
-            if (e.key === 'ArrowRight') onNext();
+            if (e.key === 'ArrowLeft')  onNav(Math.max(0, index - 1));
+            if (e.key === 'ArrowRight') onNav(Math.min(files.length - 1, index + 1));
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [onClose, onPrev, onNext]);
+    }, [index, files.length, onClose, onNav]);
 
     return (
-        <div className="fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-4" onClick={onClose}>
-            <div className="relative max-w-4xl w-full" onClick={e => e.stopPropagation()}>
-                <button onClick={onClose} className="absolute -top-10 right-0 text-slate-400 hover:text-white transition-colors">
-                    <X size={22} />
-                </button>
-                <img src={f.url} alt={f.name} className="w-full max-h-[75vh] object-contain rounded-2xl border border-slate-700/50" />
-                <div className="flex items-center justify-between mt-3">
-                    <div>
-                        <p className="text-sm font-bold text-white">{f.name}</p>
-                        {f.mission_title && <p className="text-xs text-slate-500 mt-0.5">{f.mission_title}</p>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={onPrev} disabled={index===0}
-                            className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white disabled:opacity-30 transition-all">
-                            <ChevronLeft size={16} />
-                        </button>
-                        <span className="text-xs text-slate-500 tabular-nums">{index+1} / {files.length}</span>
-                        <button onClick={onNext} disabled={index===files.length-1}
-                            className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white disabled:opacity-30 transition-all">
-                            <ChevronRight size={16} />
-                        </button>
-                        <a href={f.url} target="_blank" rel="noopener noreferrer"
-                            className="p-2 bg-emerald-800/30 border border-emerald-700/40 text-emerald-400 rounded-lg hover:bg-emerald-700/30 transition-all">
-                            <ExternalLink size={16} />
-                        </a>
-                    </div>
+        <div
+            className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+            onClick={onClose}
+        >
+            {/* Top bar */}
+            <div className="flex items-center justify-between px-5 py-4 shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="min-w-0 flex-1">
+                    <p className="text-white font-bold text-sm truncate">{file.name}</p>
+                    {file.mission_title && (
+                        <p className="text-slate-500 text-xs mt-0.5 truncate">{file.mission_title}</p>
+                    )}
+                </div>
+                <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <a href={file.url} download target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 text-xs font-bold hover:bg-slate-700 transition-colors"
+                        onClick={e => e.stopPropagation()}>
+                        <Download size={12} /> Download
+                    </a>
+                    <span className="text-slate-600 text-xs">{index + 1} / {files.length}</span>
+                    <button onClick={onClose}
+                        className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                        <X size={16} />
+                    </button>
                 </div>
             </div>
+
+            {/* Image */}
+            <div className="flex-1 flex items-center justify-center px-4 min-h-0" onClick={e => e.stopPropagation()}>
+                {isImage(file) ? (
+                    <img src={file.url} alt={file.name}
+                        className="max-h-full max-w-full object-contain rounded-xl"
+                        style={{ maxHeight: 'calc(100vh - 140px)' }} />
+                ) : (
+                    <div className="flex flex-col items-center gap-4 text-slate-500">
+                        <FileTypeIcon type={file.type} />
+                        <p className="text-sm">Preview not available</p>
+                        <a href={file.url} download className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm hover:bg-slate-700 transition-colors flex items-center gap-2">
+                            <Download size={14} /> Download file
+                        </a>
+                    </div>
+                )}
+            </div>
+
+            {/* Nav arrows */}
+            {files.length > 1 && (
+                <>
+                    {index > 0 && (
+                        <button
+                            onClick={e => { e.stopPropagation(); onNav(index - 1); }}
+                            className="fixed left-4 top-1/2 -translate-y-1/2 p-3 bg-slate-800/80 border border-slate-700 rounded-xl text-white hover:bg-slate-700 transition-colors backdrop-blur-sm">
+                            <ChevronLeft size={20} />
+                        </button>
+                    )}
+                    {index < files.length - 1 && (
+                        <button
+                            onClick={e => { e.stopPropagation(); onNav(index + 1); }}
+                            className="fixed right-4 top-1/2 -translate-y-1/2 p-3 bg-slate-800/80 border border-slate-700 rounded-xl text-white hover:bg-slate-700 transition-colors backdrop-blur-sm">
+                            <ChevronRight size={20} />
+                        </button>
+                    )}
+                </>
+            )}
+
+            {/* Bottom date */}
+            {file.created_at && (
+                <p className="text-center text-slate-700 text-[10px] py-3 shrink-0">
+                    Uploaded {fmtDate(file.created_at)}
+                </p>
+            )}
         </div>
     );
-}
+};
 
+// ── Main Component ─────────────────────────────────────────────────────────────
 const ClientMapViewer: React.FC = () => {
-    const [files, setFiles] = useState<MediaFile[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
-    const [lightbox, setLightbox] = useState<number | null>(null);
+    const [files, setFiles]         = useState<MediaFile[]>([]);
+    const [loading, setLoading]     = useState(true);
+    const [search, setSearch]       = useState('');
+    const [typeFilter, setTypeFilter] = useState<'all' | 'thermal' | 'rgb' | 'video'>('all');
+    const [missionFilter, setMissionFilter] = useState<string>('all');
+    const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
     useEffect(() => {
-        apiClient.get('/admin/media')
+        apiClient.get('/client/media')
             .then(r => setFiles(r.data.data ?? []))
-            .catch(() => setFiles(MOCK))
+            .catch(() => setFiles([]))
             .finally(() => setLoading(false));
     }, []);
 
-    const filtered = files.filter(f =>
-        !search || f.name.toLowerCase().includes(search.toLowerCase()) ||
-        (f.mission_title || '').toLowerCase().includes(search.toLowerCase())
-    );
+    const missions = Array.from(new Set(files.map(f => f.mission_title).filter(Boolean))) as string[];
 
-    if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="text-emerald-400 animate-spin" size={32} /></div>;
+    const filtered = files.filter(f => {
+        const cat = getFileCategory(f);
+        if (typeFilter !== 'all' && cat !== typeFilter) return false;
+        if (missionFilter !== 'all' && f.mission_title !== missionFilter) return false;
+        if (search) {
+            const q = search.toLowerCase();
+            if (!f.name.toLowerCase().includes(q) && !(f.mission_title || '').toLowerCase().includes(q)) return false;
+        }
+        return true;
+    });
+
+    const openLightbox = useCallback((idx: number) => {
+        setLightboxIdx(idx);
+        document.body.style.overflow = 'hidden';
+    }, []);
+
+    const closeLightbox = useCallback(() => {
+        setLightboxIdx(null);
+        document.body.style.overflow = '';
+    }, []);
 
     return (
-        <div className="p-6 md:p-8 max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-6">
-            <div className="flex items-start justify-between flex-wrap gap-4">
-                <div>
-                    <h1 className="text-3xl font-black text-white tracking-tighter uppercase flex items-center gap-3">
-                        <Map size={24} className="text-teal-400" /> Media Viewer
-                    </h1>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">
-                        {files.length} images across your projects
-                    </p>
+        <div className="min-h-screen bg-slate-950">
+            <div className="p-5 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+                {/* ── Header ─────────────────────────────────────────────── */}
+                <div className="flex items-start justify-between flex-wrap gap-4">
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-3">
+                            <Camera size={24} className="text-sky-400" /> Imagery & Media
+                        </h1>
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-1">
+                            Drone survey images and deliverables
+                        </p>
+                    </div>
+                    {/* Stats strip */}
+                    {!loading && files.length > 0 && (
+                        <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                            <span><strong className="text-white font-black">{files.length}</strong> files</span>
+                            <span><strong className="text-white font-black">{missions.length}</strong> missions</span>
+                            {files[0]?.created_at && (
+                                <span>Updated {fmtDate(files[0].created_at)}</span>
+                            )}
+                        </div>
+                    )}
                 </div>
-                <input value={search} onChange={e => setSearch(e.target.value)}
-                    placeholder="Search files…"
-                    className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-teal-500/50 w-52" />
+
+                {/* ── Filters ─────────────────────────────────────────────── */}
+                {!loading && files.length > 0 && (
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="relative flex-1">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                            <input
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                placeholder="Search files or missions…"
+                                className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-sky-500/50 transition-colors"
+                            />
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                            {(['all', 'rgb', 'thermal', 'video'] as const).map(t => (
+                                <button key={t} onClick={() => setTypeFilter(t)}
+                                    className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all
+                                        ${typeFilter === t
+                                            ? 'bg-sky-500/20 text-sky-400 border-sky-500/40'
+                                            : 'text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300'}`}>
+                                    {t === 'all' ? `All (${files.length})` : t.charAt(0).toUpperCase() + t.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                        {missions.length > 1 && (
+                            <select
+                                value={missionFilter}
+                                onChange={e => setMissionFilter(e.target.value)}
+                                className="bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-sky-500/50 transition-colors">
+                                <option value="all">All Missions</option>
+                                {missions.map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                )}
+
+                {/* ── Content ──────────────────────────────────────────────── */}
+                {loading ? (
+                    <div className="flex flex-col items-center justify-center py-24 gap-3">
+                        <Loader2 size={32} className="text-sky-400 animate-spin" />
+                        <p className="text-slate-600 text-sm">Loading imagery…</p>
+                    </div>
+                ) : files.length === 0 ? (
+                    <div className="py-24 text-center border border-slate-800 rounded-2xl flex flex-col items-center gap-4">
+                        <div className="w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40 flex items-center justify-center">
+                            <Camera size={28} className="text-slate-600" />
+                        </div>
+                        <div>
+                            <p className="text-white font-bold text-base">No imagery uploaded yet</p>
+                            <p className="text-slate-600 text-sm mt-1 max-w-xs mx-auto">
+                                Your drone survey images will appear here after each mission is processed
+                            </p>
+                        </div>
+                    </div>
+                ) : filtered.length === 0 ? (
+                    <div className="py-16 text-center border border-slate-800 rounded-2xl">
+                        <p className="text-slate-500 font-semibold text-sm">No files match your filter</p>
+                        <button onClick={() => { setSearch(''); setTypeFilter('all'); setMissionFilter('all'); }}
+                            className="mt-3 px-4 py-2 text-xs font-bold text-sky-400 border border-sky-500/30 rounded-xl hover:bg-sky-500/10 transition-colors">
+                            Clear filters
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {filtered.map((file, idx) => {
+                            const cat = getFileCategory(file);
+                            const img = isImage(file);
+                            return (
+                                <button
+                                    key={file.id}
+                                    onClick={() => openLightbox(idx)}
+                                    className="group relative aspect-square rounded-xl overflow-hidden bg-slate-800/60 border border-slate-700/40 hover:border-sky-500/50 hover:scale-[1.02] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-sky-500/50"
+                                >
+                                    {img ? (
+                                        <img
+                                            src={file.url}
+                                            alt={file.name}
+                                            className="w-full h-full object-cover"
+                                            loading="lazy"
+                                            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center">
+                                            <FileTypeIcon type={file.type} />
+                                        </div>
+                                    )}
+
+                                    {/* File type badge */}
+                                    <div className="absolute top-2 left-2">
+                                        <FileBadge cat={cat} />
+                                    </div>
+
+                                    {/* Hover overlay */}
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-2">
+                                        <p className="text-white text-[10px] font-bold leading-tight truncate">{file.name}</p>
+                                        {file.mission_title && (
+                                            <p className="text-slate-400 text-[9px] truncate mt-0.5">{file.mission_title}</p>
+                                        )}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
-            <MiniMap files={filtered} />
-
-            {/* Image grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filtered.map((f, i) => (
-                    <button key={f.id} onClick={() => setLightbox(i)}
-                        className="group relative aspect-square bg-slate-800/60 border border-slate-700/40 rounded-xl overflow-hidden hover:border-teal-500/40 hover:scale-[1.02] transition-all duration-300">
-                        <img src={f.url} alt={f.name}
-                            className="w-full h-full object-cover group-hover:brightness-110 transition-all duration-300"
-                            onError={e => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23334155" width="100" height="100"/><text fill="%2394a3b8" x="50" y="55" text-anchor="middle" font-size="10">No preview</text></svg>'; }} />
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end">
-                            <p className="text-[10px] text-white font-bold truncate">{f.name}</p>
-                            {f.mission_title && <p className="text-[9px] text-slate-400 truncate">{f.mission_title}</p>}
-                        </div>
-                        <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="bg-slate-950/60 rounded-md p-1">
-                                <Image size={10} className="text-teal-400" />
-                            </div>
-                        </div>
-                    </button>
-                ))}
-            </div>
-
-            {filtered.length === 0 && (
-                <div className="py-24 text-center text-slate-600 text-sm">No media files available</div>
-            )}
-
-            {lightbox !== null && (
+            {/* Lightbox */}
+            {lightboxIdx !== null && (
                 <Lightbox
                     files={filtered}
-                    index={lightbox}
-                    onClose={() => setLightbox(null)}
-                    onPrev={() => setLightbox(i => Math.max(0, (i ?? 0) - 1))}
-                    onNext={() => setLightbox(i => Math.min(filtered.length - 1, (i ?? 0) + 1))}
+                    index={lightboxIdx}
+                    onClose={closeLightbox}
+                    onNav={setLightboxIdx}
                 />
             )}
         </div>

@@ -15,7 +15,6 @@ interface OnboardingDocument {
 
 interface OnboardingData {
     personnelName: string;
-    email: string;
     role: string;
     status: string;
     documents: OnboardingDocument[];
@@ -62,9 +61,8 @@ const OnboardingPortal: React.FC = () => {
 
             const formData = new FormData();
             formData.append('documentId', documentId);
-            Array.from(files).forEach(file => {
-                formData.append('files', file); // Use 'files' to match backend bulk
-            });
+            // Use 'document' to match multer's upload.single('document') on the backend
+            formData.append('document', files[0]);
 
             await apiClient.post(`/onboarding/portal/${token}/upload`, formData, {
                 headers: {

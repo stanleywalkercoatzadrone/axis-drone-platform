@@ -237,9 +237,9 @@ const WorkItemsDashboard: React.FC = () => {
 
                 {activeTab === 'history' && (
                     <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 shadow-xl text-center">
-                        <AlertCircle size={48} className="text-blue-400 opacity-50 mx-auto mb-4" />
-                        <h3 className="text-xl font-semibold mb-2">Coming Soon</h3>
-                        <p className="text-slate-400">The workbook history and management view is currently under development.</p>
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-slate-600 mx-auto mb-4"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
+                        <h3 className="text-lg font-semibold text-white mb-2">No History Yet</h3>
+                        <p className="text-slate-400 text-sm">Completed workbook submissions will appear here once work items have been processed and closed.</p>
                     </div>
                 )}
             </div>

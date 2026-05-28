@@ -79,6 +79,9 @@ function PipelineStatusPanel({ datasetId }: { datasetId: string }) {
         let alive = true;
         const poll = async () => {
             try {
+                // NOTE: datasetId is never set in the current upload flow.
+                // This call is intentionally inert until pipeline tracking is wired up.
+                // eslint-disable-next-line no-unreachable -- dead-code: datasetId always null
                 const r = await apiClient.get(`/mission-uploads/pipeline/status/${datasetId}`);
                 if (alive) setStatus(r.data?.data);
             } catch {}
@@ -454,6 +457,7 @@ function UploadPane({
 
                 // Trigger pipeline via Mission Ingestion Engine if dataset ID is available
                 if (datasetId) {
+                    // NOTE: datasetId is never set in the current upload flow — this branch is inert.
                     apiClient.post('/mission-uploads/dataset/complete', { dataset_id: datasetId })
                         .catch(() => {});
                 }

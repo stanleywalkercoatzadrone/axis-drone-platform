@@ -41,6 +41,7 @@ export interface ClaimsReport {
     comments?: any[];
     history?: any[];
     authorName?: string;
+    pilotName?: string;
     imageCount?: number;
     createdAt: string;
     updatedAt: string;
@@ -75,7 +76,7 @@ export interface ClaimsAnnotation {
     height: number;
 }
 
-const EnterpriseAIReporting: React.FC = () => {
+const EnterpriseAIReporting: React.FC<{ missionId?: string }> = ({ missionId: _missionId }) => {
     const { user } = useAuth();
     const [view, setView] = useState<View>('dashboard');
     const [reports, setReports] = useState<ClaimsReport[]>([]);

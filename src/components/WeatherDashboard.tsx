@@ -465,64 +465,69 @@ const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ initialLocation }) 
 
     const fetchWeather = useCallback(async (lat: number, lon: number) => {
         try {
-            // ── Apple WeatherKit Proxy (via backend) ──
-            const r = await apiClient.get(`/weather/forecast?lat=${lat}&lon=${lon}&forecast_days=${forecastRange}`);
-            const d = r.data;
+            // ── Open-Meteo (direct, no backend proxy needed) ──────────────
+            const url = `https://api.open-meteo.com/v1/forecast?` +
+                `latitude=${lat}&longitude=${lon}` +
+                `&current=temperature_2m,apparent_temperature,relative_humidity_2m,` +
+                `wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation,` +
+                `cloud_cover,visibility,surface_pressure,uv_index,weather_code,is_day,dew_point_2m` +
+                `&hourly=temperature_2m,precipitation,wind_speed_10m,cloud_cover,uv_index,` +
+                `precipitation_probability,shortwave_radiation` +
+                `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,` +
+                `wind_speed_10m_max,uv_index_max,sunrise,sunset,weather_code,precipitation_probability_max` +
+                `&temperature_unit=fahrenheit&wind_speed_unit=mph` +
+                `&forecast_days=${forecastRange}&timezone=auto`;
 
-            // API may return error body even on 200 — check for it
-            if (d.error || !d.current || !d.hourly || !d.daily) {
-                const reason = d.reason || d.error || 'Unexpected API response format';
-                console.error('[WeatherDashboard] API error:', reason, d);
-                setWeatherError(`Weather API: ${reason}`);
-                return;
-            }
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`Open-Meteo returned ${resp.status}`);
+            const d = await resp.json();
 
-            const c = d.current;
-            const h = d.hourly;
+            const c   = d.current;
+            const h   = d.hourly;
             const day = d.daily;
 
             setWeather({
                 current: {
-                    temperature: c.temperature_2m,
-                    feelsLike: c.apparent_temperature,
-                    humidity: c.relative_humidity_2m,
-                    windSpeed: c.wind_speed_10m,
-                    windDirection: c.wind_direction_10m,
-                    windGusts: c.wind_gusts_10m,
-                    precipitation: c.precipitation,
-                    cloudCover: c.cloud_cover,
-                    visibility: (c.visibility ?? 10000) / 1000,
-                    pressure: c.surface_pressure,
-                    uvIndex: c.uv_index,
-                    weatherCode: c.weather_code,
-                    isDay: c.is_day === 1,
-                    dewPoint: c.dew_point_2m,
+                    temperature:  c.temperature_2m,
+                    feelsLike:    c.apparent_temperature,
+                    humidity:     c.relative_humidity_2m,
+                    windSpeed:    c.wind_speed_10m,
+                    windDirection:c.wind_direction_10m,
+                    windGusts:    c.wind_gusts_10m,
+                    precipitation:c.precipitation,
+                    cloudCover:   c.cloud_cover,
+                    visibility:   (c.visibility ?? 10000) / 1000,
+                    pressure:     c.surface_pressure,
+                    uvIndex:      c.uv_index,
+                    weatherCode:  c.weather_code,
+                    isDay:        c.is_day === 1,
+                    dewPoint:     c.dew_point_2m,
                 },
                 hourly: {
-                    time: h.time,
-                    temperature: h.temperature_2m,
-                    precipitation: h.precipitation,
-                    windSpeed: h.wind_speed_10m,
-                    cloudCover: h.cloud_cover,
-                    uvIndex: h.uv_index,
-                    precipitationProbability: h.precipitation_probability,
-                    lightningPotential: h.time.map(() => 0),
-                    irradiance: h.shortwave_radiation ?? h.time.map(() => 0),
+                    time:                    h.time,
+                    temperature:             h.temperature_2m,
+                    precipitation:           h.precipitation,
+                    windSpeed:               h.wind_speed_10m,
+                    cloudCover:              h.cloud_cover,
+                    uvIndex:                 h.uv_index,
+                    precipitationProbability:h.precipitation_probability,
+                    lightningPotential:      h.time.map(() => 0),
+                    irradiance:              h.shortwave_radiation ?? h.time.map(() => 0),
                 },
                 daily: {
-                    time:                   day.time,
-                    tempMax:                day.temperature_2m_max,
-                    tempMin:                day.temperature_2m_min,
-                    precipitationSum:       day.precipitation_sum,
-                    windSpeedMax:           day.wind_speed_10m_max,
-                    uvIndexMax:             day.uv_index_max,
-                    sunrise:                day.sunrise,
-                    sunset:                 day.sunset,
-                    weatherCode:            day.weather_code,
-                    precipitationProbability: day.precipitation_probability_max,
+                    time:                    day.time,
+                    tempMax:                 day.temperature_2m_max,
+                    tempMin:                 day.temperature_2m_min,
+                    precipitationSum:        day.precipitation_sum,
+                    windSpeedMax:            day.wind_speed_10m_max,
+                    uvIndexMax:              day.uv_index_max,
+                    sunrise:                 day.sunrise,
+                    sunset:                  day.sunset,
+                    weatherCode:             day.weather_code,
+                    precipitationProbability:day.precipitation_probability_max,
                 },
                 fetchedAt: new Date(),
-                provider: d._provider || 'open-meteo',
+                provider: 'open-meteo',
             });
             setWeatherError(null);
         } catch (e: any) {

@@ -34,31 +34,7 @@ import {
 } from 'lucide-react';
 import { Industry, Severity } from '../types';
 
-// Fallback data shown when no real reports exist yet.
-// TODO: INSPECTION_TRENDS_MOCK — wire to /api/reports/analytics/trends once backend aggregation exists.
-const INSPECTION_TRENDS_MOCK = [
-    { month: 'Jan', completed: 12, issues: 45 },
-    { month: 'Feb', completed: 19, issues: 52 },
-    { month: 'Mar', completed: 15, issues: 38 },
-    { month: 'Apr', completed: 22, issues: 65 },
-    { month: 'May', completed: 28, issues: 48 },
-    { month: 'Jun', completed: 34, issues: 55 }
-];
 
-// TODO: COST_BY_TYPE_MOCK — wire to /api/reports/analytics/costs once backend provides sector aggregation.
-const COST_BY_TYPE_MOCK = [
-    { name: 'Solar', cost: 45000 },
-    { name: 'Utilities', cost: 82000 },
-    { name: 'Telecom', cost: 35000 },
-    { name: 'Insurance', cost: 28000 }
-];
-
-// Fallback portfolio health distribution used only when reports list is empty.
-const ASSET_HEALTH_FALLBACK = [
-    { name: 'Optimal', value: 65, color: '#10b981' },
-    { name: 'Warning', value: 24, color: '#f59e0b' },
-    { name: 'Critical', value: 11, color: '#ef4444' }
-];
 
 type ReportLevel = 'Executive' | 'Operational' | 'Asset';
 
@@ -91,14 +67,11 @@ const ReportingSuite: React.FC = () => {
     // Portfolio health: bucketed by approval status from real data.
     const liveOptimal = reports.filter(r => r.approvalStatus === 'Approved' || r.approvalStatus === 'Released').length;
     const liveWarning = reports.filter(r => r.approvalStatus === 'Pending Review' || r.approvalStatus === 'Draft').length;
-    const assetHealthData = hasReports
-        ? [
-            { name: 'Optimal', value: liveOptimal, color: '#10b981' },
-            { name: 'Warning', value: liveWarning, color: '#f59e0b' },
-            // TODO: add 'Critical' bucket when a 'Rejected' approvalStatus is introduced
-            { name: 'Critical', value: 0, color: '#ef4444' }
-          ]
-        : ASSET_HEALTH_FALLBACK;
+    const assetHealthData = [
+        { name: 'Optimal', value: liveOptimal, color: '#10b981' },
+        { name: 'Warning', value: liveWarning, color: '#f59e0b' },
+        { name: 'Critical', value: 0, color: '#ef4444' }
+    ];
 
     // Sector cost: derived from strategicAssessment.grandTotalEstimate per report.
     const sectorCostData = Object.values(Industry).map(ind => ({
@@ -122,8 +95,8 @@ const ReportingSuite: React.FC = () => {
         };
     }).filter(d => d.completed > 0 || d.issues > 0);
 
-    const displayCostData = sectorCostData.length > 0 ? sectorCostData : COST_BY_TYPE_MOCK;
-    const displayTrends = inspectionTrends.length > 0 ? inspectionTrends : INSPECTION_TRENDS_MOCK;
+    const displayCostData = sectorCostData;
+    const displayTrends   = inspectionTrends;
 
     // Operational KPIs derived from real report data
     const pendingReviewCount = reports.filter(r => r.approvalStatus === 'Pending Review').length;
@@ -166,36 +139,52 @@ const ReportingSuite: React.FC = () => {
                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm md:col-span-2">
                     <div className="flex justify-between items-center mb-6">
                         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Projected Repair Costs by Sector</h3>
-                        <button className="text-xs text-blue-600 font-medium hover:underline">Download Report</button>
+                        {displayCostData.length > 0 && (
+                            <button className="text-xs text-blue-600 font-medium hover:underline">Download Report</button>
+                        )}
                     </div>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={displayCostData} barSize={40}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
-                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `$${value}`} />
-                                <Tooltip cursor={{ fill: '#f8fafc' }} />
-                                <Bar dataKey="cost" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
+                    {displayCostData.length > 0 ? (
+                        <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={displayCostData} barSize={40}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `$${value}`} />
+                                    <Tooltip cursor={{ fill: '#f8fafc' }} />
+                                    <Bar dataKey="cost" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+                            <p className="text-xs font-semibold text-slate-500">Cost data will appear once reports are submitted</p>
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <h3 className="text-sm font-bold text-slate-700 mb-6 uppercase tracking-wider">Inspection Activity vs. Issue Discovery</h3>
-                <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={displayTrends}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
-                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                            <Tooltip />
-                            <Line type="monotone" dataKey="completed" name="Missions Completed" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                            <Line type="monotone" dataKey="issues" name="Issues Found" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
+                {displayTrends.length > 0 ? (
+                    <div className="h-72">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={displayTrends}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                                <Tooltip />
+                                <Line type="monotone" dataKey="completed" name="Missions Completed" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                <Line type="monotone" dataKey="issues" name="Issues Found" stroke="#f59e0b" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-72 flex flex-col items-center justify-center gap-3 text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        <p className="text-xs font-semibold text-slate-500">Trend data will appear as missions are completed</p>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -204,14 +193,10 @@ const ReportingSuite: React.FC = () => {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                    // TODO: wire to /api/deployments/analytics/utilization
-                    { label: 'Pilot Utilization', value: '84%', sub: '+12% vs last week', icon: Users, color: 'blue' },
-                    // TODO: wire to /api/deployments/analytics/duration
-                    { label: 'Avg Mission Time', value: '42m', sub: '-3m efficiency gain', icon: Calendar, color: 'emerald' },
-                    // Derived from real reports via GET /api/reports
+                    { label: 'Approved Reports', value: String(liveOptimal), sub: liveOptimal > 0 ? 'Delivered to client' : 'None yet', icon: CheckCircle2, color: 'emerald' },
                     { label: 'Pending Reviews', value: String(pendingReviewCount), sub: pendingReviewCount > 0 ? 'Action required' : 'All clear', icon: AlertCircle, color: 'amber' },
-                    // TODO: wire to /api/reports/analytics/turnaround
-                    { label: 'Report Turnaround', value: '1.2d', sub: 'Within SLA', icon: CheckCircle2, color: 'indigo' },
+                    { label: 'Total Missions', value: String(reports.length), sub: 'All time', icon: Calendar, color: 'blue' },
+                    { label: 'In Progress', value: String(liveWarning), sub: 'Draft or under review', icon: Users, color: 'indigo' },
                 ].map((stat, i) => (
                     <div key={i} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                         <div className="flex justify-between items-start mb-2">

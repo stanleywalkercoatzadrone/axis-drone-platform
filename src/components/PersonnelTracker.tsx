@@ -190,10 +190,12 @@ const PersonnelTracker: React.FC = () => {
     };
 
     const handleSendOnboarding = async (id: string, email: string) => {
+        setSendingOnboarding(true);
         try {
-            const res = await apiClient.post('/candidates/send', { candidate_email: email, payload: { personnelId: id } });
+            const res = await apiClient.post('/onboarding/send', { personnelId: id });
             if (res.data.success) {
-                alert(`Onboarding package sent to ${email}!\n\nMagic Link (Admin Copy):\n${res.data.data.magicLink}`);
+                const { portalUrl } = res.data.data;
+                alert(`Onboarding package sent to ${email}!\n\nPortal Link (Admin Copy):\n${portalUrl}`);
                 setPersonnel(prev => prev.map(p => p.id === id ? { ...p, onboarding_status: 'sent' } : p));
                 if (selectedPerson?.id === id) {
                     setSelectedPerson(prev => prev ? { ...prev, onboarding_status: 'sent' } : null);
@@ -202,6 +204,8 @@ const PersonnelTracker: React.FC = () => {
         } catch (error: any) {
             console.error('Failed to send onboarding:', error);
             alert(error.response?.data?.message || 'Failed to send onboarding package');
+        } finally {
+            setSendingOnboarding(false);
         }
     };
 

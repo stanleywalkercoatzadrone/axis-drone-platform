@@ -251,6 +251,7 @@ const OrgOnboardingView: React.FC = () => {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         {PLANS.map(plan => {
                             const selected = form.plan === plan.id;
+                            const PlanIcon = plan.icon as React.ComponentType<{ className?: string }>;
                             return (
                                 <button
                                     key={plan.id}
@@ -266,7 +267,7 @@ const OrgOnboardingView: React.FC = () => {
                                             <Check className="w-2.5 h-2.5 text-white" />
                                         </div>
                                     )}
-                                    <plan.icon className={`w-5 h-5 mb-2 ${plan.color}`} />
+                                    <PlanIcon className={`w-5 h-5 mb-2 ${plan.color}`} />
                                     <p className="font-bold text-white text-sm">{plan.label}</p>
                                     <div className="mt-1 mb-3">
                                         <span className={`text-2xl font-black ${plan.color}`}>{plan.price}</span>

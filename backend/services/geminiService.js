@@ -22,7 +22,7 @@ const Type = {
 export async function testAIConnection() {
     const start = Date.now();
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.0-flash-thinking-exp-01-21',
@@ -46,7 +46,7 @@ export async function testAIConnection() {
  * Enterprise Image Analysis using Gemini 2.0 Pro
  */
 export async function analyzeInspectionImage(imageData, industry, sensitivity = 50) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
 
     const isInsurance = industry === Industry.INSURANCE;
 
@@ -174,7 +174,7 @@ export async function analyzeInspectionImage(imageData, industry, sensitivity = 
  * Strategic Assessment using Gemini 2.0 Thinking Mode + Search Grounding
  */
 export async function generateStrategicAssessment(reportData) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
 
     const prompt = `
     ACT AS: Principal Infrastructure Consultant.
@@ -245,7 +245,7 @@ export async function generateStrategicAssessment(reportData) {
  * Site Intelligence using Gemini 2.0 Flash + Search Grounding
  */
 export async function getSiteIntelligence(locationName, industry, lat, lng) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
 
     const prompt = `Analyze environmental and industrial context for a professional drone inspection at: ${locationName}. 
   Focus on ${industry} specific environmental hazards, local infrastructure history, and zoning regulations.`;
@@ -291,7 +291,7 @@ export async function getSiteIntelligence(locationName, industry, lat, lng) {
  * @returns {Promise<{ subject: string, body: string }>}
  */
 export async function generateMissionInquiryEmail(mission) {
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY || '' });
 
     // Admin's explicit job type toggle takes full priority over heuristic detection
     const explicitRole = (mission.personnelRole || '').toLowerCase().trim();

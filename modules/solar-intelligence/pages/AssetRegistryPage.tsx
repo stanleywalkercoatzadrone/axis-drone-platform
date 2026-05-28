@@ -53,13 +53,7 @@ const BLANK_FORM: NewAssetForm = {
   lat: '', lng: '', notes: '', specs_raw: '',
 };
 
-const DEMO_ASSETS: Asset[] = [
-  { id: 'a1', asset_type: 'inverter', asset_id_label: 'INV-001', installation_status: 'commissioned', lat: 32.1234, lng: -110.5678, created_at: '2025-03-01T00:00:00Z', specs: { model: 'SMA Sunny Boy 25', capacity_kw: 25 } },
-  { id: 'a2', asset_type: 'tracker_row', asset_id_label: 'TRK-022', installation_status: 'installed', lat: 32.1240, lng: -110.5680, created_at: '2025-04-10T00:00:00Z', open_issues_count: 2 },
-  { id: 'a3', asset_type: 'pile', asset_id_label: 'PIL-1421', installation_status: 'installed', lat: 32.1238, lng: -110.5690, created_at: '2025-04-12T00:00:00Z' },
-  { id: 'a4', asset_type: 'combiner_box', asset_id_label: 'CB-004', installation_status: 'planned', created_at: '2025-01-01T00:00:00Z' },
-  { id: 'a5', asset_type: 'substation', asset_id_label: 'SUB-A', installation_status: 'commissioned', lat: 32.1220, lng: -110.5700, created_at: '2025-02-20T00:00:00Z', specs: { voltage_kv: 34.5 } },
-];
+
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
@@ -93,7 +87,7 @@ const AssetRegistryPage: React.FC<Props> = ({ siteId }) => {
       const res = await apiClient.get(`/api/solar-farm/sites/${siteId}/assets`);
       setAssets(res.data ?? []);
     } catch {
-      setAssets(DEMO_ASSETS);
+      setAssets([]);
     } finally {
       setLoading(false);
     }

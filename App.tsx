@@ -102,7 +102,7 @@ import { InspectionDashboard } from './src/components/dashboard/inspection/Inspe
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
 const PilotAppV2: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'pilot-dashboard' | 'pilot-checklists' | 'pilot-uploads' | 'weather' | 'pilot-issues'>('pilot-dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'uploads' | 'compliance'>('dashboard');
   usePilotLocale(); // auto-switch language based on pilot's registered country
 
   return (
@@ -203,6 +203,9 @@ const AppContent: React.FC = () => {
     setActiveTab('ai-studio');
   };
 
+  // useLocation must be called at the top level — not inside conditionals
+  const location = useLocation();
+
   // Show a full-screen loader while auth is initializing — prevents white flash
   if (isLoading) {
     return (
@@ -235,7 +238,6 @@ const AppContent: React.FC = () => {
 
   // Fix: if an authenticated admin lands on /login (e.g. direct URL), redirect to / so
   // the URL reflects the app state instead of showing /login while the platform is live.
-  const location = useLocation();
   if (location.pathname === '/login') {
     return <Navigate to="/" replace />;
   }

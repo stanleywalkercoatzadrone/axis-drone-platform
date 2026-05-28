@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight, ChevronDown,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box, Globe, MapPin, Share2
+  Map as MapIcon, Box, Globe, MapPin, Share2, Monitor
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -96,6 +96,7 @@ import SocialMediaSettings from './src/components/SocialMediaSettings';
 import BESSInspectionView from './src/components/BESSInspectionView';
 import SolarIntelligenceHub from './modules/solar-intelligence/SolarIntelligenceHub';
 import { MediaDeliverableProvider, type MediaNavKey } from './src/context/MediaDeliverableContext';
+import AxisOrthoDistribution from './src/components/AxisOrthoDistribution';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -106,7 +107,7 @@ type NavKey =
   | 'uploads' | 'orthomosaic' | 'media' | 'reports'
   | 'bess' | 'solar-intelligence'
   | 'clients' | 'organizations' | 'org-onboarding'
-  | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media';
+  | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media' | 'axis-ortho';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -173,6 +174,7 @@ const NAV: NavGroup[] = [
       { key: 'protocol-lists',  label: 'Protocols',            adminOnly: true },
       { key: 'checklist-items', label: 'My Checklist' },
       { key: 'social-media',    label: 'Social Media',         icon: Share2 },
+      { key: 'axis-ortho',      label: 'Axis Ortho',           icon: Monitor },
       { key: 'system-settings', label: 'System Settings',      adminOnly: true },
     ],
   },
@@ -237,7 +239,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'organizations', 'social-media', 'bess', 'solar-intelligence',
+      'dispatch', 'reports', 'organizations', 'social-media', 'bess', 'solar-intelligence', 'axis-ortho',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -254,10 +256,12 @@ export default function AppShell() {
       const saved = localStorage.getItem('axis-nav-expanded');
       if (saved) return new Set(JSON.parse(saved));
     } catch {}
-    // Default: expand only the group containing the active key
+    // Default: expand the active group + Administration (so Axis Ortho is always visible)
     const saved = localStorage.getItem('axis_active_nav') as NavKey | null;
     const activeGroup = saved ? getGroupTitleForKey(saved as NavKey) : getGroupTitleForKey('dashboard');
-    return activeGroup ? new Set([activeGroup]) : new Set();
+    const defaults = new Set<string>(['Administration']);
+    if (activeGroup) defaults.add(activeGroup);
+    return defaults;
   });
 
   const toggleGroup = (title: string) => {
@@ -427,6 +431,7 @@ export default function AppShell() {
     'protocol-lists':        'Operational Protocols',
     'checklist-items':       'My Checklist',
     'social-media':          'Social Media',
+    'axis-ortho':            'Axis Ortho Distribution',
     'system-settings':       'System Settings',
   };
 
@@ -496,6 +501,7 @@ export default function AppShell() {
         return <OperationalProtocolsView />;
       case 'checklist-items':  return <MyWorkItems />;
       case 'system-settings':  return <SettingsView />;
+      case 'axis-ortho':       return <AxisOrthoDistribution />;
       case 'user-iam':         return <UserManagement />;
       case 'social-media':     return <SocialMediaSettings />;
       default:

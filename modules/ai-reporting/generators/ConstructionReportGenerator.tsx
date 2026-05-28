@@ -7,15 +7,19 @@ interface Props {
     industryConfig?: IndustryReportConfig;
     initialSiteName?: string;
     initialClientName?: string;
+    missionId?: string;
+    onShowArchive?: (search?: string) => void;
 }
 
-const ConstructionReportGenerator: React.FC<Props> = ({ section, industryConfig, initialSiteName, initialClientName }) => (
+const ConstructionReportGenerator: React.FC<Props> = ({ section, industryConfig, initialSiteName, initialClientName, missionId, onShowArchive }) => (
     <GenericIndustryReportGenerator
         section={section}
         industryLabel={industryConfig?.label ?? 'Construction'}
         colorHex={industryConfig?.colorHex ?? '#eab308'}
         initialSiteName={initialSiteName}
         initialClientName={initialClientName}
+        missionId={missionId}
+        onShowArchive={onShowArchive}
     />
 );
 

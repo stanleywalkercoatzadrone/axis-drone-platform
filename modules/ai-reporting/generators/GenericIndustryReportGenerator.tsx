@@ -39,7 +39,7 @@ interface Props {
 }
 
 const GenericIndustryReportGenerator: React.FC<Props> = ({
-    section, industryLabel, colorHex, initialSiteName = '', initialClientName = '', onShowArchive, missionId
+    section, industryLabel, colorHex, initialSiteName = '', initialClientName = '', initialPilotName = '', onShowArchive, missionId
 }) => {
     const [siteName, setSiteName] = useState(initialSiteName);
     const [clientName, setClientName] = useState(initialClientName);
@@ -291,9 +291,9 @@ Write in a professional, technical tone suitable for enterprise clients. Include
         if (!generatedReport || !missionId) return;
         setSavingToMission(true);
         try {
-            const res = await saveReportToMission(missionId, generatedReport);
-            if (res.success) {
-                setSavedToMissionId(res.reportId);
+            const savedId = await saveReportToMission(missionId, generatedReport, {});
+            if (savedId) {
+                setSavedToMissionId(savedId);
             }
         } catch (err) {
             console.error('Save to mission failed', err);

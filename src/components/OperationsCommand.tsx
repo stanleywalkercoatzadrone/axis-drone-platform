@@ -158,7 +158,7 @@ function ProgressBar({ value = 0, danger }: { value?: number; danger?: boolean }
   );
 }
 
-function MetricCard({ label, value, subtext, icon: Icon }: { label: string; value: string | number; subtext?: string; icon: React.ElementType }) {
+function MetricCard({ label, value, subtext, icon: Icon }: { label: string; value: string | number; subtext?: string; icon: React.ComponentType<{ size?: number; className?: string }> }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-zinc-950/70 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)] backdrop-blur">
       <div className="mb-3 flex items-center justify-between">
@@ -171,7 +171,7 @@ function MetricCard({ label, value, subtext, icon: Icon }: { label: string; valu
   );
 }
 
-function IntelligenceCard({ title, value, subtext, icon: Icon, accent }: { title: string; value: string; subtext: string; icon: React.ElementType; accent: string }) {
+function IntelligenceCard({ title, value, subtext, icon: Icon, accent }: { title: string; value: string; subtext: string; icon: React.ComponentType<{ size?: number; className?: string }>; accent: string }) {
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-zinc-950 to-black p-4">
       <div className="pointer-events-none absolute inset-0 opacity-20 blur-2xl" style={{ background: accent }} />

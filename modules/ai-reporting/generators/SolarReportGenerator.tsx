@@ -24,7 +24,8 @@ import {
     History,
     FolderUp,
     Edit3,
-    Settings
+    Settings,
+    AlertTriangle
 } from 'lucide-react';
 import { ReportSection } from '../config/industryReportSections';
 import apiClient from '../../../src/services/apiClient';

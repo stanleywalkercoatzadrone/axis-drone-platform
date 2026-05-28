@@ -131,15 +131,7 @@ const BLANK_UPDATE: UpdateForm = {
   inverter_pads_installed: '', roads_installed_m: '', blocks_installed: '',
 };
 
-const DEMO_SNAPSHOT: ProgressSnapshot = {
-  id: 'demo', piles_planned: 4200, piles_installed: 3100,
-  tracker_rows_planned: 680, tracker_rows_installed: 510,
-  modules_planned: 28000, modules_installed: 17500,
-  inverter_pads_planned: 8, inverter_pads_installed: 6,
-  roads_planned_m: 12000, roads_installed_m: 8400,
-  blocks_planned: 24, blocks_installed: 15,
-  overall_progress_pct: 62, created_at: new Date().toISOString(),
-};
+
 
 const ConstructionProgressPage: React.FC<Props> = ({ siteId }) => {
   const [snapshots, setSnapshots] = useState<ProgressSnapshot[]>([]);
@@ -160,7 +152,7 @@ const ConstructionProgressPage: React.FC<Props> = ({ siteId }) => {
         apiClient.get(`/api/solar-farm/sites/${siteId}/surveys`),
       ]);
       if (snapRes.status === 'fulfilled') setSnapshots(snapRes.value.data ?? []);
-      else { setSnapshots([DEMO_SNAPSHOT]); setError('Using demo data'); }
+      else setSnapshots([]);
       if (surRes.status === 'fulfilled') {
         const s: Survey[] = surRes.value.data ?? [];
         setSurveys(s);
@@ -176,10 +168,11 @@ const ConstructionProgressPage: React.FC<Props> = ({ siteId }) => {
   // Latest snapshot (most recent by created_at)
   const latestSnapshot = snapshots.length > 0
     ? [...snapshots].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-    : DEMO_SNAPSHOT;
+    : null;
 
-  const overallPct = latestSnapshot.overall_progress_pct
-    ?? pct(latestSnapshot.modules_installed, latestSnapshot.modules_planned);
+  const overallPct = latestSnapshot
+    ? (latestSnapshot.overall_progress_pct ?? pct(latestSnapshot.modules_installed, latestSnapshot.modules_planned))
+    : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,6 +245,12 @@ const ConstructionProgressPage: React.FC<Props> = ({ siteId }) => {
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 size={28} className="text-blue-500 animate-spin" /></div>
+      ) : !latestSnapshot ? (
+        <div className="flex flex-col items-center justify-center py-24 gap-4 text-slate-500">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <p className="text-sm font-semibold">No progress snapshots recorded yet</p>
+          <p className="text-xs text-slate-600">Use “Update Progress” to log your first construction snapshot.</p>
+        </div>
       ) : (
         <>
           {/* Overall + breakdown */}

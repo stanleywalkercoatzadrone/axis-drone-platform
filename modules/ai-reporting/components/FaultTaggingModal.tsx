@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
-import { Fault } from '../../../src/types';
+import { Fault, Severity } from '../../../src/types';
 
 interface FaultTaggingModalProps {
     isOpen: boolean;
@@ -22,7 +22,7 @@ const FaultTaggingModal: React.FC<FaultTaggingModalProps> = ({ isOpen, onClose, 
             id: `fault-${Date.now()}`,
             imageId: image.id,
             description: faultDescription,
-            severity: 'Medium',
+            severity: Severity.MEDIUM,
             type: 'General',
             x: 0,
             y: 0,
