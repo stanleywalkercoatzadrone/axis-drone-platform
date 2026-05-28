@@ -17,8 +17,10 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
     // Form State
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [primaryContactName, setPrimaryContactName] = useState('');
     const [industryKey, setIndustryKey] = useState(availableIndustries[0]?.key || 'solar');
-    const [address, setAddress] = useState({ street: '', city: '', state: '', zip: '' });
+    const [address, setAddress] = useState({ street: '', city: '', state: '', zip: '', country: 'United States' });
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +33,8 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
             const response = await apiClient.post('/clients', {
                 name,
                 email,
+                phone,
+                primaryContactName,
                 industryKey, // Backend resolves this to UUID
                 address
             });
@@ -56,75 +60,141 @@ const ClientForm: React.FC<ClientFormProps> = ({ onClose, onSuccess }) => {
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
                     {error && (
                         <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg">
                             {error}
                         </div>
                     )}
 
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                            {tLabel('client')} Name *
-                        </label>
-                        <input
-                            type="text"
-                            required
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                            placeholder="e.g. Acme Solar"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Email / Contact
-                        </label>
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                            placeholder="contact@company.com"
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                            Industry *
-                        </label>
-                        <select
-                            value={industryKey}
-                            onChange={(e) => setIndustryKey(e.target.value as IndustryKey)}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                        >
-                            {availableIndustries.map(ind => (
-                                <option key={ind.key} value={ind.key}>
-                                    {ind.name}
-                                </option>
-                            ))}
-                        </select>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2">
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                {tLabel('client')} Name *
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                placeholder="e.g. Acme Solar"
+                            />
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                Industry *
+                            </label>
+                            <select
+                                value={industryKey}
+                                onChange={(e) => setIndustryKey(e.target.value as IndustryKey)}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                            >
+                                {availableIndustries.map(ind => (
+                                    <option key={ind.key} value={ind.key}>
+                                        {ind.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                Primary Contact Name
+                            </label>
                             <input
                                 type="text"
-                                value={address.city}
-                                onChange={(e) => setAddress({ ...address, city: e.target.value })}
-                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                value={primaryContactName}
+                                onChange={(e) => setPrimaryContactName(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                placeholder="John Doe"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                Email
+                            </label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                placeholder="contact@company.com"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">
+                                Phone
+                            </label>
+                            <input
+                                type="tel"
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                placeholder="(555) 123-4567"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="border-t border-slate-100 pt-4 space-y-4">
+                        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Address Details</h4>
+                        
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Street Address</label>
                             <input
                                 type="text"
-                                value={address.state}
-                                onChange={(e) => setAddress({ ...address, state: e.target.value })}
-                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                                value={address.street}
+                                onChange={(e) => setAddress({ ...address, street: e.target.value })}
+                                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                placeholder="123 Main St"
                             />
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="col-span-2">
+                                <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
+                                <input
+                                    type="text"
+                                    value={address.city}
+                                    onChange={(e) => setAddress({ ...address, city: e.target.value })}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
+                                <input
+                                    type="text"
+                                    value={address.state}
+                                    onChange={(e) => setAddress({ ...address, state: e.target.value })}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Zip Code</label>
+                                <input
+                                    type="text"
+                                    value={address.zip}
+                                    onChange={(e) => setAddress({ ...address, zip: e.target.value })}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Country</label>
+                                <input
+                                    type="text"
+                                    value={address.country}
+                                    onChange={(e) => setAddress({ ...address, country: e.target.value })}
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all text-sm"
+                                />
+                            </div>
                         </div>
                     </div>
 
