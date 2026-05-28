@@ -4,7 +4,8 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+RUN apk add --no-cache python3 make g++ && \
+    (npm ci --legacy-peer-deps || npm install --legacy-peer-deps)
 COPY . .
 RUN npm run build
 
@@ -14,7 +15,9 @@ WORKDIR /app
 
 # Install production dependencies
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --legacy-peer-deps || npm install --omit=dev --legacy-peer-deps
+RUN apk add --no-cache python3 make g++ && \
+    (npm ci --omit=dev --legacy-peer-deps || npm install --omit=dev --legacy-peer-deps) && \
+    apk del python3 make g++
 
 # Copy backend code (JavaScript only)
 COPY backend ./backend
