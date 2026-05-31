@@ -514,22 +514,80 @@ router.post('/upload', authorize('admin'), upload.single('file'), async (req, re
     }
 });
 
+// Helper functions to authorize pilots based on mission/deployment assignment
+const isPilotAssignedToMission = async (userId, email, fullName, deploymentId) => {
+    if (!deploymentId) return false;
+
+    // Check personnel tables
+    const personnelRes = await query(
+        `SELECT 1
+         FROM personnel p
+         LEFT JOIN deployment_personnel dp ON p.id = dp.personnel_id AND dp.deployment_id = $1
+         LEFT JOIN pilot_work_assignments pwa ON p.id = pwa.personnel_id AND pwa.deployment_id = $1
+         WHERE (LOWER(p.email) = LOWER($2) OR ($3::text IS NOT NULL AND LOWER(p.full_name) = LOWER($3::text)))
+           AND (dp.deployment_id IS NOT NULL OR pwa.deployment_id IS NOT NULL)
+         LIMIT 1`,
+        [deploymentId, email || '', fullName || null]
+    );
+    if (personnelRes.rows.length > 0) return true;
+
+    // Check JSONB and direct assignment in deployments
+    if (userId) {
+        try {
+            const jsonbCheck = await query(
+                `SELECT id FROM deployments
+                 WHERE id = $1
+                 AND (
+                     assigned_to = $2
+                     OR assigned_team @> $3::jsonb
+                 )
+                 LIMIT 1`,
+                [deploymentId, userId, JSON.stringify([{ user_id: userId }])]
+            );
+            if (jsonbCheck.rows.length > 0) return true;
+        } catch (err) {
+            // Ignore missing column errors gracefully and default to false for this specific check
+            console.log('[blockProgress] deployments table missing assigned_to/assigned_team columns, skipping JSONB check');
+        }
+    }
+
+    return false;
+};
+
+const hasBlockAccess = async (req, block) => {
+    const role = req.user?.role;
+    const isPilot = ['pilot', 'pilot_technician', 'field_operator', 'senior_inspector'].includes(role) ||
+                    ['pilot', 'pilot_technician', 'field_operator', 'senior_inspector'].includes(role?.toLowerCase());
+
+    if (!isPilot) return true; // Admins and other internal users bypass checks
+
+    // Direct block assignment pass
+    if (block.assigned_to && String(block.assigned_to) === String(req.user.id)) return true;
+
+    // Otherwise check assignment on associated deployment/mission
+    const deploymentId = block.deployment_id || block.mission_id;
+    if (!deploymentId) return false;
+
+    return await isPilotAssignedToMission(req.user.id, req.user.email, req.user.fullName || req.user.full_name, deploymentId);
+};
+
 // ── GET /api/blocks/:blockId/lbds ─────────────────────────────────────────────
 // Admin + Pilot: paginated LBD unit list for a block
-// RBAC: pilots can only see LBDs in blocks assigned to them
+// RBAC: pilots can only see LBDs in blocks assigned to them or associated missions
 router.get('/:blockId/lbds', async (req, res) => {
     try {
         const { blockId } = req.params;
         const page  = Math.max(1, parseInt(req.query.page  || '1'));
         const limit = Math.min(500, Math.max(1, parseInt(req.query.limit || '100')));
         const offset = (page - 1) * limit;
-        const role = req.user.role;
 
-        // RBAC: pilot may only see their assigned blocks
+        // RBAC validation
         const blockRes = await query(`SELECT * FROM solar_blocks WHERE id = $1`, [blockId]);
         if (!blockRes.rows.length) return res.status(404).json({ success: false, message: 'Block not found' });
         const block = blockRes.rows[0];
-        if (['pilot', 'pilot_technician', 'field_operator'].includes(role) && String(block.assigned_to) !== String(req.user.id)) {
+        
+        const isAuthorized = await hasBlockAccess(req, block);
+        if (!isAuthorized) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
@@ -564,7 +622,6 @@ router.patch('/lbds/:lbdId', async (req, res) => {
     try {
         const { lbdId } = req.params;
         const { status, notes, thermal_flag, file_urls } = req.body;
-        const role = req.user.role;
 
         // Validate
         const validStatus = ['pending', 'completed', 'issue'];
@@ -574,7 +631,7 @@ router.patch('/lbds/:lbdId', async (req, res) => {
 
         // Fetch the LBD + its parent block for RBAC
         const lbdRes = await query(
-            `SELECT lu.*, sb.mission_id AS deployment_id, sb.assigned_to, sb.total_lbds, sb.block_name
+            `SELECT lu.*, sb.mission_id AS deployment_id, sb.deployment_id AS block_deployment_id, sb.assigned_to, sb.total_lbds, sb.block_name
              FROM lbd_units lu
              JOIN solar_blocks sb ON sb.id = lu.block_id
              WHERE lu.id = $1`,
@@ -583,8 +640,16 @@ router.patch('/lbds/:lbdId', async (req, res) => {
         if (!lbdRes.rows.length) return res.status(404).json({ success: false, message: 'LBD unit not found' });
         const lbd = lbdRes.rows[0];
 
-        // RBAC: pilot may only update LBDs in their own assigned blocks
-        if (role === 'pilot' && String(lbd.assigned_to) !== String(req.user.id)) {
+        // Normalize block fields for hasBlockAccess check
+        const blockMock = {
+            assigned_to: lbd.assigned_to,
+            deployment_id: lbd.block_deployment_id,
+            mission_id: lbd.deployment_id
+        };
+
+        // RBAC validation
+        const isAuthorized = await hasBlockAccess(req, blockMock);
+        if (!isAuthorized) {
             return res.status(403).json({ success: false, message: 'Access denied' });
         }
 

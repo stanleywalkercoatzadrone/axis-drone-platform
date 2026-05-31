@@ -508,7 +508,7 @@ const MissionCard: React.FC<{
     const [weatherLoading, setWeatherLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [expanded, setExpanded] = useState(false);
-    const [isGridCollapsed, setIsGridCollapsed] = useState(true);
+    const [isGridCollapsed, setIsGridCollapsed] = useState(false);
     const [assignments, setAssignments] = useState<any[] | null>(null);
 
     useEffect(() => {

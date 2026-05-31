@@ -199,14 +199,21 @@ const BlockGridCard: React.FC<{
     block: Block;
     editable: boolean;
     onUnitUpdate: (unitId: string, status: LBDUnit['status'], notes?: string) => Promise<void>;
-}> = ({ block, editable, onUnitUpdate }) => {
-    const [expanded, setExpanded] = useState(true);
+    defaultExpanded?: boolean;
+}> = ({ block, editable, onUnitUpdate, defaultExpanded }) => {
+    const [expanded, setExpanded] = useState(defaultExpanded ?? false);
     const [units, setUnits] = useState<LBDUnit[]>([]);
     const [loading, setLoading] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [activeUnit, setActiveUnit] = useState<LBDUnit | null>(null);
     const [markingAll, setMarkingAll] = useState(false);
     const [resettingAll, setResettingAll] = useState(false);
+
+    useEffect(() => {
+        if (defaultExpanded !== undefined) {
+            setExpanded(defaultExpanded);
+        }
+    }, [defaultExpanded]);
 
     const total     = block.total_lbd_units ?? block.total_lbds ?? 0;
     const completed = block.completed_lbds ?? 0;
@@ -291,9 +298,9 @@ const BlockGridCard: React.FC<{
 
             <div className="bg-slate-900 border border-slate-700/60 rounded-2xl overflow-hidden shadow-md">
                 {/* Block Header */}
-                <button
+                <div
                     onClick={() => setExpanded(e => !e)}
-                    className="w-full flex items-center gap-3 px-4 py-4 hover:bg-slate-800/40 transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-4 hover:bg-slate-800/40 cursor-pointer select-none transition-colors"
                 >
                     {/* Status dot */}
                     <div className={`w-3 h-3 rounded-full shrink-0 ${livePct >= 100 ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : livePct > 0 ? 'bg-amber-500' : 'bg-slate-600'}`} />
@@ -350,7 +357,7 @@ const BlockGridCard: React.FC<{
                     </div>
 
                     {expanded ? <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />}
-                </button>
+                </div>
 
                 {/* Progress bar */}
                 <div className="h-1 w-full bg-slate-800">
@@ -424,6 +431,7 @@ const BlockGridCard: React.FC<{
 const LBDDocumentGrid: React.FC<Props> = ({ deploymentId, userRole }) => {
     const [blocks, setBlocks] = useState<Block[]>([]);
     const [loading, setLoading] = useState(true);
+    const [allExpanded, setAllExpanded] = useState(false);
     const editable = isPilot(userRole);
     const readOnly = isClient(userRole);
 
@@ -496,13 +504,21 @@ const LBDDocumentGrid: React.FC<Props> = ({ deploymentId, userRole }) => {
                         </p>
                     </div>
                 </div>
-                <button
-                    onClick={fetchBlocks}
-                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-                    title="Refresh"
-                >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setAllExpanded(prev => !prev)}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-black uppercase tracking-wider transition-colors border border-slate-700"
+                    >
+                        {allExpanded ? 'Collapse All' : 'Expand All'}
+                    </button>
+                    <button
+                        onClick={fetchBlocks}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700"
+                        title="Refresh"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                </div>
             </div>
 
             {/* Overall Progress */}
@@ -534,6 +550,7 @@ const LBDDocumentGrid: React.FC<Props> = ({ deploymentId, userRole }) => {
                         block={block}
                         editable={editable}
                         onUnitUpdate={handleUnitUpdate}
+                        defaultExpanded={allExpanded}
                     />
                 ))}
             </div>

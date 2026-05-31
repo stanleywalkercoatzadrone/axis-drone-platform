@@ -55,6 +55,7 @@ import { PerformanceConfigPanel } from '../components/admin/PerformanceConfigPan
 import { AxisPerformanceTab } from '../components/personnel/AxisPerformanceTab';
 import { useAuth } from '../context/AuthContext';
 import { useCountry } from '../context/CountryContext';
+import { useGlobalContext } from '../context/GlobalContext';
 import OrganizationPanel from './OrganizationPanel';
 
 import RegionConfig from './RegionConfig';
@@ -63,6 +64,7 @@ import SocialMediaSettings from './SocialMediaSettings';
 const SettingsView: React.FC = () => {
   const { user: currentUser, logout, syncProfile } = useAuth();
   const { refreshCountries } = useCountry();
+  const { hideSidebarTitles, setHideSidebarTitles } = useGlobalContext();
 
   // Guard: auth context may briefly return null on first render
   if (!currentUser) {
@@ -667,6 +669,24 @@ const SettingsView: React.FC = () => {
                   <div className="flex gap-4">
                     <input type="password" value={passkeyInput} onChange={e => setPasskeyInput(e.target.value)} placeholder="Enter Admin Passkey for Verification" className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
+                </div>
+              )}
+
+              {isAdmin(currentUser) && (
+                <div className="pt-6 border-t border-slate-100">
+                  <h4 className="text-sm font-bold text-slate-900 mb-3">Sidebar Preferences</h4>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hideSidebarTitles}
+                      onChange={e => {
+                        setHideSidebarTitles(e.target.checked);
+                        localStorage.setItem('hide_sidebar_titles', String(e.target.checked));
+                      }}
+                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-slate-700 font-medium">Hide section titles in sidebar</span>
+                  </label>
                 </div>
               )}
             </div>

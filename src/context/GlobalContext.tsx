@@ -16,6 +16,7 @@ export interface GlobalState {
     activeCountryId: string | null;
     dateRange: DateRange;
     isSidebarOpen: boolean;
+    hideSidebarTitles: boolean;
 }
 
 export interface GlobalContextType extends GlobalState {
@@ -25,6 +26,7 @@ export interface GlobalContextType extends GlobalState {
     setCountry: (countryId: string | null) => void;
     setDateRange: (range: DateRange) => void;
     toggleSidebar: () => void;
+    setHideSidebarTitles: (hide: boolean) => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -35,6 +37,7 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
     // System-level state
     const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [hideSidebarTitles, setHideSidebarTitles] = useState(() => localStorage.getItem('hide_sidebar_titles') === 'true');
 
     const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), []);
 
@@ -57,13 +60,15 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
         activeCountryId: mission.country,
         dateRange,
         isSidebarOpen,
+        hideSidebarTitles,
         setIndustry,
         setClient,
         setSite,
         setCountry,
         setDateRange,
-        toggleSidebar
-    }), [mission, dateRange, isSidebarOpen, setIndustry, setClient, setSite, setCountry, toggleSidebar]);
+        toggleSidebar,
+        setHideSidebarTitles
+    }), [mission, dateRange, isSidebarOpen, hideSidebarTitles, setIndustry, setClient, setSite, setCountry, toggleSidebar]);
 
     return (
         <GlobalContext.Provider value={value}>

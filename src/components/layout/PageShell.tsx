@@ -126,7 +126,7 @@ export const PageShell: React.FC<PageShellProps> = ({
     children, title, actions, activeTab, onNavigate, activeIndustry
 }) => {
     const { user, logout } = useAuth();
-    const { isSidebarOpen, toggleSidebar } = useGlobalContext();
+    const { isSidebarOpen, toggleSidebar, hideSidebarTitles } = useGlobalContext();
     const { tLabel, setIndustry, currentIndustry } = useIndustry();
 
     const [selectedIndustry, setSelectedIndustry] = useState<IndustryId>(
@@ -246,7 +246,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                     <div className="mb-1">
 
                         {/* Section header */}
-                        {isSidebarOpen ? (
+                        {isSidebarOpen && !hideSidebarTitles ? (
                             <button
                                 onClick={() => setIsOpsOpen(o => !o)}
                                 className="w-full flex items-center gap-2 px-3 py-2 rounded-xl mb-1 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all duration-200 group"
@@ -260,11 +260,11 @@ export const PageShell: React.FC<PageShellProps> = ({
                                     className={`text-slate-600 transition-transform duration-300 ${isOpsOpen ? 'rotate-0' : '-rotate-90'}`}
                                 />
                             </button>
-                        ) : (
+                        ) : !isSidebarOpen ? (
                             <div className="flex justify-center py-1 mb-1">
                                 <Layers size={14} className="text-blue-400/60" />
                             </div>
-                        )}
+                        ) : null}
 
                         {/* Expanded content (sidebar open + ops open) */}
                         {isOpsOpen && isSidebarOpen && (() => {
@@ -469,7 +469,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                     {/* ── FINANCE ───────────────────────────────────────── */}
                     {isAdmin(user) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Finance</div>
+                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Finance</div>}
                             <CompactNavItem
                                 icon={<Archive size={16} />}
                                 label="Invoices"
@@ -500,7 +500,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                     {/* ── OPERATIONS ────────────────────────────────────── */}
                     {(isAdmin(user) || isPilot(user)) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Operations</div>
+                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Operations</div>}
                             <CompactNavItem
                                 icon={<PlayCircle size={16} />}
                                 label="Sessions"
@@ -533,7 +533,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                     {/* ── PILOTS ────────────────────────────────────────── */}
                     {isAdmin(user) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Pilots</div>
+                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Pilots</div>}
                             <CompactNavItem
                                 icon={<Users size={16} />}
                                 label="Pilot Directory"
@@ -554,7 +554,7 @@ export const PageShell: React.FC<PageShellProps> = ({
 
                     {/* ── SETTINGS ──────────────────────────────────────── */}
                     <div className="pt-3 mt-3 border-t border-slate-800/60">
-                        {isSidebarOpen && (
+                        {isSidebarOpen && !hideSidebarTitles && (
                             <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-3">
                                 Settings
                             </div>
