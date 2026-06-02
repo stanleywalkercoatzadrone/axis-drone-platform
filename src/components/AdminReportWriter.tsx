@@ -271,6 +271,22 @@ async function fetchPilotReports(missionId: string): Promise<PilotReportData[]> 
   return data.data || [];
 }
 
+// Geocode a location string to lat/lon using Open-Meteo geocoding API
+async function geocodeLocation(location: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        return { lat: data.results[0].latitude, lon: data.results[0].longitude };
+      }
+    }
+  } catch (e) {
+    console.error('[geocodeLocation]', e);
+  }
+  return null;
+}
+
 async function fetchWeatherForRange(lat: number, lon: number, startDate: string, endDate: string): Promise<WeatherDayData[]> {
   try {
     const today = new Date().toISOString().split('T')[0];
@@ -955,9 +971,8 @@ const MissionDataEditor: React.FC<{
   // Fetch weather when date range or selected dates change
   useEffect(() => {
     if (!selectedMission) { setWeatherData([]); return; }
-    const lat = selectedMission.latitude ?? selectedMission.lat;
-    const lon = selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon;
-    if (!lat || !lon) return;
+    let lat = selectedMission.latitude ?? selectedMission.lat;
+    let lon = selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon;
 
     let wFrom = '', wTo = '';
     if (dateMode === 'individual' && selectedDates.length > 0) {
@@ -970,18 +985,29 @@ const MissionDataEditor: React.FC<{
     }
     if (!wFrom || !wTo) { setWeatherData([]); return; }
 
-    setLoadingWeather(true);
-    fetchWeatherForRange(lat, lon, wFrom, wTo)
-      .then(w => {
-        // If individual mode, filter to only selected dates
+    const doFetch = async (lt: number, ln: number) => {
+      setLoadingWeather(true);
+      try {
+        const w = await fetchWeatherForRange(lt, ln, wFrom, wTo);
         if (dateMode === 'individual' && selectedDates.length > 0) {
           setWeatherData(w.filter(d => selectedDates.includes(d.date)));
         } else {
           setWeatherData(w);
         }
-        setLoadingWeather(false);
-      })
-      .catch(() => setLoadingWeather(false));
+      } catch { /* */ }
+      setLoadingWeather(false);
+    };
+
+    if (lat && lon) {
+      doFetch(lat, lon);
+    } else if (selectedMission.location) {
+      // Fallback: geocode the location string
+      geocodeLocation(selectedMission.location).then(coords => {
+        if (coords) {
+          doFetch(coords.lat, coords.lon);
+        }
+      });
+    }
   }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
   // If the section already has a snapshot, show it
