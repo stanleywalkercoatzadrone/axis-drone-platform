@@ -924,6 +924,7 @@ const MissionDataEditor: React.FC<{
   const [dateTo, setDateTo] = useState('');
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [dateMode, setDateMode] = useState<'range' | 'individual'>('range');
+  const [addDateValue, setAddDateValue] = useState('');
   const [weatherData, setWeatherData] = useState<WeatherDayData[]>([]);
   const [loadingWeather, setLoadingWeather] = useState(false);
 
@@ -1417,13 +1418,23 @@ const MissionDataEditor: React.FC<{
                           ) : (
                             <div>
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
-                                <input type="date"
-                                  onChange={e => {
-                                    const v = e.target.value;
-                                    if (v && !selectedDates.includes(v)) setSelectedDates(d => [...d, v].sort());
-                                    e.target.value = '';
-                                  }}
+                                <input type="date" value={addDateValue}
+                                  onChange={e => setAddDateValue(e.target.value)}
                                   style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                                <button
+                                  onClick={() => {
+                                    if (addDateValue && !selectedDates.includes(addDateValue)) {
+                                      setSelectedDates(d => [...d, addDateValue].sort());
+                                    }
+                                    setAddDateValue('');
+                                  }}
+                                  disabled={!addDateValue}
+                                  style={{
+                                    padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 800, cursor: addDateValue ? 'pointer' : 'default',
+                                    background: addDateValue ? 'rgba(6,182,212,0.15)' : 'rgba(255,255,255,0.04)',
+                                    color: addDateValue ? '#06b6d4' : '#475569',
+                                  }}
+                                >+ Add</button>
                                 <span style={{ fontSize: 10, color: '#475569' }}>{selectedDates.length} selected</span>
                               </div>
                               {selectedDates.length > 0 && (
