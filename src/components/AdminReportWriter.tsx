@@ -1004,6 +1004,23 @@ const MissionDataEditor: React.FC<{
     }
   }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
+  // Auto-populate report when data is ready (weather loaded + pilot reports loaded)
+  const autoPopulateKeyRef = React.useRef('');
+  useEffect(() => {
+    if (!selectedMission) return;
+    if (loadingWeather || loadingReports) return;
+    // Build a key from mission + dates + weather count to detect changes
+    const key = `${selectedMission.id}|${dateMode}|${dateFrom}|${dateTo}|${selectedDates.join(',')}|${weatherData.length}|${pilotReports.length}`;
+    if (autoPopulateKeyRef.current === key) return; // already ran for this combo
+    autoPopulateKeyRef.current = key;
+    // Small delay to let state settle
+    const timer = setTimeout(() => {
+      console.log('[AutoPopulate] Auto-triggering with key:', key);
+      handleAutoPopulateReport();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [selectedMission?.id, loadingWeather, loadingReports, weatherData.length, pilotReports.length, dateFrom, dateTo, selectedDates.length, dateMode]);
+
   // If the section already has a snapshot, show it
   if (section.missionSnapshot) {
     const snap = section.missionSnapshot;
