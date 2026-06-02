@@ -1045,34 +1045,46 @@ const MissionDataEditor: React.FC<{
     }
     if (!wFrom || !wTo) { setWeatherData([]); return; }
 
+    // Set loading immediately — before any async work (geocoding etc.)
+    setLoadingWeather(true);
+
     const doFetch = async (lt: number, ln: number) => {
-      setLoadingWeather(true);
       try {
+        console.log(`[Weather] Fetching for coords ${lt}, ${ln} from ${wFrom} to ${wTo}`);
         const w = await fetchWeatherForRange(lt, ln, wFrom, wTo);
+        console.log(`[Weather] Got ${w.length} days of data`);
         if (dateMode === 'individual' && selectedDates.length > 0) {
           setWeatherData(w.filter(d => selectedDates.includes(d.date)));
         } else {
           setWeatherData(w);
         }
-      } catch { /* */ }
+      } catch (err) {
+        console.error('[Weather] Fetch error:', err);
+      }
       setLoadingWeather(false);
-      weatherAttemptedRef.current = true; // Mark that a real fetch was attempted
+      weatherAttemptedRef.current = true;
     };
 
-    if (lat && lon) {
-      doFetch(lat, lon);
+    const hasCoords = lat != null && lon != null && lat !== 0 && lon !== 0;
+    console.log(`[Weather] Mission "${selectedMission.title}" coords: lat=${lat}, lon=${lon}, hasCoords=${hasCoords}, location="${selectedMission.location}"`);
+
+    if (hasCoords) {
+      doFetch(Number(lat), Number(lon));
     } else if (selectedMission.location) {
-      // Fallback: geocode the location string
+      console.log(`[Weather] No coords, geocoding "${selectedMission.location}"...`);
       geocodeLocation(selectedMission.location).then(coords => {
         if (coords) {
           doFetch(coords.lat, coords.lon);
         } else {
+          console.warn('[Weather] Geocode returned null — no weather data available');
           setLoadingWeather(false);
-          weatherAttemptedRef.current = true; // Geocode failed, mark attempted
+          weatherAttemptedRef.current = true;
         }
       });
     } else {
-      weatherAttemptedRef.current = true; // No coords and no location, nothing to fetch
+      console.warn('[Weather] No coordinates and no location string on mission');
+      setLoadingWeather(false);
+      weatherAttemptedRef.current = true;
     }
   }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
