@@ -106,6 +106,11 @@ interface MissionSnapshot {
   personnelCount: number;
   fileCount: number;
   pilotReports: PilotReportData[];
+  weather?: WeatherDayData[];
+  dateFrom?: string;
+  dateTo?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface PilotReportData {
@@ -121,6 +126,33 @@ interface PilotReportData {
   incidentSeverity: string;
   incidentSummary: string;
 }
+
+interface WeatherDayData {
+  date: string;
+  tempMax: number;
+  tempMin: number;
+  precipSum: number;
+  windMax: number;
+  weatherCode: number;
+  precipProb?: number;
+  uvMax?: number;
+}
+
+const WMO_LABELS: Record<number, { label: string; icon: string }> = {
+  0: { label: 'Clear', icon: '☀️' }, 1: { label: 'Mostly Clear', icon: '🌤' },
+  2: { label: 'Partly Cloudy', icon: '⛅' }, 3: { label: 'Overcast', icon: '☁️' },
+  45: { label: 'Fog', icon: '🌫' }, 48: { label: 'Rime Fog', icon: '🌫' },
+  51: { label: 'Light Drizzle', icon: '🌦' }, 53: { label: 'Drizzle', icon: '🌦' },
+  55: { label: 'Heavy Drizzle', icon: '🌧' }, 56: { label: 'Frzn Drizzle', icon: '🌧' },
+  61: { label: 'Light Rain', icon: '🌧' }, 63: { label: 'Rain', icon: '🌧' },
+  65: { label: 'Heavy Rain', icon: '🌧' }, 66: { label: 'Frzn Rain', icon: '🌧' },
+  71: { label: 'Light Snow', icon: '🌨' }, 73: { label: 'Snow', icon: '❄️' },
+  75: { label: 'Heavy Snow', icon: '❄️' }, 77: { label: 'Snow Grains', icon: '❄️' },
+  80: { label: 'Showers', icon: '🌦' }, 81: { label: 'Mod Showers', icon: '🌧' },
+  82: { label: 'Hvy Showers', icon: '🌧' }, 85: { label: 'Snow Showers', icon: '🌨' },
+  95: { label: 'Thunderstorm', icon: '⛈️' }, 96: { label: 'T-storm + Hail', icon: '⛈️' },
+  99: { label: 'Hvy T-storm', icon: '⛈️' },
+};
 
 // ── Templates ─────────────────────────────────────────────────────────────────
 
@@ -184,6 +216,21 @@ const TEMPLATES: Record<string, { label: string; description: string; icon: stri
       { id: 's6', type: 'recommendations', title: 'Corrective Actions', content: '<ol><li>Immediate corrective action: [ACTION]</li><li>Preventive measure: [MEASURE]</li><li>Follow-up inspection date: [DATE]</li></ol>' },
     ],
   },
+  progress_update: {
+    label: 'Progress Update',
+    description: 'Periodic mission progress report with field data, weather, and status',
+    icon: '📊',
+    sections: [
+      { id: 's1', type: 'header', title: 'Progress Update', content: '' },
+      { id: 's2', type: 'mission_data', title: 'Mission Data', content: '' },
+      { id: 's3', type: 'text', title: 'Summary of Work Completed', content: '<p>During the reporting period, the following work was completed:</p><ul><li>Flights conducted and areas covered</li><li>Data collected and processed</li><li>Key observations from the field</li></ul>' },
+      { id: 's4', type: 'findings', title: 'Notable Findings', content: '', items: [
+        { id: 'f1', severity: 'medium', title: '', description: '', location: '' },
+      ]},
+      { id: 's5', type: 'text', title: 'Weather Impact', content: '<p>Weather conditions during the reporting period and their impact on operations:</p><p>[Weather data will be auto-populated from mission data section]</p>' },
+      { id: 's6', type: 'recommendations', title: 'Next Steps & Schedule', content: '<ol><li>Continue scheduled flight operations</li><li>Process and analyze collected data</li><li>Address any identified issues</li></ol>' },
+    ],
+  },
 };
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -221,6 +268,69 @@ async function fetchPilotReports(missionId: string): Promise<PilotReportData[]> 
   const res = await fetch(`/api/deployments/${missionId}/pilot-reports`, { headers: authHeaders() });
   const data = await res.json();
   return data.data || [];
+}
+
+async function fetchWeatherForRange(lat: number, lon: number, startDate: string, endDate: string): Promise<WeatherDayData[]> {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const results: WeatherDayData[] = [];
+
+    // Historical dates (past)
+    if (startDate < today) {
+      const histEnd = endDate < today ? endDate : new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
+        `&start_date=${startDate}&end_date=${histEnd}` +
+        `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code` +
+        `&temperature_unit=fahrenheit&wind_speed_unit=kmh&timezone=auto`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.daily?.time) {
+          data.daily.time.forEach((d: string, i: number) => {
+            results.push({
+              date: d,
+              tempMax: data.daily.temperature_2m_max[i],
+              tempMin: data.daily.temperature_2m_min[i],
+              precipSum: data.daily.precipitation_sum[i],
+              windMax: data.daily.wind_speed_10m_max[i],
+              weatherCode: data.daily.weather_code[i],
+            });
+          });
+        }
+      }
+    }
+
+    // Forecast dates (today+future)
+    if (endDate >= today) {
+      const fcastStart = startDate >= today ? startDate : today;
+      const diffDays = Math.min(Math.ceil((new Date(endDate).getTime() - new Date(fcastStart).getTime()) / 86400000) + 1, 16);
+      const res = await fetch(`/api/weather/forecast?lat=${lat}&lon=${lon}&forecast_days=${diffDays}`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.daily?.time) {
+          data.daily.time.forEach((d: string, i: number) => {
+            if (d >= fcastStart && d <= endDate && !results.find(r => r.date === d)) {
+              results.push({
+                date: d,
+                tempMax: data.daily.temperature_2m_max[i],
+                tempMin: data.daily.temperature_2m_min[i],
+                precipSum: data.daily.precipitation_sum[i],
+                windMax: data.daily.wind_speed_10m_max[i],
+                weatherCode: data.daily.weather_code[i],
+                precipProb: data.daily.precipitation_probability_max?.[i],
+                uvMax: data.daily.uv_index_max?.[i],
+              });
+            }
+          });
+        }
+      }
+    }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
+  } catch (e) {
+    console.error('[fetchWeatherForRange]', e);
+    return [];
+  }
 }
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
@@ -320,6 +430,15 @@ function buildPrintHTML(report: AdminReport): string {
               ms.pilotReports.map((pr: PilotReportData) =>
                 `<tr><td>${pr.pilotName}</td><td>${pr.date ? new Date(pr.date).toLocaleDateString() : ''}</td><td>${pr.missionsFlown || 0}</td><td>${pr.blocksCompleted || 0}</td><td>${pr.hoursWorked || 0}</td><td>${pr.isIncident ? '⚠ ' + (pr.incidentSummary || 'Incident') : (pr.issuesEncountered || '—')}</td></tr>`
               ).join('') +
+              `</tbody></table>` : '') +
+            (ms.weather && ms.weather.length > 0 ?
+              `<h3 style="font-size:14px;font-weight:700;color:#0f172a;margin:20px 0 8px;">Weather Conditions</h3>` +
+              (ms.dateFrom && ms.dateTo ? `<p style="font-size:11px;color:#64748b;margin-bottom:8px;">Period: ${ms.dateFrom} to ${ms.dateTo}</p>` : '') +
+              `<table class="rpt-table"><thead><tr><th>Date</th><th>Conditions</th><th>High (°F)</th><th>Low (°F)</th><th>Wind (km/h)</th><th>Precip (mm)</th></tr></thead><tbody>` +
+              ms.weather.map((w: WeatherDayData) => {
+                const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
+                return `<tr><td>${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${wmo.icon} ${wmo.label}</td><td>${Math.round(w.tempMax)}</td><td>${Math.round(w.tempMin)}</td><td>${Math.round(w.windMax)}</td><td>${w.precipSum.toFixed(1)}</td></tr>`;
+              }).join('') +
               `</tbody></table>` : '');
         } else {
           inner = `<h2 class="rpt-h2">${sec.title}</h2><p style="color:#94a3b8;font-size:12px;">No mission data selected</p>`;
@@ -800,6 +919,10 @@ const MissionDataEditor: React.FC<{
   const [selectedMission, setSelectedMission] = useState<any | null>(null);
   const [pilotReports, setPilotReports] = useState<PilotReportData[]>([]);
   const [loadingReports, setLoadingReports] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [weatherData, setWeatherData] = useState<WeatherDayData[]>([]);
+  const [loadingWeather, setLoadingWeather] = useState(false);
 
   // Load missions on mount
   useEffect(() => {
@@ -814,7 +937,28 @@ const MissionDataEditor: React.FC<{
     fetchPilotReports(selectedMission.id)
       .then(r => { setPilotReports(r); setLoadingReports(false); })
       .catch(() => setLoadingReports(false));
+
+    // Auto-set date range from mission
+    if (selectedMission.date) {
+      const start = selectedMission.date.split('T')[0];
+      setDateFrom(start);
+      const days = selectedMission.daysOnSite || 7;
+      const end = new Date(new Date(start).getTime() + days * 86400000).toISOString().split('T')[0];
+      setDateTo(end);
+    }
   }, [selectedMission?.id]);
+
+  // Fetch weather when date range changes and we have coords
+  useEffect(() => {
+    if (!selectedMission || !dateFrom || !dateTo) { setWeatherData([]); return; }
+    const lat = selectedMission.latitude ?? selectedMission.lat;
+    const lon = selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon;
+    if (!lat || !lon) return;
+    setLoadingWeather(true);
+    fetchWeatherForRange(lat, lon, dateFrom, dateTo)
+      .then(w => { setWeatherData(w); setLoadingWeather(false); })
+      .catch(() => setLoadingWeather(false));
+  }, [dateFrom, dateTo, selectedMission?.id]);
 
   // If the section already has a snapshot, show it
   if (section.missionSnapshot) {
@@ -870,6 +1014,11 @@ const MissionDataEditor: React.FC<{
           <div>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
               Pilot Field Reports ({snap.pilotReports.length})
+              {snap.dateFrom && snap.dateTo && (
+                <span style={{ fontWeight: 600, color: '#64748b', textTransform: 'none', letterSpacing: 'normal', marginLeft: 8 }}>
+                  — {new Date(snap.dateFrom).toLocaleDateString()} to {new Date(snap.dateTo).toLocaleDateString()}
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
               {snap.pilotReports.map(pr => (
@@ -899,6 +1048,42 @@ const MissionDataEditor: React.FC<{
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Weather data */}
+        {snap.weather && snap.weather.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+              🌤 Weather Conditions ({snap.weather.length} days)
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    {['Date', 'Conditions', 'High', 'Low', 'Wind', 'Precip'].map(h => (
+                      <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {snap.weather.map(w => {
+                    const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '❓' };
+                    const isBadWeather = w.precipSum > 5 || w.windMax > 40 || [63, 65, 66, 73, 75, 82, 95, 96, 99].includes(w.weatherCode);
+                    return (
+                      <tr key={w.date} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: isBadWeather ? 'rgba(245,158,11,0.05)' : 'transparent' }}>
+                        <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+                        <td style={{ padding: '5px 8px', color: '#e2e8f0' }}>{wmo.icon} {wmo.label}</td>
+                        <td style={{ padding: '5px 8px', color: '#f87171', fontWeight: 600 }}>{Math.round(w.tempMax)}°F</td>
+                        <td style={{ padding: '5px 8px', color: '#60a5fa', fontWeight: 600 }}>{Math.round(w.tempMin)}°F</td>
+                        <td style={{ padding: '5px 8px', color: w.windMax > 40 ? '#f59e0b' : '#94a3b8' }}>{Math.round(w.windMax)} km/h</td>
+                        <td style={{ padding: '5px 8px', color: w.precipSum > 5 ? '#3b82f6' : '#64748b' }}>{w.precipSum.toFixed(1)} mm</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -1065,7 +1250,60 @@ const MissionDataEditor: React.FC<{
                           </div>
                         )}
                         {/* Action buttons */}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        {/* Date Range Picker */}
+                        <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(15,23,42,0.5)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                            📅 Reporting Period
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                              style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                            <span style={{ color: '#475569', fontSize: 11, fontWeight: 600 }}>to</span>
+                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                              style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                          </div>
+                        </div>
+
+                        {/* Weather Preview */}
+                        {loadingWeather && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, color: '#475569', fontSize: 11 }}>
+                            <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Loading weather data…
+                          </div>
+                        )}
+                        {!loadingWeather && weatherData.length > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                              🌤 Weather ({weatherData.length} days)
+                            </div>
+                            <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4 }}>
+                              {weatherData.slice(0, 14).map(w => {
+                                const wmo = WMO_LABELS[w.weatherCode] || { label: '?', icon: '❓' };
+                                const isBad = w.precipSum > 5 || w.windMax > 40 || [65, 75, 82, 95, 96, 99].includes(w.weatherCode);
+                                return (
+                                  <div key={w.date} style={{
+                                    minWidth: 56, padding: '4px 6px', borderRadius: 6, textAlign: 'center', fontSize: 9,
+                                    background: isBad ? 'rgba(245,158,11,0.08)' : 'rgba(15,23,42,0.4)',
+                                    border: `1px solid ${isBad ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.04)'}`,
+                                  }}>
+                                    <div style={{ color: '#64748b', fontWeight: 600 }}>{new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                                    <div style={{ fontSize: 14, margin: '2px 0' }}>{wmo.icon}</div>
+                                    <div style={{ color: '#94a3b8' }}>{Math.round(w.tempMax)}°/{Math.round(w.tempMin)}°</div>
+                                    {w.precipSum > 0.1 && <div style={{ color: '#3b82f6' }}>{w.precipSum.toFixed(1)}mm</div>}
+                                    {w.windMax > 30 && <div style={{ color: '#f59e0b' }}>{Math.round(w.windMax)}km/h</div>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {!loadingWeather && weatherData.length === 0 && dateFrom && dateTo && (selectedMission.latitude || selectedMission.lat) && (
+                          <div style={{ marginTop: 8, fontSize: 10, color: '#475569', fontStyle: 'italic' }}>No weather data available for this date range.</div>
+                        )}
+                        {!loadingWeather && !(selectedMission.latitude || selectedMission.lat) && (
+                          <div style={{ marginTop: 8, fontSize: 10, color: '#475569', fontStyle: 'italic' }}>⚠ No GPS coordinates for this mission — weather data unavailable.</div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                           <button onClick={handleInsertMission} style={{
                             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
                             background: 'linear-gradient(135deg, #06b6d4, #0891b2)', border: 'none',
@@ -1486,6 +1724,7 @@ export default function AdminReportWriter() {
             <option value="incident_report">Incident Report</option>
             <option value="operations_brief">Operations Brief</option>
             <option value="monthly_progress">Monthly Progress</option>
+            <option value="progress_update">Progress Update</option>
           </select>
           <span style={{ fontSize: 10, color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
             {report.status} {report.id ? `· ID: ${report.id.slice(0, 8)}` : '· Unsaved'}
