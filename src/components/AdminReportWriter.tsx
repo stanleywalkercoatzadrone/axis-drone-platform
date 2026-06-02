@@ -1603,6 +1603,7 @@ export default function AdminReportWriter() {
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendModalOpen, setSendModalOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // ── Editor state ──────────────────────────────────────────────────────────
@@ -1898,6 +1899,13 @@ export default function AdminReportWriter() {
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
             {saving ? 'Saving…' : 'Save Draft'}
           </button>
+          <button onClick={() => setPreviewOpen(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
+            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+          }}>
+            <Eye size={13} /> Preview
+          </button>
           <button onClick={() => exportPDF(report)} style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
             background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)',
@@ -1914,6 +1922,55 @@ export default function AdminReportWriter() {
           </button>
         </div>
       </div>
+
+      {/* ── Preview Modal ── */}
+      {previewOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+        }}>
+          {/* Preview toolbar */}
+          <div style={{
+            width: '100%', maxWidth: 900, display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', padding: '16px 20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Eye size={16} color="#34d399" />
+              <span style={{ fontSize: 14, fontWeight: 800, color: '#f8fafc' }}>Report Preview</span>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{report.title || 'Untitled'}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setPreviewOpen(false); exportPDF(report); }} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+                background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
+                borderRadius: 6, color: '#a78bfa', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}>
+                <Printer size={12} /> Print / PDF
+              </button>
+              <button onClick={() => setPreviewOpen(false)} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 6, color: '#94a3b8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}>
+                <X size={12} /> Close
+              </button>
+            </div>
+          </div>
+          {/* Preview content */}
+          <div style={{
+            flex: 1, width: '100%', maxWidth: 900, overflow: 'hidden',
+            borderRadius: '12px 12px 0 0', background: '#fff',
+            boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
+          }}>
+            <iframe
+              title="Report Preview"
+              srcDoc={buildPrintHTML(report)}
+              style={{ width: '100%', height: '100%', border: 'none' }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Report title */}
       <div style={{ marginBottom: 20 }}>
