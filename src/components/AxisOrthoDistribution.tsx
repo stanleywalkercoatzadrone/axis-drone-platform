@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+interface DownloadEntry { arch: string; url: string; filename: string; size: string }
+
 interface DownloadMeta {
   name: string;
   version: string;
@@ -18,8 +20,10 @@ interface DownloadMeta {
   requires: string;
   releasedAt: string;
   downloads: {
-    arm64: { arch: string; url: string; filename: string; size: string };
-    x64:   { arch: string; url: string; filename: string; size: string };
+    arm64:     DownloadEntry;
+    x64:       DownloadEntry;
+    win_x64?:  DownloadEntry;
+    win_arm64?: DownloadEntry;
   };
 }
 
@@ -201,65 +205,143 @@ export default function AxisOrthoDistribution() {
           </div>
 
           {meta && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {/* Apple Silicon */}
-              <a
-                href={meta.downloads.arm64.url}
-                download={meta.downloads.arm64.filename}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '12px 16px', textDecoration: 'none',
-                  background: 'linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)',
-                  borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 13,
-                  transition: 'opacity 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-              >
-                <span>
-                  <span style={{ fontSize: 15 }}>↙</span> Apple Silicon
-                  <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
-                    M1 / M2 / M3 · {meta.downloads.arm64.size}
-                  </span>
-                </span>
-                <Download size={15} />
-              </a>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-              {/* Intel */}
-              <a
-                href={meta.downloads.x64.url}
-                download={meta.downloads.x64.filename}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '12px 16px', textDecoration: 'none',
-                  background: '#1e293b', border: '1px solid #334155',
-                  borderRadius: 10, color: '#cbd5e1', fontWeight: 700, fontSize: 13,
-                  transition: 'background 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#273548')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#1e293b')}
-              >
-                <span>
-                  <span style={{ fontSize: 15 }}>↙</span> Intel Mac
-                  <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
-                    x64 · {meta.downloads.x64.size}
-                  </span>
-                </span>
-                <Download size={15} />
-              </a>
+              {/* ── macOS section ── */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14 }}>🍎</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>macOS</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Apple Silicon */}
+                  <a
+                    href={meta.downloads.arm64.url}
+                    download={meta.downloads.arm64.filename}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 16px', textDecoration: 'none',
+                      background: 'linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)',
+                      borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 13,
+                      transition: 'opacity 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+                    onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                  >
+                    <span>
+                      <span style={{ fontSize: 15 }}>↙</span> Apple Silicon
+                      <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
+                        M1 / M2 / M3 · {meta.downloads.arm64.size}
+                      </span>
+                    </span>
+                    <Download size={15} />
+                  </a>
+
+                  {/* Intel */}
+                  <a
+                    href={meta.downloads.x64.url}
+                    download={meta.downloads.x64.filename}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 16px', textDecoration: 'none',
+                      background: '#1e293b', border: '1px solid #334155',
+                      borderRadius: 10, color: '#cbd5e1', fontWeight: 700, fontSize: 13,
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#273548')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '#1e293b')}
+                  >
+                    <span>
+                      <span style={{ fontSize: 15 }}>↙</span> Intel Mac
+                      <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                        x64 · {meta.downloads.x64.size}
+                      </span>
+                    </span>
+                    <Download size={15} />
+                  </a>
+                </div>
+                {/* Gatekeeper tip */}
+                <div style={{
+                  marginTop: 10, padding: '8px 12px',
+                  background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)',
+                  borderRadius: 8,
+                }}>
+                  <p style={{ margin: 0, fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
+                    <strong>First launch:</strong> Right-click → Open to bypass macOS Gatekeeper.
+                  </p>
+                </div>
+              </div>
+
+              {/* ── Windows section ── */}
+              {meta.downloads.win_x64 && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Monitor size={13} color="#38bdf8" />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Windows</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {/* Windows x64 */}
+                    <a
+                      href={meta.downloads.win_x64.url}
+                      download={meta.downloads.win_x64.filename}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '12px 16px', textDecoration: 'none',
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                        borderRadius: 10, color: '#fff', fontWeight: 700, fontSize: 13,
+                        transition: 'opacity 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+                      onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                    >
+                      <span>
+                        <span style={{ fontSize: 15 }}>↙</span> Windows x64
+                        <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 2 }}>
+                          Intel / AMD · {meta.downloads.win_x64.size}
+                        </span>
+                      </span>
+                      <Download size={15} />
+                    </a>
+
+                    {/* Windows ARM64 */}
+                    {meta.downloads.win_arm64 && (
+                      <a
+                        href={meta.downloads.win_arm64.url}
+                        download={meta.downloads.win_arm64.filename}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '12px 16px', textDecoration: 'none',
+                          background: '#1e293b', border: '1px solid #334155',
+                          borderRadius: 10, color: '#cbd5e1', fontWeight: 700, fontSize: 13,
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#273548')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#1e293b')}
+                      >
+                        <span>
+                          <span style={{ fontSize: 15 }}>↙</span> Windows ARM64
+                          <span style={{ display: 'block', fontSize: 10, fontWeight: 400, opacity: 0.7, marginTop: 2 }}>
+                            Snapdragon / ARM · {meta.downloads.win_arm64.size}
+                          </span>
+                        </span>
+                        <Download size={15} />
+                      </a>
+                    )}
+                  </div>
+                  {/* SmartScreen tip */}
+                  <div style={{
+                    marginTop: 10, padding: '8px 12px',
+                    background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)',
+                    borderRadius: 8,
+                  }}>
+                    <p style={{ margin: 0, fontSize: 11, color: '#60a5fa', lineHeight: 1.6 }}>
+                      <strong>First launch:</strong> Click "More info" → "Run anyway" to bypass Windows SmartScreen.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
-
-          {/* Gatekeeper tip */}
-          <div style={{
-            marginTop: 14, padding: '10px 12px',
-            background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)',
-            borderRadius: 8,
-          }}>
-            <p style={{ margin: 0, fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
-              <strong>First launch:</strong> Right-click → Open to bypass macOS Gatekeeper. Only happens once.
-            </p>
-          </div>
         </div>
 
         {/* ── Send to user ─────────────────────────────────────────────── */}

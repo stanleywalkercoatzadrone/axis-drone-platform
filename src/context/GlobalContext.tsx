@@ -17,6 +17,8 @@ export interface GlobalState {
     dateRange: DateRange;
     isSidebarOpen: boolean;
     hideSidebarTitles: boolean;
+    hiddenSections: Record<string, boolean>;
+    hiddenItems: Record<string, boolean>;
 }
 
 export interface GlobalContextType extends GlobalState {
@@ -27,6 +29,8 @@ export interface GlobalContextType extends GlobalState {
     setDateRange: (range: DateRange) => void;
     toggleSidebar: () => void;
     setHideSidebarTitles: (hide: boolean) => void;
+    toggleSectionVisibility: (sectionKey: string) => void;
+    toggleItemVisibility: (itemKey: string) => void;
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -38,6 +42,22 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
     const [dateRange, setDateRange] = useState<DateRange>({ start: null, end: null });
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [hideSidebarTitles, setHideSidebarTitles] = useState(() => localStorage.getItem('hide_sidebar_titles') === 'true');
+    const [hiddenSections, setHiddenSections] = useState<Record<string, boolean>>(() => {
+        try {
+            const saved = localStorage.getItem('hidden_sidebar_sections');
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    });
+    const [hiddenItems, setHiddenItems] = useState<Record<string, boolean>>(() => {
+        try {
+            const saved = localStorage.getItem('hidden_sidebar_items');
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    });
 
     const toggleSidebar = useCallback(() => setIsSidebarOpen(prev => !prev), []);
 
@@ -53,6 +73,22 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
     const setCountry = useCallback((countryId: string | null) =>
         setMission(m => ({ ...m, country: countryId })), [setMission]);
 
+    const toggleSectionVisibility = useCallback((sectionKey: string) => {
+        setHiddenSections(prev => {
+            const next = { ...prev, [sectionKey]: !prev[sectionKey] };
+            localStorage.setItem('hidden_sidebar_sections', JSON.stringify(next));
+            return next;
+        });
+    }, []);
+
+    const toggleItemVisibility = useCallback((itemKey: string) => {
+        setHiddenItems(prev => {
+            const next = { ...prev, [itemKey]: !prev[itemKey] };
+            localStorage.setItem('hidden_sidebar_items', JSON.stringify(next));
+            return next;
+        });
+    }, []);
+
     const value = useMemo(() => ({
         selectedIndustry: (mission.industry as Industry) || 'Solar',
         selectedClientId: mission.client,
@@ -61,14 +97,19 @@ export const GlobalProvider = ({ children }: { children: ReactNode }) => {
         dateRange,
         isSidebarOpen,
         hideSidebarTitles,
+        hiddenSections,
+        hiddenItems,
         setIndustry,
         setClient,
         setSite,
         setCountry,
         setDateRange,
         toggleSidebar,
-        setHideSidebarTitles
-    }), [mission, dateRange, isSidebarOpen, hideSidebarTitles, setIndustry, setClient, setSite, setCountry, toggleSidebar]);
+        setHideSidebarTitles,
+        toggleSectionVisibility,
+        toggleItemVisibility
+    }), [mission, dateRange, isSidebarOpen, hideSidebarTitles, hiddenSections, hiddenItems, setIndustry, setClient, setSite, setCountry, toggleSidebar, toggleSectionVisibility, toggleItemVisibility]);
+
 
     return (
         <GlobalContext.Provider value={value}>

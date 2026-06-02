@@ -65,6 +65,7 @@ import socialMediaRoutes from './routes/socialMedia.js';                  // Soc
 import constructionRoutes from './routes/constructionRoutes.js';           // Construction Evidence Portal
 import weatherRoutes from './routes/weather.js';                          // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
 import downloadsRoutes from './routes/downloads.js';                       // Axis Ortho desktop app distribution
+import adminReportsRoutes from './routes/adminReports.js';                  // Admin Reports CRUD + Send
 
 // ── Local mode routes (Electron desktop app only) ─────────────────────────────
 // Only imported and mounted when AXIS_LOCAL_MODE=true (set by Electron main.js).
@@ -258,6 +259,7 @@ app.use('/api/social', socialMediaRoutes);               // Social Media Blast
 app.use('/api/construction', constructionRoutes);        // Construction Evidence Portal
 app.use('/api/weather', weatherRoutes);                  // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
 app.use('/api/downloads', downloadsRoutes);              // Axis Ortho desktop app distribution
+app.use('/api/admin-reports', adminReportsRoutes);        // Admin Reports CRUD + Send
 
 // ── Local mode (Electron desktop app) ────────────────────────────────────────
 if (localRoutes) {

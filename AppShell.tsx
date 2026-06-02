@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight, ChevronDown,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box, Globe, MapPin, Share2, Monitor
+  Map as MapIcon, Box, Globe, MapPin, Share2, Monitor, Edit3
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -97,6 +97,7 @@ import BESSInspectionView from './src/components/BESSInspectionView';
 import SolarIntelligenceHub from './modules/solar-intelligence/SolarIntelligenceHub';
 import { MediaDeliverableProvider, type MediaNavKey } from './src/context/MediaDeliverableContext';
 import AxisOrthoDistribution from './src/components/AxisOrthoDistribution';
+import AdminReportWriter from './src/components/AdminReportWriter';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -104,7 +105,7 @@ type NavKey =
   | 'intelligence' | 'mission-intelligence' | 'neural-ai'
   | 'pilot-directory' | 'performance' | 'pilot-network-admin' | 'pilot-applications' | 'interest-inquiry'
   | 'payroll' | 'vendor-expenses'
-  | 'uploads' | 'orthomosaic' | 'media' | 'reports'
+  | 'uploads' | 'orthomosaic' | 'media' | 'reports' | 'admin-reports'
   | 'bess' | 'solar-intelligence'
   | 'clients' | 'organizations' | 'org-onboarding'
   | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media' | 'axis-ortho';
@@ -150,10 +151,11 @@ const NAV: NavGroup[] = [
   {
     title: 'Media & Deliverables',
     items: [
-      { key: 'uploads',     label: 'Pilot Uploads' },
-      { key: 'orthomosaic', label: 'Orthomosaic',    adminOnly: true },
-      { key: 'media',       label: 'Media Gallery' },
-      { key: 'reports',     label: 'Reports',        adminOnly: true },
+      { key: 'uploads',        label: 'Pilot Uploads' },
+      { key: 'orthomosaic',    label: 'Orthomosaic',       adminOnly: true },
+      { key: 'media',          label: 'Media Gallery' },
+      { key: 'reports',        label: 'Reports',           adminOnly: true },
+      { key: 'admin-reports',  label: 'Write Report',      adminOnly: true, icon: Edit3 },
     ],
   },
   {
@@ -239,7 +241,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'organizations', 'social-media', 'bess', 'solar-intelligence', 'axis-ortho',
+      'dispatch', 'reports', 'admin-reports', 'organizations', 'social-media', 'bess', 'solar-intelligence', 'axis-ortho',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -432,6 +434,7 @@ export default function AppShell() {
     'checklist-items':       'My Checklist',
     'social-media':          'Social Media',
     'axis-ortho':            'Axis Ortho Distribution',
+    'admin-reports':         'Report Writer',
     'system-settings':       'System Settings',
   };
 
@@ -441,7 +444,7 @@ export default function AppShell() {
   }, []);
 
   const MEDIA_KEYS: NavKey[] = [
-    'uploads', 'orthomosaic', 'media', 'reports',
+    'uploads', 'orthomosaic', 'media', 'reports', 'admin-reports',
   ];
 
   function renderMediaContent() {
@@ -449,7 +452,8 @@ export default function AppShell() {
       case 'uploads':     return <UploadCenterHub />;
       case 'orthomosaic': return <OrthomosaicView />;
       case 'media':       return <MediaGallery />;
-      case 'reports':     return <ReportingSuite />;
+      case 'reports':        return <ReportingSuite />;
+      case 'admin-reports':  return <AdminReportWriter />;
       default:            return null;
     }
   }

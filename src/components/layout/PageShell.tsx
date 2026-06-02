@@ -126,7 +126,7 @@ export const PageShell: React.FC<PageShellProps> = ({
     children, title, actions, activeTab, onNavigate, activeIndustry
 }) => {
     const { user, logout } = useAuth();
-    const { isSidebarOpen, toggleSidebar, hideSidebarTitles } = useGlobalContext();
+    const { isSidebarOpen, toggleSidebar, hideSidebarTitles, hiddenSections, hiddenItems } = useGlobalContext();
     const { tLabel, setIndustry, currentIndustry } = useIndustry();
 
     const [selectedIndustry, setSelectedIndustry] = useState<IndustryId>(
@@ -246,7 +246,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                     <div className="mb-1">
 
                         {/* Section header */}
-                        {isSidebarOpen && !hideSidebarTitles ? (
+                        {isSidebarOpen && !hideSidebarTitles && !hiddenSections['industry'] ? (
                             <button
                                 onClick={() => setIsOpsOpen(o => !o)}
                                 className="w-full flex items-center gap-2 px-3 py-2 rounded-xl mb-1 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-all duration-200 group"
@@ -301,7 +301,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                     <div className="border-l border-slate-800 ml-2 pl-3 space-y-0.5 mb-1">
 
                                         {/* AI Studio */}
-                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && (
+                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && !hiddenItems['ai-studio'] && (
                                             <button
                                                 onClick={() => onNavigate?.('ai-studio')}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all duration-150 group border
@@ -317,7 +317,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* Industry Missions */}
-                                        {(isAdmin(user) || isPilot(user)) && (
+                                        {(isAdmin(user) || isPilot(user)) && !hiddenItems['missions'] && (
                                             <button
                                                 onClick={() => handleMissionsClick(industry)}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
@@ -333,7 +333,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* Weather */}
-                                        {(isAdmin(user) || isPilot(user)) && (
+                                        {(isAdmin(user) || isPilot(user)) && !hiddenItems['weather'] && (
                                             <button
                                                 onClick={handleWeatherClick}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
@@ -349,7 +349,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* My Files (Pilots Only) */}
-                                        {isPilot(user) && (
+                                        {isPilot(user) && !hiddenItems['my-files'] && (
                                             <button
                                                 onClick={() => {
                                                     // @ts-ignore
@@ -368,7 +368,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* Uploads */}
-                                        {(isAdmin(user) || isInHouse(user)) && (
+                                        {(isAdmin(user) || isInHouse(user)) && !hiddenItems['uploads'] && (
                                             <button
                                                 onClick={handleUploadClick}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
@@ -384,7 +384,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* Assets */}
-                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && (
+                                        {(isAdmin(user) || isInHouse(user) || isClient(user)) && !hiddenItems['assets'] && (
                                             <button
                                                 onClick={handleAssetsClick}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
@@ -400,7 +400,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                         )}
 
                                         {/* Analytics */}
-                                        {isAdmin(user) && (
+                                        {isAdmin(user) && !hiddenItems['analytics'] && (
                                             <button
                                                 onClick={handleAnalyticsClick}
                                                 className={`flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group
@@ -420,15 +420,17 @@ export const PageShell: React.FC<PageShellProps> = ({
                                             <>
                                                 <div className="text-[8px] font-black uppercase tracking-widest text-amber-400/60 px-1 pt-2 pb-0.5">Solar Intelligence</div>
 
-                                                <button
-                                                    onClick={() => onNavigate?.('solar-intel', { subTab: 'energy' })}
-                                                    className="flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group text-slate-500 hover:text-slate-200 hover:bg-slate-800/50"
-                                                >
-                                                    <DollarSign size={13} className="mr-2 text-slate-600 group-hover:text-amber-400 transition-colors" />
-                                                    <span>Energy Loss</span>
-                                                </button>
+                                                {!hiddenItems['energy-loss'] && (
+                                                    <button
+                                                        onClick={() => onNavigate?.('solar-intel', { subTab: 'energy' })}
+                                                        className="flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group text-slate-500 hover:text-slate-200 hover:bg-slate-800/50"
+                                                    >
+                                                        <DollarSign size={13} className="mr-2 text-slate-600 group-hover:text-amber-400 transition-colors" />
+                                                        <span>Energy Loss</span>
+                                                    </button>
+                                                )}
 
-                                                {isAdmin(user) && (
+                                                {isAdmin(user) && !hiddenItems['fault-review'] && (
                                                     <button
                                                         onClick={() => onNavigate?.('solar-intel', { subTab: 'review' })}
                                                         className="flex items-center w-full px-2.5 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-150 group text-slate-500 hover:text-slate-200 hover:bg-slate-800/50"
@@ -469,30 +471,34 @@ export const PageShell: React.FC<PageShellProps> = ({
                     {/* ── FINANCE ───────────────────────────────────────── */}
                     {isAdmin(user) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Finance</div>}
+                            {!hideSidebarTitles && !hiddenSections['finance'] && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Finance</div>}
                             <CompactNavItem
                                 icon={<Archive size={16} />}
                                 label="Invoices"
                                 active={activeTab === 'invoices'}
                                 onClick={() => onNavigate?.('invoices')}
+                                itemKey="invoices"
                             />
                             <CompactNavItem
                                 icon={<CreditCard size={16} />}
                                 label="Pilot Payroll"
                                 active={activeTab === 'payroll'}
                                 onClick={() => onNavigate?.('payroll')}
+                                itemKey="payroll"
                             />
                             <CompactNavItem
                                 icon={<DollarSign size={16} />}
                                 label="Vendor & Expenses"
                                 active={activeTab === 'vendor-expenses'}
                                 onClick={() => onNavigate?.('vendor-expenses')}
+                                itemKey="vendor-expenses"
                             />
                             <CompactNavItem
                                 icon={<TrendingUp size={16} />}
                                 label="Revenue"
                                 active={activeTab === 'revenue'}
                                 onClick={() => onNavigate?.('revenue')}
+                                itemKey="revenue"
                             />
                         </div>
                     )}
@@ -500,24 +506,27 @@ export const PageShell: React.FC<PageShellProps> = ({
                     {/* ── OPERATIONS ────────────────────────────────────── */}
                     {(isAdmin(user) || isPilot(user)) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Operations</div>}
+                            {!hideSidebarTitles && !hiddenSections['operations'] && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Operations</div>}
                             <CompactNavItem
                                 icon={<PlayCircle size={16} />}
                                 label="Sessions"
                                 active={activeTab === 'sessions'}
                                 onClick={() => onNavigate?.('sessions')}
+                                itemKey="sessions"
                             />
                             <CompactNavItem
                                 icon={<GitBranch size={16} />}
                                 label="Mission Timeline"
                                 active={activeTab === 'timeline'}
                                 onClick={() => onNavigate?.('timeline')}
+                                itemKey="timeline"
                             />
                             <CompactNavItem
                                 icon={<CloudSun size={16} />}
                                 label="Weather"
                                 active={activeTab === 'weather'}
                                 onClick={handleWeatherClick}
+                                itemKey="weather"
                             />
                         </div>
                     )}
@@ -528,23 +537,26 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 label="AI Studio"
                                 active={activeTab === 'ai-studio'}
                                 onClick={() => onNavigate?.('ai-studio')}
+                                itemKey="ai-studio"
                             />
 
                     {/* ── PILOTS ────────────────────────────────────────── */}
                     {isAdmin(user) && isSidebarOpen && (
                         <div className="pt-3 mt-2 border-t border-slate-800/60">
-                            {!hideSidebarTitles && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Pilots</div>}
+                            {!hideSidebarTitles && !hiddenSections['pilots'] && <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-2">Pilots</div>}
                             <CompactNavItem
                                 icon={<Users size={16} />}
                                 label="Pilot Directory"
                                 active={activeTab === 'personnel'}
                                 onClick={() => onNavigate?.('personnel')}
+                                itemKey="personnel"
                             />
                             <CompactNavItem
                                 icon={<Trophy size={16} />}
                                 label="Performance"
                                 active={activeTab === 'pilot-performance'}
                                 onClick={() => onNavigate?.('pilot-performance')}
+                                itemKey="pilot-performance"
                             />
                         </div>
                     )}
@@ -554,7 +566,7 @@ export const PageShell: React.FC<PageShellProps> = ({
 
                     {/* ── SETTINGS ──────────────────────────────────────── */}
                     <div className="pt-3 mt-3 border-t border-slate-800/60">
-                        {isSidebarOpen && !hideSidebarTitles && (
+                        {isSidebarOpen && !hideSidebarTitles && !hiddenSections['settings'] && (
                             <div className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.2em] px-3 mb-3">
                                 Settings
                             </div>
@@ -565,6 +577,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 label="Dashboard"
                                 active={activeTab === 'dashboard'}
                                 onClick={() => onNavigate?.('dashboard')}
+                                itemKey="dashboard"
                             />
                         )}
                         {user && isAdmin(user) && (
@@ -573,6 +586,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 label={tLabel('stakeholder')}
                                 active={activeTab === 'personnel'}
                                 onClick={() => onNavigate?.('personnel')}
+                                itemKey="stakeholders"
                             />
                         )}
                         {user && isAdmin(user) && (
@@ -581,6 +595,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 label="Clients"
                                 active={activeTab === 'clients'}
                                 onClick={() => onNavigate?.('clients')}
+                                itemKey="clients"
                             />
                         )}
                         <CompactNavItem
@@ -588,6 +603,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                             label="System Settings"
                             active={activeTab === 'settings'}
                             onClick={() => onNavigate?.('settings')}
+                            itemKey="settings"
                         />
                         {user && isAdmin(user) && (
                             <>
@@ -597,18 +613,21 @@ export const PageShell: React.FC<PageShellProps> = ({
                                     label="User IAM"
                                     active={activeTab === 'users'}
                                     onClick={() => onNavigate?.('users')}
+                                    itemKey="users"
                                 />
                                 <CompactNavItem
                                     icon={<BrainCircuit size={16} />}
                                     label="Neural AI"
                                     active={activeTab === 'ai'}
                                     onClick={() => onNavigate?.('ai')}
+                                    itemKey="ai"
                                 />
                                 <CompactNavItem
                                     icon={<List size={16} />}
                                     label="Protocol Lists"
                                     active={activeTab === 'checklists'}
                                     onClick={() => onNavigate?.('checklists')}
+                                    itemKey="checklists"
                                 />
                             </>
                         )}
@@ -618,6 +637,7 @@ export const PageShell: React.FC<PageShellProps> = ({
                                 label={`My ${tLabel('workItem')}s`}
                                 active={activeTab === 'my-tasks'}
                                 onClick={() => onNavigate?.('my-tasks')}
+                                itemKey="my-tasks"
                             />
                         )}
                     </div>
@@ -663,14 +683,18 @@ export const PageShell: React.FC<PageShellProps> = ({
 
 // ── Compact nav item ──────────────────────────────────────────────────────────
 const CompactNavItem = ({
-    icon, label, active = false, onClick
+    icon, label, active = false, onClick, itemKey
 }: {
     icon: ReactNode;
     label: string;
     active?: boolean;
     onClick?: () => void;
+    itemKey?: string;
 }) => {
-    const { isSidebarOpen } = useGlobalContext();
+    const { isSidebarOpen, hiddenItems } = useGlobalContext();
+    if (itemKey && hiddenItems[itemKey]) {
+        return null;
+    }
     return (
         <button
             onClick={onClick}

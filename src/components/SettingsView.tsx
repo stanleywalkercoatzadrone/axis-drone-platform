@@ -64,7 +64,7 @@ import SocialMediaSettings from './SocialMediaSettings';
 const SettingsView: React.FC = () => {
   const { user: currentUser, logout, syncProfile } = useAuth();
   const { refreshCountries } = useCountry();
-  const { hideSidebarTitles, setHideSidebarTitles } = useGlobalContext();
+  const { hideSidebarTitles, setHideSidebarTitles, hiddenSections, toggleSectionVisibility, hiddenItems, toggleItemVisibility } = useGlobalContext();
 
   // Guard: auth context may briefly return null on first render
   if (!currentUser) {
@@ -673,20 +673,46 @@ const SettingsView: React.FC = () => {
               )}
 
               {isAdmin(currentUser) && (
-                <div className="pt-6 border-t border-slate-100">
-                  <h4 className="text-sm font-bold text-slate-900 mb-3">Sidebar Preferences</h4>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hideSidebarTitles}
-                      onChange={e => {
-                        setHideSidebarTitles(e.target.checked);
-                        localStorage.setItem('hide_sidebar_titles', String(e.target.checked));
-                      }}
-                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-slate-700 font-medium">Hide section titles in sidebar</span>
-                  </label>
+                <div className="pt-6 border-t border-slate-100 space-y-4">
+                  <h4 className="text-sm font-bold text-slate-900">Sidebar Preferences</h4>
+                  
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hideSidebarTitles}
+                        onChange={e => {
+                          setHideSidebarTitles(e.target.checked);
+                          localStorage.setItem('hide_sidebar_titles', String(e.target.checked));
+                        }}
+                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700 font-medium">Hide all section titles globally</span>
+                    </label>
+
+                    {!hideSidebarTitles && (
+                      <div className="ml-7 pl-4 border-l border-slate-200 space-y-2 animate-in fade-in slide-in-from-left-2 duration-200">
+                        <p className="text-xs text-slate-500 font-medium mb-2">Or select specific titles to hide:</p>
+                        {[
+                          { key: 'industry', label: 'Industry Operations' },
+                          { key: 'finance', label: 'Finance' },
+                          { key: 'operations', label: 'Operations' },
+                          { key: 'pilots', label: 'Pilots' },
+                          { key: 'settings', label: 'Settings' }
+                        ].map(section => (
+                          <label key={section.key} className="flex items-center gap-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!hiddenSections[section.key]}
+                              onChange={() => toggleSectionVisibility(section.key)}
+                              className="w-3.5 h-3.5 text-blue-500 border-slate-300 rounded focus:ring-blue-400"
+                            />
+                            <span className="text-xs text-slate-600 font-semibold">{section.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

@@ -34,6 +34,18 @@ const DOWNLOADS = {
         filename: 'AxisOrtho-x64.dmg',
         size:     '116 MB',
     },
+    win_x64: {
+        arch:     'Windows (x64)',
+        url:      `${BASE_URL}/uploads/downloads/AxisOrtho-x64-Setup.exe`,
+        filename: 'AxisOrtho-x64-Setup.exe',
+        size:     '124 MB',
+    },
+    win_arm64: {
+        arch:     'Windows (ARM64)',
+        url:      `${BASE_URL}/uploads/downloads/AxisOrtho-arm64-Setup.exe`,
+        filename: 'AxisOrtho-arm64-Setup.exe',
+        size:     '118 MB',
+    },
 };
 
 // ── GET /api/downloads/axis-ortho ─────────────────────────────────────────────
@@ -44,8 +56,8 @@ router.get('/axis-ortho', async (req, res) => {
         data: {
             name:        'Axis Ortho',
             version:     VERSION,
-            description: 'Offline-first orthomosaic processing for Mac. Processes drone images locally via NodeODM and syncs results to Axis Platform when online.',
-            requires:    'macOS 10.12+, Docker Desktop',
+            description: 'Offline-first orthomosaic processing for Mac & Windows. Processes drone images locally via NodeODM and syncs results to Axis Platform when online.',
+            requires:    'macOS 10.12+ or Windows 10+, Docker Desktop',
             releasedAt:  new Date().toISOString(),
             downloads:   DOWNLOADS,
         },
@@ -89,6 +101,8 @@ router.post('/axis-ortho/send', protect, authorize('ADMIN', 'SUPER_ADMIN', 'IN_H
             fullName:         recipient.full_name,
             downloadUrlArm64: DOWNLOADS.arm64.url,
             downloadUrlX64:   DOWNLOADS.x64.url,
+            downloadUrlWinX64:   DOWNLOADS.win_x64.url,
+            downloadUrlWinArm64: DOWNLOADS.win_arm64.url,
             version:          VERSION,
         });
 
