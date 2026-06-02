@@ -140,6 +140,7 @@ app.use(helmet({
                 "https://api.openai.com",
                 "https://generativelanguage.googleapis.com",
                 "https://api.open-meteo.com",               // Weather widget (primary)
+                "https://archive-api.open-meteo.com",       // Historical weather data (admin reports)
                 "https://geocoding-api.open-meteo.com",     // City autocomplete geocoding
                 "https://tile.openweathermap.org",          // Weather tiles
                 "https://wttr.in",                          // Weather widget (secondary source)
@@ -507,6 +508,70 @@ app.get('/api/documents', protect, async (req, res) => {
         await dbQuery(`ALTER TABLE deployments ADD COLUMN IF NOT EXISTS latitude DECIMAL(10,7)`);
         await dbQuery(`ALTER TABLE deployments ADD COLUMN IF NOT EXISTS longitude DECIMAL(10,7)`);
         console.log('✅ Startup migration: deployments lat/lon columns ready');
+
+        // ── Auto-geocode missions with missing coordinates ────────────────────
+        try {
+            const missingCoords = await dbQuery(
+                `SELECT id, title, site_name, location FROM deployments
+                 WHERE (latitude IS NULL OR longitude IS NULL)
+                 AND (location IS NOT NULL AND location != '')
+                 LIMIT 50`
+            );
+            if (missingCoords.rows.length > 0) {
+                const KNOWN = {
+                    'kerens': { lat: 32.1332, lon: -96.2278 },
+                    'dallas': { lat: 32.7767, lon: -96.7970 },
+                    'houston': { lat: 29.7604, lon: -95.3698 },
+                    'austin': { lat: 30.2672, lon: -97.7431 },
+                    'san antonio': { lat: 29.4241, lon: -98.4936 },
+                    'fort worth': { lat: 32.7555, lon: -97.3308 },
+                    'el paso': { lat: 31.7619, lon: -106.4850 },
+                    'waco': { lat: 31.5493, lon: -97.1467 },
+                    'corpus christi': { lat: 27.8006, lon: -97.3964 },
+                    'mexico city': { lat: 19.4326, lon: -99.1332 },
+                    'ciudad de mexico': { lat: 19.4326, lon: -99.1332 },
+                    'monterrey': { lat: 25.6866, lon: -100.3161 },
+                    'guadalajara': { lat: 20.6597, lon: -103.3496 },
+                };
+                let fixedCount = 0;
+                for (const row of missingCoords.rows) {
+                    const loc = (row.location || row.site_name || '').trim();
+                    const city = loc.split(',')[0].trim().toLowerCase();
+                    let coords = KNOWN[city] || KNOWN[loc.toLowerCase()];
+
+                    if (!coords && city.length >= 2) {
+                        try {
+                            const geoRes = await globalThis.fetch(
+                                `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=5&language=en&format=json`
+                            );
+                            const geoData = await geoRes.json();
+                            if (geoData.results && geoData.results.length > 0) {
+                                const region = loc.split(',').slice(1).join(' ').trim().toLowerCase();
+                                const match = region
+                                    ? geoData.results.find(r =>
+                                        (r.admin1 && r.admin1.toLowerCase().includes(region)) ||
+                                        (r.country && r.country.toLowerCase().includes(region))
+                                      ) || geoData.results[0]
+                                    : geoData.results[0];
+                                coords = { lat: match.latitude, lon: match.longitude };
+                            }
+                        } catch (e) { /* non-fatal */ }
+                    }
+
+                    if (coords) {
+                        await dbQuery(
+                            `UPDATE deployments SET latitude = $1, longitude = $2 WHERE id = $3`,
+                            [coords.lat, coords.lon, row.id]
+                        );
+                        fixedCount++;
+                        console.log(`  📍 Geocoded "${row.title}" (${loc}) → ${coords.lat}, ${coords.lon}`);
+                    }
+                }
+                if (fixedCount > 0) console.log(`✅ Startup migration: geocoded ${fixedCount} missions with missing coordinates`);
+            }
+        } catch (geoErr) {
+            console.warn('⚠ Startup geocode migration (non-fatal):', geoErr.message);
+        }
 
         // ── Phase 9: Industries table ─────────────────────────────────────────
         await dbQuery(`
