@@ -1925,15 +1925,9 @@ export default function AdminReportWriter() {
 
       {/* ── Preview Modal ── */}
       {previewOpen && (() => {
-        const fullHTML = buildPrintHTML(report);
-        // Extract the <style> and <body> content from the full HTML
-        const styleMatch = fullHTML.match(/<style>([\s\S]*?)<\/style>/);
-        const bodyMatch = fullHTML.match(/<body>([\s\S]*?)<\/body>/);
-        const scopedCSS = styleMatch ? styleMatch[1]
-          .replace(/body\s*\{/g, '.preview-body {')
-          .replace(/\*/g, '.preview-body *')
-          : '';
-        const bodyContent = bodyMatch ? bodyMatch[1] : fullHTML;
+        const html = buildPrintHTML(report);
+        const blob = new Blob([html], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
         return (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
@@ -1942,7 +1936,7 @@ export default function AdminReportWriter() {
         }}>
           {/* Preview toolbar */}
           <div style={{
-            width: '100%', maxWidth: 900, display: 'flex', justifyContent: 'space-between',
+            width: '100%', maxWidth: 920, display: 'flex', justifyContent: 'space-between',
             alignItems: 'center', padding: '16px 20px', flexShrink: 0,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1958,7 +1952,7 @@ export default function AdminReportWriter() {
               }}>
                 <Printer size={12} /> Print / PDF
               </button>
-              <button onClick={() => setPreviewOpen(false)} style={{
+              <button onClick={() => { setPreviewOpen(false); URL.revokeObjectURL(blobUrl); }} style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 6, color: '#94a3b8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
@@ -1969,15 +1963,14 @@ export default function AdminReportWriter() {
           </div>
           {/* Preview content */}
           <div style={{
-            flex: 1, width: '100%', maxWidth: 900, overflowY: 'auto',
+            flex: 1, width: '100%', maxWidth: 920, overflow: 'hidden',
             borderRadius: '12px 12px 0 0', background: '#fff',
             boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
           }}>
-            <style dangerouslySetInnerHTML={{ __html: scopedCSS }} />
-            <div
-              className="preview-body"
-              style={{ color: '#1e293b', background: '#fff', padding: 40, maxWidth: 900, margin: '0 auto', fontFamily: "'Segoe UI', system-ui, Arial, sans-serif" }}
-              dangerouslySetInnerHTML={{ __html: bodyContent }}
+            <iframe
+              title="Report Preview"
+              src={blobUrl}
+              style={{ width: '100%', height: '100%', border: 'none' }}
             />
           </div>
         </div>
