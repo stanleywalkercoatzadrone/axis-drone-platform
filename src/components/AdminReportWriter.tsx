@@ -1211,8 +1211,10 @@ const MissionDataEditor: React.FC<{
 
   // Auto-populate full report from mission data
   const handleAutoPopulateReport = () => {
-    if (!selectedMission) return;
+    if (!selectedMission) { console.warn('[AutoPopulate] No mission selected'); return; }
     const rpts = getFilteredReports();
+    console.log('[AutoPopulate] Starting with mission:', selectedMission.title, '| Reports:', rpts.length, '| Weather days:', weatherData.length);
+    console.log('[AutoPopulate] Date mode:', dateMode, '| From:', dateFrom, '| To:', dateTo, '| Selected dates:', selectedDates);
     const totalFlights = rpts.reduce((s, r) => s + Number(r.missionsFlown || 0), 0);
     const totalBlocks = rpts.reduce((s, r) => s + Number(r.blocksCompleted || 0), 0);
     const totalHours = rpts.reduce((s, r) => s + Number(r.hoursWorked || 0), 0);
@@ -1460,6 +1462,12 @@ const MissionDataEditor: React.FC<{
       content: nextStepsContent,
     };
     onAddSectionToReport(nextStepsSection);
+
+    // Log summary of what was generated
+    const sectionsGenerated = ['Operations Summary', 'Field Issues & Incidents', 'Weather Impact', 'Next Steps & Schedule'];
+    console.log('[AutoPopulate] ✅ Generated sections:', sectionsGenerated.join(', '));
+    console.log('[AutoPopulate] Data: flights=', totalFlights, 'blocks=', totalBlocks, 'hours=', totalHours, 'weather_days=', weatherData.length);
+    alert(`✅ Report sections generated!\n\n• Operations Summary (${rpts.length} pilot reports)\n• ${totalBlocks > 0 ? totalBlocks + ' LBD block(s)' : totalFlights + ' flight(s)'}\n• Weather: ${weatherData.length > 0 ? weatherData.length + ' day(s) of data' : '⚠ No weather data loaded — wait for weather to load and try again'}\n• Field Issues: ${issues.length || 'None'}\n• Next Steps: ${(selectedMission.status || '').toLowerCase().includes('complet') ? 'Closeout' : 'Continuation'}\n\nClick Preview to review the full report.`);
   };
 
   const handleAddPilotReportsAsFindings = () => {
@@ -1704,13 +1712,18 @@ const MissionDataEditor: React.FC<{
                           }}>
                             <PlusCircle size={12} /> Add Mission Data
                           </button>
-                          <button onClick={handleAutoPopulateReport} style={{
+                          <button onClick={handleAutoPopulateReport} disabled={loadingWeather} style={{
                             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-                            background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none',
-                            borderRadius: 8, color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                            background: loadingWeather ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none',
+                            borderRadius: 8, color: '#fff', fontSize: 11, fontWeight: 800, cursor: loadingWeather ? 'wait' : 'pointer',
+                            opacity: loadingWeather ? 0.6 : 1,
                           }}>
-                            <FileText size={12} /> Auto-Generate Report Sections
+                            <FileText size={12} /> {loadingWeather ? 'Loading weather…' : 'Auto-Generate Report Sections'}
                           </button>
+                          {/* Weather data indicator */}
+                          <div style={{ fontSize: 10, color: weatherData.length > 0 ? '#10b981' : loadingWeather ? '#f59e0b' : '#ef4444', fontWeight: 700, padding: '4px 0' }}>
+                            {loadingWeather ? '⏳ Fetching weather data…' : weatherData.length > 0 ? `✅ ${weatherData.length} day(s) of weather data loaded` : '⚠ No weather data — select dates and ensure mission has a location'}
+                          </div>
                           {pilotReports.some(pr => pr.issuesEncountered || pr.isIncident) && (
                             <button onClick={handleAddPilotReportsAsFindings} style={{
                               display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
