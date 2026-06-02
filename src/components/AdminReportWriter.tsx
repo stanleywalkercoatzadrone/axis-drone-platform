@@ -406,9 +406,9 @@ function buildPrintHTML(report: AdminReport): string {
       case 'mission_data':
         if (sec.missionSnapshot) {
           const ms = sec.missionSnapshot;
-          const tFlights = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.missionsFlown || 0), 0);
-          const tHours = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.hoursWorked || 0), 0);
-          const tBlocks = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.blocksCompleted || 0), 0);
+          const tFlights = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.missionsFlown || 0), 0);
+          const tHours = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.hoursWorked || 0), 0);
+          const tBlocks = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.blocksCompleted || 0), 0);
           inner = `<h2 class="rpt-h2">${sec.title}</h2>
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">
               <div style="display:flex;gap:24px;margin-bottom:12px;font-size:12px;">
@@ -987,9 +987,9 @@ const MissionDataEditor: React.FC<{
   // If the section already has a snapshot, show it
   if (section.missionSnapshot) {
     const snap = section.missionSnapshot;
-    const totalFlights = snap.pilotReports.reduce((s, r) => s + (r.missionsFlown || 0), 0);
-    const totalHours = snap.pilotReports.reduce((s, r) => s + (r.hoursWorked || 0), 0);
-    const totalBlocks = snap.pilotReports.reduce((s, r) => s + (r.blocksCompleted || 0), 0);
+    const totalFlights = snap.pilotReports.reduce((s, r) => s + Number(r.missionsFlown || 0), 0);
+    const totalHours = snap.pilotReports.reduce((s, r) => s + Number(r.hoursWorked || 0), 0);
+    const totalBlocks = snap.pilotReports.reduce((s, r) => s + Number(r.blocksCompleted || 0), 0);
     const incidents = snap.pilotReports.filter(r => r.isIncident);
 
     return (
@@ -1187,9 +1187,9 @@ const MissionDataEditor: React.FC<{
   const handleAutoPopulateReport = () => {
     if (!selectedMission) return;
     const rpts = getFilteredReports();
-    const totalFlights = rpts.reduce((s, r) => s + (r.missionsFlown || 0), 0);
-    const totalBlocks = rpts.reduce((s, r) => s + (r.blocksCompleted || 0), 0);
-    const totalHours = rpts.reduce((s, r) => s + (r.hoursWorked || 0), 0);
+    const totalFlights = rpts.reduce((s, r) => s + Number(r.missionsFlown || 0), 0);
+    const totalBlocks = rpts.reduce((s, r) => s + Number(r.blocksCompleted || 0), 0);
+    const totalHours = rpts.reduce((s, r) => s + Number(r.hoursWorked || 0), 0);
     const incidents = rpts.filter(r => r.isIncident);
     const issues = rpts.filter(r => r.issuesEncountered);
     const dateLabel = dateMode === 'individual' && selectedDates.length
@@ -1461,9 +1461,9 @@ const MissionDataEditor: React.FC<{
                           {(dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0) && (
                             <div style={{ marginTop: 6, fontSize: 10, color: '#64748b' }}>
                               {getFilteredReports().length} of {pilotReports.length} reports match selected dates ·
-                              {' '}{getFilteredReports().reduce((s, r) => s + (r.blocksCompleted || 0), 0)} LBDs ·
-                              {' '}{getFilteredReports().reduce((s, r) => s + (r.missionsFlown || 0), 0)} flights ·
-                              {' '}{getFilteredReports().reduce((s, r) => s + (r.hoursWorked || 0), 0).toFixed(1)}h
+                              {' '}{getFilteredReports().reduce((s, r) => s + Number(r.blocksCompleted || 0), 0)} LBDs ·
+                              {' '}{getFilteredReports().reduce((s, r) => s + Number(r.missionsFlown || 0), 0)} flights ·
+                              {' '}{getFilteredReports().reduce((s, r) => s + Number(r.hoursWorked || 0), 0).toFixed(1)}h
                             </div>
                           )}
                         </div>
