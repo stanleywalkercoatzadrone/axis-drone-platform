@@ -109,6 +109,7 @@ interface MissionSnapshot {
   weather?: WeatherDayData[];
   dateFrom?: string;
   dateTo?: string;
+  selectedDates?: string[];
   latitude?: number;
   longitude?: number;
 }
@@ -921,6 +922,8 @@ const MissionDataEditor: React.FC<{
   const [loadingReports, setLoadingReports] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [dateMode, setDateMode] = useState<'range' | 'individual'>('range');
   const [weatherData, setWeatherData] = useState<WeatherDayData[]>([]);
   const [loadingWeather, setLoadingWeather] = useState(false);
 
@@ -948,17 +951,37 @@ const MissionDataEditor: React.FC<{
     }
   }, [selectedMission?.id]);
 
-  // Fetch weather when date range changes and we have coords
+  // Fetch weather when date range or selected dates change
   useEffect(() => {
-    if (!selectedMission || !dateFrom || !dateTo) { setWeatherData([]); return; }
+    if (!selectedMission) { setWeatherData([]); return; }
     const lat = selectedMission.latitude ?? selectedMission.lat;
     const lon = selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon;
     if (!lat || !lon) return;
+
+    let wFrom = '', wTo = '';
+    if (dateMode === 'individual' && selectedDates.length > 0) {
+      const sorted = [...selectedDates].sort();
+      wFrom = sorted[0];
+      wTo = sorted[sorted.length - 1];
+    } else if (dateMode === 'range' && dateFrom && dateTo) {
+      wFrom = dateFrom;
+      wTo = dateTo;
+    }
+    if (!wFrom || !wTo) { setWeatherData([]); return; }
+
     setLoadingWeather(true);
-    fetchWeatherForRange(lat, lon, dateFrom, dateTo)
-      .then(w => { setWeatherData(w); setLoadingWeather(false); })
+    fetchWeatherForRange(lat, lon, wFrom, wTo)
+      .then(w => {
+        // If individual mode, filter to only selected dates
+        if (dateMode === 'individual' && selectedDates.length > 0) {
+          setWeatherData(w.filter(d => selectedDates.includes(d.date)));
+        } else {
+          setWeatherData(w);
+        }
+        setLoadingWeather(false);
+      })
       .catch(() => setLoadingWeather(false));
-  }, [dateFrom, dateTo, selectedMission?.id]);
+  }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
   // If the section already has a snapshot, show it
   if (section.missionSnapshot) {
@@ -1118,8 +1141,26 @@ const MissionDataEditor: React.FC<{
     setSelectedMission(m);
   };
 
+  // Filter pilot reports by selected dates
+  const getFilteredReports = (): PilotReportData[] => {
+    if (dateMode === 'individual' && selectedDates.length > 0) {
+      return pilotReports.filter(pr => {
+        if (!pr.date) return false;
+        return selectedDates.includes(pr.date.split('T')[0]);
+      });
+    } else if (dateMode === 'range' && dateFrom && dateTo) {
+      return pilotReports.filter(pr => {
+        if (!pr.date) return true;
+        const d = pr.date.split('T')[0];
+        return d >= dateFrom && d <= dateTo;
+      });
+    }
+    return pilotReports;
+  };
+
   const handleInsertMission = () => {
     if (!selectedMission) return;
+    const filteredReports = getFilteredReports();
     const snapshot: MissionSnapshot = {
       title: selectedMission.title,
       type: selectedMission.type,
@@ -1130,9 +1171,105 @@ const MissionDataEditor: React.FC<{
       daysOnSite: selectedMission.daysOnSite || 1,
       personnelCount: selectedMission.personnelCount || 0,
       fileCount: selectedMission.fileCount || 0,
-      pilotReports: pilotReports,
+      pilotReports: filteredReports,
+      weather: weatherData,
+      dateFrom: dateMode === 'range' ? dateFrom : (selectedDates.length ? [...selectedDates].sort()[0] : undefined),
+      dateTo: dateMode === 'range' ? dateTo : (selectedDates.length ? [...selectedDates].sort().pop() : undefined),
+      selectedDates: dateMode === 'individual' ? selectedDates : undefined,
+      latitude: selectedMission.latitude ?? selectedMission.lat,
+      longitude: selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon,
     };
     onUpdate({ missionId: selectedMission.id, missionSnapshot: snapshot, title: `Mission: ${selectedMission.title}` });
+  };
+
+  // Auto-populate full report from mission data
+  const handleAutoPopulateReport = () => {
+    if (!selectedMission) return;
+    const rpts = getFilteredReports();
+    const totalFlights = rpts.reduce((s, r) => s + (r.missionsFlown || 0), 0);
+    const totalBlocks = rpts.reduce((s, r) => s + (r.blocksCompleted || 0), 0);
+    const totalHours = rpts.reduce((s, r) => s + (r.hoursWorked || 0), 0);
+    const incidents = rpts.filter(r => r.isIncident);
+    const issues = rpts.filter(r => r.issuesEncountered);
+    const dateLabel = dateMode === 'individual' && selectedDates.length
+      ? selectedDates.sort().map(d => new Date(d + 'T12:00:00').toLocaleDateString()).join(', ')
+      : dateFrom && dateTo ? `${new Date(dateFrom + 'T12:00:00').toLocaleDateString()} – ${new Date(dateTo + 'T12:00:00').toLocaleDateString()}` : selectedMission.date;
+
+    // Build summary text section
+    const summaryLines = [
+      `<p><strong>Mission:</strong> ${selectedMission.title}</p>`,
+      `<p><strong>Site:</strong> ${selectedMission.siteName} · <strong>Location:</strong> ${selectedMission.location || '—'}</p>`,
+      `<p><strong>Reporting Period:</strong> ${dateLabel}</p>`,
+      `<p><strong>Operations Summary:</strong></p>`,
+      `<ul>`,
+      `<li><strong>${totalFlights}</strong> flights conducted</li>`,
+      `<li><strong>${totalBlocks}</strong> LBDs / blocks completed</li>`,
+      `<li><strong>${totalHours.toFixed(1)}</strong> total field hours logged</li>`,
+      `<li><strong>${rpts.length}</strong> pilot reports submitted</li>`,
+      `<li><strong>${selectedMission.personnelCount || 0}</strong> personnel on site</li>`,
+      incidents.length > 0 ? `<li style="color:#ef4444"><strong>${incidents.length}</strong> incident(s) reported</li>` : '',
+      `</ul>`,
+    ].filter(Boolean);
+    const summarySection: ReportSection = {
+      id: uid(), type: 'text', title: 'Operations Summary',
+      content: summaryLines.join('\n'),
+    };
+    onAddSectionToReport(summarySection);
+
+    // Build findings from issues/incidents
+    if (issues.length > 0 || incidents.length > 0) {
+      const findingItems: FindingItem[] = [
+        ...incidents.map(pr => ({
+          id: uid(),
+          severity: 'critical' as const,
+          title: `Incident: ${pr.incidentSummary || 'Reported by ' + pr.pilotName}`,
+          description: `${pr.incidentSummary || ''} (${pr.incidentSeverity || 'unknown'} severity)\nReported by ${pr.pilotName} on ${pr.date ? new Date(pr.date).toLocaleDateString() : 'unknown'}`,
+          location: selectedMission.siteName,
+        })),
+        ...issues.filter(pr => !pr.isIncident).map(pr => ({
+          id: uid(),
+          severity: 'medium' as const,
+          title: `Field Issue: ${(pr.issuesEncountered || '').slice(0, 80)}`,
+          description: `${pr.issuesEncountered}\nReported by ${pr.pilotName} on ${pr.date ? new Date(pr.date).toLocaleDateString() : 'unknown'}`,
+          location: selectedMission.siteName,
+        })),
+      ];
+      const findingsSection: ReportSection = {
+        id: uid(), type: 'findings', title: 'Field Issues & Incidents',
+        content: '', items: findingItems,
+      };
+      onAddSectionToReport(findingsSection);
+    }
+
+    // Build weather impact section if weather data available
+    if (weatherData.length > 0) {
+      const badDays = weatherData.filter(w => w.precipSum > 5 || w.windMax > 40 || [63, 65, 73, 75, 82, 95, 96, 99].includes(w.weatherCode));
+      const avgHigh = weatherData.reduce((s, w) => s + w.tempMax, 0) / weatherData.length;
+      const avgLow = weatherData.reduce((s, w) => s + w.tempMin, 0) / weatherData.length;
+      const totalPrecip = weatherData.reduce((s, w) => s + w.precipSum, 0);
+      const maxWind = Math.max(...weatherData.map(w => w.windMax));
+      const pilotWeatherNotes = rpts.filter(r => r.weatherConditionsReported).map(r => `${r.pilotName}: ${r.weatherConditionsReported}`);
+
+      const wxLines = [
+        `<p><strong>Weather Summary (${weatherData.length} days):</strong></p>`,
+        `<ul>`,
+        `<li>Average High: <strong>${Math.round(avgHigh)}°F</strong> · Average Low: <strong>${Math.round(avgLow)}°F</strong></li>`,
+        `<li>Total Precipitation: <strong>${totalPrecip.toFixed(1)} mm</strong></li>`,
+        `<li>Max Wind Speed: <strong>${Math.round(maxWind)} km/h</strong></li>`,
+        badDays.length > 0 ? `<li style="color:#f59e0b"><strong>${badDays.length}</strong> day(s) with adverse conditions (heavy rain, high wind, or storms)</li>` : `<li>No significant adverse weather days</li>`,
+        `</ul>`,
+        pilotWeatherNotes.length > 0 ? `<p><strong>Pilot Weather Notes:</strong></p><ul>${pilotWeatherNotes.map(n => `<li>${n}</li>`).join('')}</ul>` : '',
+        badDays.length > 0 ? `<p><strong>Impacted Days:</strong></p><ul>${badDays.map(w => {
+          const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
+          return `<li>${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}: ${wmo.icon} ${wmo.label} — ${Math.round(w.tempMax)}°F, ${w.precipSum.toFixed(1)}mm rain, ${Math.round(w.windMax)} km/h wind</li>`;
+        }).join('')}</ul>` : '',
+      ].filter(Boolean);
+      const wxSection: ReportSection = {
+        id: uid(), type: 'text', title: 'Weather Impact',
+        content: wxLines.join('\n'),
+      };
+      onAddSectionToReport(wxSection);
+    }
   };
 
   const handleAddPilotReportsAsFindings = () => {
@@ -1252,16 +1389,72 @@ const MissionDataEditor: React.FC<{
                         {/* Action buttons */}
                         {/* Date Range Picker */}
                         <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(15,23,42,0.5)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
-                          <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-                            📅 Reporting Period
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                              📅 Reporting Period
+                            </div>
+                            <div style={{ display: 'flex', gap: 2, background: 'rgba(15,23,42,0.6)', borderRadius: 6, padding: 2 }}>
+                              {(['range', 'individual'] as const).map(mode => (
+                                <button key={mode} onClick={() => setDateMode(mode)} style={{
+                                  padding: '3px 10px', borderRadius: 4, border: 'none', fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                                  background: dateMode === mode ? 'rgba(6,182,212,0.15)' : 'transparent',
+                                  color: dateMode === mode ? '#06b6d4' : '#475569',
+                                }}>
+                                  {mode === 'range' ? 'Date Range' : 'Select Dates'}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                              style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
-                            <span style={{ color: '#475569', fontSize: 11, fontWeight: 600 }}>to</span>
-                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                              style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
-                          </div>
+
+                          {dateMode === 'range' ? (
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                                style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                              <span style={{ color: '#475569', fontSize: 11, fontWeight: 600 }}>to</span>
+                              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                                style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                                <input type="date"
+                                  onChange={e => {
+                                    const v = e.target.value;
+                                    if (v && !selectedDates.includes(v)) setSelectedDates(d => [...d, v].sort());
+                                    e.target.value = '';
+                                  }}
+                                  style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                                <span style={{ fontSize: 10, color: '#475569' }}>{selectedDates.length} selected</span>
+                              </div>
+                              {selectedDates.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                  {selectedDates.map(d => (
+                                    <span key={d} style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+                                      background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)',
+                                      borderRadius: 4, fontSize: 10, color: '#06b6d4', fontWeight: 600,
+                                    }}>
+                                      {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                      <button onClick={() => setSelectedDates(ds => ds.filter(x => x !== d))}
+                                        style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                                    </span>
+                                  ))}
+                                  <button onClick={() => setSelectedDates([])}
+                                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 9, cursor: 'pointer', fontWeight: 600 }}>Clear all</button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Filtered report count */}
+                          {(dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0) && (
+                            <div style={{ marginTop: 6, fontSize: 10, color: '#64748b' }}>
+                              {getFilteredReports().length} of {pilotReports.length} reports match selected dates ·
+                              {' '}{getFilteredReports().reduce((s, r) => s + (r.blocksCompleted || 0), 0)} LBDs ·
+                              {' '}{getFilteredReports().reduce((s, r) => s + (r.missionsFlown || 0), 0)} flights ·
+                              {' '}{getFilteredReports().reduce((s, r) => s + (r.hoursWorked || 0), 0).toFixed(1)}h
+                            </div>
+                          )}
                         </div>
 
                         {/* Weather Preview */}
@@ -1296,20 +1489,27 @@ const MissionDataEditor: React.FC<{
                             </div>
                           </div>
                         )}
-                        {!loadingWeather && weatherData.length === 0 && dateFrom && dateTo && (selectedMission.latitude || selectedMission.lat) && (
-                          <div style={{ marginTop: 8, fontSize: 10, color: '#475569', fontStyle: 'italic' }}>No weather data available for this date range.</div>
+                        {!loadingWeather && weatherData.length === 0 && (dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0) && (selectedMission.latitude || selectedMission.lat) && (
+                          <div style={{ marginTop: 8, fontSize: 10, color: '#475569', fontStyle: 'italic' }}>No weather data available for selected dates.</div>
                         )}
                         {!loadingWeather && !(selectedMission.latitude || selectedMission.lat) && (
                           <div style={{ marginTop: 8, fontSize: 10, color: '#475569', fontStyle: 'italic' }}>⚠ No GPS coordinates for this mission — weather data unavailable.</div>
                         )}
 
-                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                           <button onClick={handleInsertMission} style={{
                             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
                             background: 'linear-gradient(135deg, #06b6d4, #0891b2)', border: 'none',
                             borderRadius: 8, color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer',
                           }}>
-                            <PlusCircle size={12} /> Add Mission to Report
+                            <PlusCircle size={12} /> Add Mission Data
+                          </button>
+                          <button onClick={handleAutoPopulateReport} style={{
+                            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                            background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none',
+                            borderRadius: 8, color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                          }}>
+                            <FileText size={12} /> Auto-Generate Report Sections
                           </button>
                           {pilotReports.some(pr => pr.issuesEncountered || pr.isIncident) && (
                             <button onClick={handleAddPilotReportsAsFindings} style={{
