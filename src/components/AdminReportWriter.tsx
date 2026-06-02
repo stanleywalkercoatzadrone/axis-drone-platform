@@ -224,12 +224,6 @@ const TEMPLATES: Record<string, { label: string; description: string; icon: stri
     sections: [
       { id: 's1', type: 'header', title: 'Progress Update', content: '' },
       { id: 's2', type: 'mission_data', title: 'Mission Data', content: '' },
-      { id: 's3', type: 'text', title: 'Summary of Work Completed', content: '<p>During the reporting period, the following work was completed:</p><ul><li>Flights conducted and areas covered</li><li>Data collected and processed</li><li>Key observations from the field</li></ul>' },
-      { id: 's4', type: 'findings', title: 'Notable Findings', content: '', items: [
-        { id: 'f1', severity: 'medium', title: '', description: '', location: '' },
-      ]},
-      { id: 's5', type: 'text', title: 'Weather Impact', content: '<p>Weather conditions during the reporting period and their impact on operations:</p><p>[Weather data will be auto-populated from mission data section]</p>' },
-      { id: 's6', type: 'recommendations', title: 'Next Steps & Schedule', content: '<ol><li>Continue scheduled flight operations</li><li>Process and analyze collected data</li><li>Address any identified issues</li></ol>' },
     ],
   },
 };
@@ -1464,10 +1458,8 @@ const MissionDataEditor: React.FC<{
     onAddSectionToReport(nextStepsSection);
 
     // Log summary of what was generated
-    const sectionsGenerated = ['Operations Summary', 'Field Issues & Incidents', 'Weather Impact', 'Next Steps & Schedule'];
-    console.log('[AutoPopulate] ✅ Generated sections:', sectionsGenerated.join(', '));
+    console.log('[AutoPopulate] ✅ Generated sections: Operations Summary, Field Issues, Weather Impact, Next Steps');
     console.log('[AutoPopulate] Data: flights=', totalFlights, 'blocks=', totalBlocks, 'hours=', totalHours, 'weather_days=', weatherData.length);
-    alert(`✅ Report sections generated!\n\n• Operations Summary (${rpts.length} pilot reports)\n• ${totalBlocks > 0 ? totalBlocks + ' LBD block(s)' : totalFlights + ' flight(s)'}\n• Weather: ${weatherData.length > 0 ? weatherData.length + ' day(s) of data' : '⚠ No weather data loaded — wait for weather to load and try again'}\n• Field Issues: ${issues.length || 'None'}\n• Next Steps: ${(selectedMission.status || '').toLowerCase().includes('complet') ? 'Closeout' : 'Continuation'}\n\nClick Preview to review the full report.`);
   };
 
   const handleAddPilotReportsAsFindings = () => {
