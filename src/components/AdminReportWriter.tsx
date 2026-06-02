@@ -1034,6 +1034,49 @@ const MissionDataEditor: React.FC<{
     let lat = selectedMission.latitude ?? selectedMission.lat;
     let lon = selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon;
 
+    // If no coordinates, try known location lookup FIRST (instant, no API call)
+    const hasCoords = lat != null && lon != null && Number(lat) !== 0 && Number(lon) !== 0;
+    if (!hasCoords && selectedMission.location) {
+      const KNOWN_LOCATIONS: Record<string, { lat: number; lon: number }> = {
+        'kerens': { lat: 32.1332, lon: -96.2278 },
+        'kerens, texas': { lat: 32.1332, lon: -96.2278 },
+        'kerens, tx': { lat: 32.1332, lon: -96.2278 },
+        'dallas': { lat: 32.7767, lon: -96.7970 },
+        'dallas, texas': { lat: 32.7767, lon: -96.7970 },
+        'dallas, tx': { lat: 32.7767, lon: -96.7970 },
+        'houston': { lat: 29.7604, lon: -95.3698 },
+        'houston, texas': { lat: 29.7604, lon: -95.3698 },
+        'houston, tx': { lat: 29.7604, lon: -95.3698 },
+        'austin': { lat: 30.2672, lon: -97.7431 },
+        'austin, texas': { lat: 30.2672, lon: -97.7431 },
+        'austin, tx': { lat: 30.2672, lon: -97.7431 },
+        'san antonio': { lat: 29.4241, lon: -98.4936 },
+        'san antonio, texas': { lat: 29.4241, lon: -98.4936 },
+        'san antonio, tx': { lat: 29.4241, lon: -98.4936 },
+        'fort worth': { lat: 32.7555, lon: -97.3308 },
+        'fort worth, texas': { lat: 32.7555, lon: -97.3308 },
+        'fort worth, tx': { lat: 32.7555, lon: -97.3308 },
+        'el paso': { lat: 31.7619, lon: -106.4850 },
+        'el paso, texas': { lat: 31.7619, lon: -106.4850 },
+        'el paso, tx': { lat: 31.7619, lon: -106.4850 },
+        'waco': { lat: 31.5493, lon: -97.1467 },
+        'waco, texas': { lat: 31.5493, lon: -97.1467 },
+        'corpus christi': { lat: 27.8006, lon: -97.3964 },
+        'corpus christi, texas': { lat: 27.8006, lon: -97.3964 },
+        'mexico city': { lat: 19.4326, lon: -99.1332 },
+        'ciudad de mexico': { lat: 19.4326, lon: -99.1332 },
+        'monterrey': { lat: 25.6866, lon: -100.3161 },
+        'guadalajara': { lat: 20.6597, lon: -103.3496 },
+      };
+      const locKey = selectedMission.location.toLowerCase().trim();
+      const known = KNOWN_LOCATIONS[locKey];
+      if (known) {
+        lat = known.lat;
+        lon = known.lon;
+        console.log(`[Weather] Known location match: "${selectedMission.location}" → ${lat}, ${lon}`);
+      }
+    }
+
     let wFrom = '', wTo = '';
     if (dateMode === 'individual' && selectedDates.length > 0) {
       const sorted = [...selectedDates].sort();
