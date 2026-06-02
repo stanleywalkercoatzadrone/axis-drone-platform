@@ -1924,7 +1924,17 @@ export default function AdminReportWriter() {
       </div>
 
       {/* ── Preview Modal ── */}
-      {previewOpen && (
+      {previewOpen && (() => {
+        const fullHTML = buildPrintHTML(report);
+        // Extract the <style> and <body> content from the full HTML
+        const styleMatch = fullHTML.match(/<style>([\s\S]*?)<\/style>/);
+        const bodyMatch = fullHTML.match(/<body>([\s\S]*?)<\/body>/);
+        const scopedCSS = styleMatch ? styleMatch[1]
+          .replace(/body\s*\{/g, '.preview-body {')
+          .replace(/\*/g, '.preview-body *')
+          : '';
+        const bodyContent = bodyMatch ? bodyMatch[1] : fullHTML;
+        return (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
@@ -1933,7 +1943,7 @@ export default function AdminReportWriter() {
           {/* Preview toolbar */}
           <div style={{
             width: '100%', maxWidth: 900, display: 'flex', justifyContent: 'space-between',
-            alignItems: 'center', padding: '16px 20px',
+            alignItems: 'center', padding: '16px 20px', flexShrink: 0,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Eye size={16} color="#34d399" />
@@ -1959,18 +1969,20 @@ export default function AdminReportWriter() {
           </div>
           {/* Preview content */}
           <div style={{
-            flex: 1, width: '100%', maxWidth: 900, overflow: 'hidden',
+            flex: 1, width: '100%', maxWidth: 900, overflowY: 'auto',
             borderRadius: '12px 12px 0 0', background: '#fff',
             boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
           }}>
-            <iframe
-              title="Report Preview"
-              srcDoc={buildPrintHTML(report)}
-              style={{ width: '100%', height: '100%', border: 'none' }}
+            <style dangerouslySetInnerHTML={{ __html: scopedCSS }} />
+            <div
+              className="preview-body"
+              style={{ color: '#1e293b', background: '#fff', padding: 40, maxWidth: 900, margin: '0 auto', fontFamily: "'Segoe UI', system-ui, Arial, sans-serif" }}
+              dangerouslySetInnerHTML={{ __html: bodyContent }}
             />
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Report title */}
       <div style={{ marginBottom: 20 }}>
