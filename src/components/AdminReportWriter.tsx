@@ -1270,6 +1270,13 @@ const MissionDataEditor: React.FC<{
         content: wxLines.join('\n'),
       };
       onAddSectionToReport(wxSection);
+    } else {
+      // Even if no weather API data, replace the placeholder with a note
+      const wxPlaceholder: ReportSection = {
+        id: uid(), type: 'text', title: 'Weather Impact',
+        content: '<p>No weather data available for the selected date range. Weather data requires mission coordinates and valid dates.</p>',
+      };
+      onAddSectionToReport(wxPlaceholder);
     }
   };
 
@@ -1734,7 +1741,28 @@ export default function AdminReportWriter() {
 
   // Insert a fully-formed section (e.g. from Mission Data → "Add Issues as Findings")
   const addSectionToReport = (newSection: ReportSection) => {
-    setReport(r => ({ ...r, sections: [...r.sections, newSection] }));
+    setReport(r => {
+      let sections = [...r.sections];
+
+      // When auto-generated sections arrive, clean up template placeholders they replace
+      if (newSection.title === 'Operations Summary') {
+        sections = sections.filter(s => s.title !== 'Summary of Work Completed');
+      }
+      if (newSection.title === 'Field Issues & Incidents') {
+        sections = sections.filter(s => {
+          if (s.title === 'Notable Findings' && (!s.items || s.items.every((f: any) => !f.title))) return false;
+          return true;
+        });
+      }
+
+      // Upsert: if a section with the same title already exists, replace it
+      const existingIdx = sections.findIndex(s => s.title === newSection.title);
+      if (existingIdx >= 0) {
+        sections[existingIdx] = { ...newSection, id: sections[existingIdx].id };
+        return { ...r, sections };
+      }
+      return { ...r, sections: [...sections, newSection] };
+    });
   };
 
   const moveSection = (id: string, dir: -1 | 1) => {
