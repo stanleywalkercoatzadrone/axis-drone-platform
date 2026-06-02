@@ -1324,35 +1324,87 @@ const MissionDataEditor: React.FC<{
       onAddSectionToReport(noIssues);
     }
 
-    // ── 4. Build weather impact section ──
+    // ── 4. Build weather impact section with intelligent analysis ──
     if (weatherData.length > 0) {
       const badDays = weatherData.filter(w => w.precipSum > 5 || w.windMax > 40 || [63, 65, 73, 75, 82, 95, 96, 99].includes(w.weatherCode));
+      const goodDays = weatherData.filter(w => w.precipSum <= 2 && w.windMax <= 30 && ![63, 65, 73, 75, 82, 95, 96, 99].includes(w.weatherCode));
+      const marginalDays = weatherData.filter(w => !badDays.includes(w) && !goodDays.includes(w));
       const avgHigh = weatherData.reduce((s, w) => s + w.tempMax, 0) / weatherData.length;
       const avgLow = weatherData.reduce((s, w) => s + w.tempMin, 0) / weatherData.length;
       const totalPrecip = weatherData.reduce((s, w) => s + w.precipSum, 0);
       const maxWind = Math.max(...weatherData.map(w => w.windMax));
+      const maxWindDay = weatherData.find(w => w.windMax === maxWind);
+      const hottestDay = weatherData.reduce((a, b) => a.tempMax > b.tempMax ? a : b);
+      const coldestDay = weatherData.reduce((a, b) => a.tempMin < b.tempMin ? a : b);
       const pilotWeatherNotes = rpts.filter(r => r.weatherConditionsReported).map(r => `${r.pilotName}: ${r.weatherConditionsReported}`);
 
-      // Build daily weather table
+      // Per-day operational assessment
+      const assessDay = (w: WeatherDayData): string => {
+        const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
+        const issues: string[] = [];
+        if (w.windMax > 50) issues.push(`<strong style="color:#ef4444">dangerous wind gusts (${Math.round(w.windMax)} km/h)</strong> — flights should be grounded`);
+        else if (w.windMax > 40) issues.push(`<strong style="color:#f59e0b">high winds (${Math.round(w.windMax)} km/h)</strong> — reduced flight stability, consider altitude restrictions`);
+        else if (w.windMax > 30) issues.push(`moderate winds (${Math.round(w.windMax)} km/h) — monitor for gusts`);
+        if (w.precipSum > 10) issues.push(`<strong style="color:#ef4444">heavy precipitation (${w.precipSum.toFixed(1)} mm)</strong> — likely caused flight delays or cancellations`);
+        else if (w.precipSum > 5) issues.push(`<strong style="color:#f59e0b">moderate rain (${w.precipSum.toFixed(1)} mm)</strong> — may have impacted operations`);
+        else if (w.precipSum > 1) issues.push(`light precipitation (${w.precipSum.toFixed(1)} mm) — minimal impact expected`);
+        if ([95, 96, 99].includes(w.weatherCode)) issues.push(`<strong style="color:#ef4444">thunderstorm activity</strong> — all drone operations must be suspended`);
+        if ([73, 75].includes(w.weatherCode)) issues.push(`heavy snowfall — ground operations affected`);
+        if ([63, 65].includes(w.weatherCode)) issues.push(`heavy rain showers — visibility and sensor quality reduced`);
+        if (w.tempMax > 100) issues.push(`extreme heat (${Math.round(w.tempMax)}°F) — battery performance degraded, crew heat safety protocols required`);
+        else if (w.tempMax > 95) issues.push(`high heat (${Math.round(w.tempMax)}°F) — monitor battery temps and crew hydration`);
+        if (w.tempMin < 35) issues.push(`near-freezing conditions (low ${Math.round(w.tempMin)}°F) — battery capacity reduced, pre-flight warm-up needed`);
+
+        if (issues.length === 0) {
+          return `${wmo.icon} <strong>${wmo.label}</strong> — ${Math.round(w.tempMax)}°F high, ${Math.round(w.windMax)} km/h wind. <span style="color:#059669">Favorable conditions for drone operations.</span>`;
+        }
+        return `${wmo.icon} <strong>${wmo.label}</strong> — ${Math.round(w.tempMax)}°F high, ${Math.round(w.windMax)} km/h wind. ${issues.join('; ')}.`;
+      };
+
+      // Build daily weather table with per-day insights
       let wxTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 16px;">` +
-        `<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Date</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Conditions</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">High (°F)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Low (°F)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Wind (km/h)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Precip (mm)</th></tr></thead><tbody>`;
+        `<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Date</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Conditions</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">High</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Low</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Wind</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Precip</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Flight Status</th></tr></thead><tbody>`;
       weatherData.forEach(w => {
         const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
-        const isBad = w.precipSum > 5 || w.windMax > 40;
-        wxTable += `<tr style="background:${isBad ? '#fffbeb' : 'transparent'}"><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${wmo.icon} ${wmo.label}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMax)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMin)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.windMax)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.precipSum > 5 ? 'color:#3b82f6;font-weight:700;' : ''}">${w.precipSum.toFixed(1)}</td></tr>`;
+        const isBad = badDays.includes(w);
+        const isGood = goodDays.includes(w);
+        const statusLabel = isBad ? `<span style="color:#ef4444;font-weight:700;">⛔ Impacted</span>` : isGood ? `<span style="color:#059669;font-weight:700;">✅ Flyable</span>` : `<span style="color:#f59e0b;font-weight:700;">⚠️ Marginal</span>`;
+        wxTable += `<tr style="background:${isBad ? '#fef2f2' : isGood ? '#f0fdf4' : '#fffbeb'}"><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${wmo.icon} ${wmo.label}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMax)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMin)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.windMax > 40 ? 'color:#ef4444;font-weight:700;' : ''}">${Math.round(w.windMax)} km/h</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.precipSum > 5 ? 'color:#3b82f6;font-weight:700;' : ''}">${w.precipSum.toFixed(1)} mm</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${statusLabel}</td></tr>`;
       });
       wxTable += `</tbody></table>`;
 
+      // Build per-day narrative
+      const dailyNarrative = weatherData.map(w => {
+        const dateStr = new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+        return `<li><strong>${dateStr}:</strong> ${assessDay(w)}</li>`;
+      }).join('\n');
+
+      // Overall operational assessment
+      const overallAssessment: string[] = [];
+      if (goodDays.length === weatherData.length) {
+        overallAssessment.push(`All <strong>${weatherData.length}</strong> days in the reporting period had favorable conditions for drone operations.`);
+      } else {
+        overallAssessment.push(`Of <strong>${weatherData.length}</strong> reporting days: <strong style="color:#059669">${goodDays.length}</strong> flyable, <strong style="color:#f59e0b">${marginalDays.length}</strong> marginal, <strong style="color:#ef4444">${badDays.length}</strong> impacted.`);
+      }
+      if (avgHigh > 95) overallAssessment.push(`Average high of <strong>${Math.round(avgHigh)}°F</strong> indicates high heat conditions — crew hydration breaks and battery monitoring are essential.`);
+      if (avgLow < 40) overallAssessment.push(`Average low of <strong>${Math.round(avgLow)}°F</strong> — cold conditions may reduce battery capacity by 10-20%.`);
+      if (maxWind > 40 && maxWindDay) overallAssessment.push(`Peak wind speed of <strong>${Math.round(maxWind)} km/h</strong> on ${new Date(maxWindDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} exceeded safe flight thresholds.`);
+      if (totalPrecip > 20) overallAssessment.push(`Total precipitation of <strong>${totalPrecip.toFixed(1)} mm</strong> over the period — significant moisture may have affected data quality on wet days.`);
+      else if (totalPrecip < 1) overallAssessment.push(`Dry conditions throughout with only <strong>${totalPrecip.toFixed(1)} mm</strong> total precipitation — ideal for aerial survey work.`);
+      // Correlate with incidents
+      if (incidents.length > 0 && badDays.length > 0) {
+        overallAssessment.push(`Note: <strong>${incidents.length}</strong> incident(s) were reported during this period which included <strong>${badDays.length}</strong> weather-impacted day(s). Consider whether weather conditions contributed to operational disruptions.`);
+      }
+
       const wxLines = [
-        `<p><strong>Weather Summary (${weatherData.length} days):</strong></p>`,
-        `<ul>`,
-        `<li>Average High: <strong>${Math.round(avgHigh)}°F</strong> · Average Low: <strong>${Math.round(avgLow)}°F</strong></li>`,
-        `<li>Total Precipitation: <strong>${totalPrecip.toFixed(1)} mm</strong></li>`,
-        `<li>Max Wind Speed: <strong>${Math.round(maxWind)} km/h</strong></li>`,
-        badDays.length > 0 ? `<li style="color:#f59e0b"><strong>${badDays.length}</strong> day(s) with adverse conditions (heavy rain, high wind, or storms)</li>` : `<li>No significant adverse weather days</li>`,
-        `</ul>`,
+        `<p><strong>Weather Analysis — ${selectedMission.location || selectedMission.siteName} (${weatherData.length} days):</strong></p>`,
+        `<p style="font-size:13px;color:#334155;line-height:1.6;margin:8px 0;">${overallAssessment.join(' ')}</p>`,
+        `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" />`,
+        `<p><strong>Daily Conditions:</strong></p>`,
         wxTable,
-        pilotWeatherNotes.length > 0 ? `<p><strong>Pilot Weather Notes:</strong></p><ul>${pilotWeatherNotes.map(n => `<li>${n}</li>`).join('')}</ul>` : '',
+        `<p><strong>Day-by-Day Operational Assessment:</strong></p>`,
+        `<ul style="font-size:12px;color:#334155;line-height:1.8;">${dailyNarrative}</ul>`,
+        pilotWeatherNotes.length > 0 ? `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" /><p><strong>Pilot-Reported Weather Observations:</strong></p><ul>${pilotWeatherNotes.map(n => `<li>${n}</li>`).join('')}</ul>` : '',
       ].filter(Boolean);
       const wxSection: ReportSection = {
         id: uid(), type: 'text', title: 'Weather Impact',
