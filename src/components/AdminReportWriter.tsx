@@ -1222,6 +1222,14 @@ const MissionDataEditor: React.FC<{
       ? selectedDates.sort().map(d => new Date(d + 'T12:00:00').toLocaleDateString()).join(', ')
       : dateFrom && dateTo ? `${new Date(dateFrom + 'T12:00:00').toLocaleDateString()} – ${new Date(dateTo + 'T12:00:00').toLocaleDateString()}` : selectedMission.date;
 
+    // Detect primary work type from the data
+    const isLBDWork = totalBlocks > 0 && totalFlights === 0;
+    const isFlightWork = totalFlights > 0;
+    const isMixedWork = totalFlights > 0 && totalBlocks > 0;
+    const workLabel = isLBDWork ? 'LBD scanning' : isFlightWork ? 'drone flight operations' : 'field operations';
+    const workUnit = isLBDWork ? 'LBDs scanned' : isFlightWork ? 'flights conducted' : 'operations completed';
+    const weatherContext = isLBDWork ? 'field scanning conditions' : 'drone flight conditions';
+
     // ── 1. Auto-insert mission snapshot ──
     const filteredReports = getFilteredReports();
     const snapshot: MissionSnapshot = {
@@ -1273,10 +1281,12 @@ const MissionDataEditor: React.FC<{
       `<p><strong>Reporting Period:</strong> ${dateLabel}</p>`,
       `<p><strong>Mission Status:</strong> ${selectedMission.status || 'In Progress'}</p>`,
       `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" />`,
+      `<p><strong>Work Type:</strong> ${isLBDWork ? 'LBD Block Scanning' : isFlightWork ? (isMixedWork ? 'Drone Flights & LBD Scanning' : 'Drone Flight Operations') : 'Field Operations'}</p>`,
+      `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" />`,
       `<p><strong>Operations Summary:</strong></p>`,
       `<ul>`,
-      `<li><strong>${totalFlights}</strong> flights conducted</li>`,
-      `<li><strong>${totalBlocks}</strong> LBDs / blocks completed</li>`,
+      isFlightWork ? `<li><strong>${totalFlights}</strong> flights conducted</li>` : '',
+      totalBlocks > 0 ? `<li><strong>${totalBlocks}</strong> LBD block(s) scanned / completed</li>` : '',
       `<li><strong>${totalHours.toFixed(1)}</strong> total field hours logged</li>`,
       `<li><strong>${rpts.length}</strong> pilot reports submitted</li>`,
       `<li><strong>${selectedMission.personnelCount || pilotMap.size}</strong> personnel on site</li>`,
@@ -1356,7 +1366,7 @@ const MissionDataEditor: React.FC<{
         if (w.tempMin < 35) issues.push(`near-freezing conditions (low ${Math.round(w.tempMin)}°F) — battery capacity reduced, pre-flight warm-up needed`);
 
         if (issues.length === 0) {
-          return `${wmo.icon} <strong>${wmo.label}</strong> — ${Math.round(w.tempMax)}°F high, ${Math.round(w.windMax)} km/h wind. <span style="color:#059669">Favorable conditions for drone operations.</span>`;
+          return `${wmo.icon} <strong>${wmo.label}</strong> — ${Math.round(w.tempMax)}°F high, ${Math.round(w.windMax)} km/h wind. <span style="color:#059669">Favorable ${weatherContext}.</span>`;
         }
         return `${wmo.icon} <strong>${wmo.label}</strong> — ${Math.round(w.tempMax)}°F high, ${Math.round(w.windMax)} km/h wind. ${issues.join('; ')}.`;
       };
@@ -1382,15 +1392,15 @@ const MissionDataEditor: React.FC<{
       // Overall operational assessment
       const overallAssessment: string[] = [];
       if (goodDays.length === weatherData.length) {
-        overallAssessment.push(`All <strong>${weatherData.length}</strong> days in the reporting period had favorable conditions for drone operations.`);
+        overallAssessment.push(`All <strong>${weatherData.length}</strong> days in the reporting period had favorable ${weatherContext}.`);
       } else {
-        overallAssessment.push(`Of <strong>${weatherData.length}</strong> reporting days: <strong style="color:#059669">${goodDays.length}</strong> flyable, <strong style="color:#f59e0b">${marginalDays.length}</strong> marginal, <strong style="color:#ef4444">${badDays.length}</strong> impacted.`);
+        overallAssessment.push(`Of <strong>${weatherData.length}</strong> reporting days: <strong style="color:#059669">${goodDays.length}</strong> ${isLBDWork ? 'good' : 'flyable'}, <strong style="color:#f59e0b">${marginalDays.length}</strong> marginal, <strong style="color:#ef4444">${badDays.length}</strong> impacted.`);
       }
-      if (avgHigh > 95) overallAssessment.push(`Average high of <strong>${Math.round(avgHigh)}°F</strong> indicates high heat conditions — crew hydration breaks and battery monitoring are essential.`);
+      if (avgHigh > 95) overallAssessment.push(`Average high of <strong>${Math.round(avgHigh)}°F</strong> indicates high heat conditions — crew hydration breaks${isFlightWork ? ' and battery monitoring' : ''} are essential.`);
       if (avgLow < 40) overallAssessment.push(`Average low of <strong>${Math.round(avgLow)}°F</strong> — cold conditions may reduce battery capacity by 10-20%.`);
-      if (maxWind > 40 && maxWindDay) overallAssessment.push(`Peak wind speed of <strong>${Math.round(maxWind)} km/h</strong> on ${new Date(maxWindDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })} exceeded safe flight thresholds.`);
+      if (maxWind > 40 && maxWindDay) overallAssessment.push(`Peak wind speed of <strong>${Math.round(maxWind)} km/h</strong> on ${new Date(maxWindDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}${isFlightWork ? ' exceeded safe flight thresholds' : ' may have impacted field scanning visibility and crew comfort'}.`);
       if (totalPrecip > 20) overallAssessment.push(`Total precipitation of <strong>${totalPrecip.toFixed(1)} mm</strong> over the period — significant moisture may have affected data quality on wet days.`);
-      else if (totalPrecip < 1) overallAssessment.push(`Dry conditions throughout with only <strong>${totalPrecip.toFixed(1)} mm</strong> total precipitation — ideal for aerial survey work.`);
+      else if (totalPrecip < 1) overallAssessment.push(`Dry conditions throughout with only <strong>${totalPrecip.toFixed(1)} mm</strong> total precipitation — ideal for ${isLBDWork ? 'LBD scanning work' : 'aerial survey work'}.`);
       // Correlate with incidents
       if (incidents.length > 0 && badDays.length > 0) {
         overallAssessment.push(`Note: <strong>${incidents.length}</strong> incident(s) were reported during this period which included <strong>${badDays.length}</strong> weather-impacted day(s). Consider whether weather conditions contributed to operational disruptions.`);
@@ -1436,8 +1446,8 @@ const MissionDataEditor: React.FC<{
     } else {
       nextStepsContent = [
         `<ol>`,
-        `<li>Continue scheduled flight operations at ${selectedMission.siteName}</li>`,
-        `<li>Process and analyze data collected to date (${totalBlocks} blocks, ${totalHours.toFixed(1)} hours)</li>`,
+        `<li>Continue scheduled ${workLabel} at ${selectedMission.siteName}</li>`,
+        `<li>Process and analyze data collected to date (${totalBlocks > 0 ? totalBlocks + ' LBD block(s), ' : ''}${totalHours.toFixed(1)} hours)</li>`,
         incidents.length > 0 ? `<li>Address ${incidents.length} reported incident(s) before resuming operations</li>` : '',
         issues.filter(i => !i.isIncident).length > 0 ? `<li>Resolve ${issues.filter(i => !i.isIncident).length} outstanding field issue(s)</li>` : '',
         `<li>Update client on current progress and expected completion timeline</li>`,
