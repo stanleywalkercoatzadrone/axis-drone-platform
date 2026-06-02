@@ -21,7 +21,7 @@ import {
   LayoutTemplate, Bold, Italic, List, ListOrdered, Type, Table,
   ClipboardCheck, ShieldAlert, Image as ImageIcon, GripVertical,
   ChevronRight, Clock, Users, Mail, Download, Copy, Archive,
-  Radar, MapPin, CalendarDays, Plane, PlusCircle
+  Radar, MapPin, CalendarDays, Plane, PlusCircle, RefreshCw
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1291,6 +1291,26 @@ const MissionDataEditor: React.FC<{
           }}
         >
           <Radar size={12} /> Change Mission
+        </button>
+        <button
+          onClick={() => {
+            // Clear snapshot to force fresh data reload, but keep the missionId
+            const missionId = section.missionId || snap.id;
+            onUpdate({ missionSnapshot: undefined, missionId });
+            // Also clear all weather-related report sections so they regenerate
+            if (onAddSectionToReport) {
+              // Reset the auto-populate key so it re-runs
+              autoPopulateKeyRef.current = '';
+              weatherAttemptedRef.current = false;
+            }
+          }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', marginTop: 12,
+            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: 6, color: '#34d399', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+          }}
+        >
+          <RefreshCw size={12} /> Regenerate Report Data
         </button>
       </div>
     );
