@@ -317,17 +317,18 @@ async function fetchWeatherForRange(lat: number, lon: number, startDate: string,
       }
     }
 
-    // ── Forecast dates (today → future) via Open-Meteo Forecast API ──
+    // ── Forecast dates (today → future) via Apple WeatherKit (backend proxy) ──
     if (endDate >= today) {
       const fcastStart = startDate >= today ? startDate : today;
       const diffDays = Math.min(Math.ceil((new Date(endDate).getTime() - new Date(fcastStart).getTime()) / 86400000) + 1, 16);
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,uv_index_max` +
-        `&temperature_unit=fahrenheit&wind_speed_unit=kmh&timezone=auto&forecast_days=${diffDays}`;
-      console.log('[Weather] Fetching forecast:', fcastStart, '→', endDate, `(${diffDays} days)`);
-      const res = await fetch(url);
+      console.log('[Weather] Fetching forecast via Apple WeatherKit:', fcastStart, '→', endDate, `(${diffDays} days)`);
+      const res = await fetch(`/api/weather/forecast?lat=${lat}&lon=${lon}&forecast_days=${diffDays}`, {
+        headers: authHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
+        const provider = data._provider || 'unknown';
+        console.log(`[Weather] Forecast provider: ${provider}`);
         if (data.daily?.time) {
           data.daily.time.forEach((d: string, i: number) => {
             if (d >= fcastStart && d <= endDate && !results.find(r => r.date === d)) {
@@ -346,7 +347,32 @@ async function fetchWeatherForRange(lat: number, lon: number, startDate: string,
           });
         }
       } else {
-        console.warn('[Weather] Forecast API returned', res.status);
+        console.warn('[Weather] Forecast API returned', res.status, '— trying Open-Meteo direct fallback');
+        // Direct Open-Meteo fallback if backend is unreachable
+        const fallbackUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+          `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,uv_index_max` +
+          `&temperature_unit=fahrenheit&wind_speed_unit=kmh&timezone=auto&forecast_days=${diffDays}`;
+        const fbRes = await fetch(fallbackUrl);
+        if (fbRes.ok) {
+          const fbData = await fbRes.json();
+          if (fbData.daily?.time) {
+            fbData.daily.time.forEach((d: string, i: number) => {
+              if (d >= fcastStart && d <= endDate && !results.find(r => r.date === d)) {
+                results.push({
+                  date: d,
+                  tempMax: fbData.daily.temperature_2m_max[i],
+                  tempMin: fbData.daily.temperature_2m_min[i],
+                  precipSum: fbData.daily.precipitation_sum[i] ?? 0,
+                  windMax: fbData.daily.wind_speed_10m_max[i] ?? 0,
+                  weatherCode: fbData.daily.weather_code[i] ?? 0,
+                  precipProb: fbData.daily.precipitation_probability_max?.[i],
+                  uvMax: fbData.daily.uv_index_max?.[i],
+                  isForecast: true,
+                });
+              }
+            });
+          }
+        }
       }
     }
 
