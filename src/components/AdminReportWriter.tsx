@@ -1953,15 +1953,30 @@ export default function AdminReportWriter() {
 
       {/* ── Preview Modal ── */}
       {previewOpen && (() => {
-        const html = buildPrintHTML(report);
-        const blob = new Blob([html], { type: 'text/html' });
-        const blobUrl = URL.createObjectURL(blob);
+        const fullHTML = buildPrintHTML(report);
+        // Extract body content — use greedy match since body may contain nested tags
+        const bodyStart = fullHTML.indexOf('<body>');
+        const bodyEnd = fullHTML.lastIndexOf('</body>');
+        const bodyContent = bodyStart >= 0 && bodyEnd > bodyStart
+          ? fullHTML.substring(bodyStart + 6, bodyEnd)
+          : fullHTML;
+        // Extract style content and scope it to the preview container
+        const styleStart = fullHTML.indexOf('<style>');
+        const styleEnd = fullHTML.indexOf('</style>');
+        let scopedCSS = '';
+        if (styleStart >= 0 && styleEnd > styleStart) {
+          scopedCSS = fullHTML.substring(styleStart + 7, styleEnd)
+            // Replace only the "body {" selector (not occurrences inside values)
+            .replace(/^(\s*)body\s*\{/m, '$1.axrpt-preview-body {')
+            // Replace only the standalone "* {" universal selector at line start
+            .replace(/^(\s*)\*\s*\{/m, '$1.axrpt-preview-body, .axrpt-preview-body * {');
+        }
         return (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
-        }}>
+        }} onClick={e => { if (e.target === e.currentTarget) setPreviewOpen(false); }}>
           {/* Preview toolbar */}
           <div style={{
             width: '100%', maxWidth: 920, display: 'flex', justifyContent: 'space-between',
@@ -1980,7 +1995,7 @@ export default function AdminReportWriter() {
               }}>
                 <Printer size={12} /> Print / PDF
               </button>
-              <button onClick={() => { setPreviewOpen(false); URL.revokeObjectURL(blobUrl); }} style={{
+              <button onClick={() => setPreviewOpen(false)} style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 6, color: '#94a3b8', fontSize: 11, fontWeight: 700, cursor: 'pointer',
@@ -1991,14 +2006,19 @@ export default function AdminReportWriter() {
           </div>
           {/* Preview content */}
           <div style={{
-            flex: 1, width: '100%', maxWidth: 920, overflow: 'hidden',
-            borderRadius: '12px 12px 0 0', background: '#fff',
+            flex: 1, width: '100%', maxWidth: 920, overflowY: 'auto',
+            borderRadius: '12px 12px 0 0',
             boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
           }}>
-            <iframe
-              title="Report Preview"
-              src={blobUrl}
-              style={{ width: '100%', height: '100%', border: 'none' }}
+            <style dangerouslySetInnerHTML={{ __html: scopedCSS }} />
+            <div
+              className="axrpt-preview-body"
+              style={{
+                color: '#1e293b', background: '#fff', padding: 40, maxWidth: 900,
+                margin: '0 auto', fontFamily: "'Segoe UI', system-ui, Arial, sans-serif",
+                minHeight: '100%', boxSizing: 'border-box',
+              }}
+              dangerouslySetInnerHTML={{ __html: bodyContent }}
             />
           </div>
         </div>
