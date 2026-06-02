@@ -20,14 +20,17 @@ import {
   Edit3, Eye, ArrowLeft, Search, X, CheckCircle, AlertCircle, Loader2,
   LayoutTemplate, Bold, Italic, List, ListOrdered, Type, Table,
   ClipboardCheck, ShieldAlert, Image as ImageIcon, GripVertical,
-  ChevronRight, Clock, Users, Mail, Download, Copy, Archive
+  ChevronRight, Clock, Users, Mail, Download, Copy, Archive,
+  Radar, MapPin, CalendarDays, Plane, PlusCircle
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ReportSection {
   id: string;
-  type: 'header' | 'text' | 'findings' | 'recommendations' | 'cost_table' | 'compliance' | 'risk_matrix' | 'image' | 'appendix';
+  type: 'header' | 'text' | 'findings' | 'recommendations' | 'cost_table' | 'compliance' | 'risk_matrix' | 'image' | 'appendix' | 'mission_data';
+  missionId?: string;
+  missionSnapshot?: MissionSnapshot;
   title: string;
   content: string;
   // For findings
@@ -90,6 +93,33 @@ interface Recipient {
   email: string;
   name: string;
   type: 'client' | 'pilot' | 'user' | 'custom';
+}
+
+interface MissionSnapshot {
+  title: string;
+  type: string;
+  status: string;
+  siteName: string;
+  date: string;
+  location: string;
+  daysOnSite: number;
+  personnelCount: number;
+  fileCount: number;
+  pilotReports: PilotReportData[];
+}
+
+interface PilotReportData {
+  id: string;
+  date: string;
+  pilotName: string;
+  missionsFlown: number;
+  blocksCompleted: number;
+  hoursWorked: number;
+  issuesEncountered: string;
+  weatherConditionsReported: string;
+  isIncident: boolean;
+  incidentSeverity: string;
+  incidentSummary: string;
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────
@@ -162,19 +192,35 @@ const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const API = (path: string) => `/api/admin-reports${path}`;
 
-async function apiFetch(path: string, opts?: RequestInit) {
+function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function apiFetch(path: string, opts?: RequestInit) {
   const res = await fetch(API(path), {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(),
       ...(opts?.headers || {}),
     },
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
   return data;
+}
+
+async function fetchMissions(): Promise<any[]> {
+  const res = await fetch('/api/deployments', { headers: authHeaders() });
+  const data = await res.json();
+  return data.data || [];
+}
+
+async function fetchPilotReports(missionId: string): Promise<PilotReportData[]> {
+  const res = await fetch(`/api/deployments/${missionId}/pilot-reports`, { headers: authHeaders() });
+  const data = await res.json();
+  return data.data || [];
 }
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
@@ -245,6 +291,39 @@ function buildPrintHTML(report: AdminReport): string {
             return `<tr><td>${r.risk}</td><td>${r.likelihood}</td><td>${r.severity}</td><td style="font-weight:700;color:${score >= 16 ? '#ef4444' : score >= 9 ? '#f97316' : score >= 4 ? '#f59e0b' : '#22c55e'}">${score}</td><td>${r.mitigation}</td></tr>`;
           }).join('') +
           `</tbody></table>`;
+        break;
+      case 'mission_data':
+        if (sec.missionSnapshot) {
+          const ms = sec.missionSnapshot;
+          const tFlights = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.missionsFlown || 0), 0);
+          const tHours = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.hoursWorked || 0), 0);
+          const tBlocks = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + (r.blocksCompleted || 0), 0);
+          inner = `<h2 class="rpt-h2">${sec.title}</h2>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">
+              <div style="display:flex;gap:24px;margin-bottom:12px;font-size:12px;">
+                <div><strong>Site:</strong> ${ms.siteName}</div>
+                <div><strong>Date:</strong> ${ms.date}</div>
+                <div><strong>Location:</strong> ${ms.location || '—'}</div>
+                <div><strong>Days:</strong> ${ms.daysOnSite}</div>
+                <div><strong>Status:</strong> ${ms.status}</div>
+              </div>
+              <div style="display:flex;gap:20px;font-size:12px;color:#475569;">
+                <span><strong>${tFlights}</strong> flights</span>
+                <span><strong>${tBlocks}</strong> blocks</span>
+                <span><strong>${tHours.toFixed(1)}</strong> hours</span>
+                <span><strong>${ms.personnelCount}</strong> pilots</span>
+                <span><strong>${ms.pilotReports.length}</strong> reports</span>
+              </div>
+            </div>` +
+            (ms.pilotReports.length > 0 ?
+              `<table class="rpt-table"><thead><tr><th>Pilot</th><th>Date</th><th>Flights</th><th>Blocks</th><th>Hours</th><th>Issues</th></tr></thead><tbody>` +
+              ms.pilotReports.map((pr: PilotReportData) =>
+                `<tr><td>${pr.pilotName}</td><td>${pr.date ? new Date(pr.date).toLocaleDateString() : ''}</td><td>${pr.missionsFlown || 0}</td><td>${pr.blocksCompleted || 0}</td><td>${pr.hoursWorked || 0}</td><td>${pr.isIncident ? '⚠ ' + (pr.incidentSummary || 'Incident') : (pr.issuesEncountered || '—')}</td></tr>`
+              ).join('') +
+              `</tbody></table>` : '');
+        } else {
+          inner = `<h2 class="rpt-h2">${sec.title}</h2><p style="color:#94a3b8;font-size:12px;">No mission data selected</p>`;
+        }
         break;
       default:
         inner = `<h2 class="rpt-h2">${sec.title}</h2><div class="rpt-content">${sec.content}</div>`;
@@ -603,6 +682,7 @@ const SECTION_TYPE_LABELS: Record<string, { icon: React.ReactNode; label: string
   cost_table:      { icon: <Table size={13} />,          label: 'Cost Table',    color: '#38bdf8' },
   compliance:      { icon: <ClipboardCheck size={13} />, label: 'Compliance',    color: '#a78bfa' },
   risk_matrix:     { icon: <ShieldAlert size={13} />,    label: 'Risk Matrix',   color: '#f87171' },
+  mission_data:    { icon: <Radar size={13} />,          label: 'Mission Data',  color: '#06b6d4' },
   appendix:        { icon: <FileText size={13} />,       label: 'Appendix',      color: '#64748b' },
 };
 
@@ -707,12 +787,320 @@ const SendModal: React.FC<{
     </div>
   );
 };
+// ── Mission Data Editor ───────────────────────────────────────────────────────
+
+const MissionDataEditor: React.FC<{
+  section: ReportSection;
+  onUpdate: (patch: Partial<ReportSection>) => void;
+  onAddSectionToReport: (newSection: ReportSection) => void;
+}> = ({ section, onUpdate, onAddSectionToReport }) => {
+  const [missions, setMissions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedMission, setSelectedMission] = useState<any | null>(null);
+  const [pilotReports, setPilotReports] = useState<PilotReportData[]>([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+
+  // Load missions on mount
+  useEffect(() => {
+    setLoading(true);
+    fetchMissions().then(m => { setMissions(m); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  // Load pilot reports when a mission is selected
+  useEffect(() => {
+    if (!selectedMission) { setPilotReports([]); return; }
+    setLoadingReports(true);
+    fetchPilotReports(selectedMission.id)
+      .then(r => { setPilotReports(r); setLoadingReports(false); })
+      .catch(() => setLoadingReports(false));
+  }, [selectedMission?.id]);
+
+  // If the section already has a snapshot, show it
+  if (section.missionSnapshot) {
+    const snap = section.missionSnapshot;
+    const totalFlights = snap.pilotReports.reduce((s, r) => s + (r.missionsFlown || 0), 0);
+    const totalHours = snap.pilotReports.reduce((s, r) => s + (r.hoursWorked || 0), 0);
+    const totalBlocks = snap.pilotReports.reduce((s, r) => s + (r.blocksCompleted || 0), 0);
+    const incidents = snap.pilotReports.filter(r => r.isIncident);
+
+    return (
+      <div>
+        {/* Mission overview card */}
+        <div style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)', borderRadius: 10, padding: 16, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <Radar size={16} color="#06b6d4" />
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#f8fafc' }}>{snap.title}</span>
+            <span style={{
+              fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase',
+              background: snap.status === 'Completed' ? 'rgba(16,185,129,0.1)' : snap.status === 'Active' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)',
+              color: snap.status === 'Completed' ? '#10b981' : snap.status === 'Active' ? '#3b82f6' : '#f59e0b',
+              border: `1px solid ${snap.status === 'Completed' ? 'rgba(16,185,129,0.3)' : snap.status === 'Active' ? 'rgba(59,130,246,0.3)' : 'rgba(245,158,11,0.3)'}`,
+            }}>{snap.status}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+            {[
+              { label: 'Site', value: snap.siteName, icon: <MapPin size={11} /> },
+              { label: 'Date', value: snap.date, icon: <CalendarDays size={11} /> },
+              { label: 'Location', value: snap.location || '—', icon: <MapPin size={11} /> },
+              { label: 'Days', value: `${snap.daysOnSite}`, icon: <Clock size={11} /> },
+            ].map(f => (
+              <div key={f.label} style={{ background: 'rgba(15,23,42,0.5)', borderRadius: 8, padding: '8px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                  <span style={{ color: '#475569' }}>{f.icon}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>{f.label}</span>
+                </div>
+                <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 600 }}>{f.value}</span>
+              </div>
+            ))}
+          </div>
+          {/* Stats row */}
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#94a3b8' }}>
+            <span><strong style={{ color: '#38bdf8' }}>{totalFlights}</strong> flights</span>
+            <span><strong style={{ color: '#38bdf8' }}>{totalBlocks}</strong> blocks</span>
+            <span><strong style={{ color: '#38bdf8' }}>{totalHours.toFixed(1)}</strong> hours</span>
+            <span><strong style={{ color: '#38bdf8' }}>{snap.personnelCount}</strong> pilots</span>
+            <span><strong style={{ color: '#38bdf8' }}>{snap.pilotReports.length}</strong> reports</span>
+            {incidents.length > 0 && <span style={{ color: '#f87171' }}><strong>{incidents.length}</strong> incidents</span>}
+          </div>
+        </div>
+
+        {/* Pilot reports */}
+        {snap.pilotReports.length > 0 && (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+              Pilot Field Reports ({snap.pilotReports.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+              {snap.pilotReports.map(pr => (
+                <div key={pr.id} style={{
+                  background: pr.isIncident ? 'rgba(239,68,68,0.06)' : 'rgba(15,23,42,0.4)',
+                  border: `1px solid ${pr.isIncident ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                  borderRadius: 8, padding: 10,
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{pr.pilotName}</span>
+                      {pr.isIncident && <span style={{ fontSize: 9, fontWeight: 800, background: 'rgba(239,68,68,0.15)', color: '#f87171', padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase' }}>Incident</span>}
+                    </div>
+                    <span style={{ fontSize: 10, color: '#64748b' }}>{pr.date ? new Date(pr.date).toLocaleDateString() : ''}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#94a3b8' }}>
+                    {pr.missionsFlown > 0 && <span>{pr.missionsFlown} flights</span>}
+                    {pr.blocksCompleted > 0 && <span>{pr.blocksCompleted} blocks</span>}
+                    {pr.hoursWorked > 0 && <span>{pr.hoursWorked}h</span>}
+                    {pr.weatherConditionsReported && <span>🌤 {pr.weatherConditionsReported}</span>}
+                  </div>
+                  {pr.issuesEncountered && (
+                    <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4, fontStyle: 'italic' }}>⚠ {pr.issuesEncountered}</div>
+                  )}
+                  {pr.isIncident && pr.incidentSummary && (
+                    <div style={{ fontSize: 11, color: '#fca5a5', marginTop: 4 }}>🚨 {pr.incidentSummary}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Button to change mission */}
+        <button
+          onClick={() => onUpdate({ missionSnapshot: undefined, missionId: undefined })}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', marginTop: 12,
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 6, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          <Radar size={12} /> Change Mission
+        </button>
+      </div>
+    );
+  }
+
+  // Mission picker
+  const filtered = missions.filter(m =>
+    !search || m.title?.toLowerCase().includes(search.toLowerCase()) ||
+    m.siteName?.toLowerCase().includes(search.toLowerCase()) ||
+    m.location?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSelectMission = async (m: any) => {
+    if (selectedMission?.id === m.id) {
+      setSelectedMission(null);
+      return;
+    }
+    setSelectedMission(m);
+  };
+
+  const handleInsertMission = () => {
+    if (!selectedMission) return;
+    const snapshot: MissionSnapshot = {
+      title: selectedMission.title,
+      type: selectedMission.type,
+      status: selectedMission.status,
+      siteName: selectedMission.siteName,
+      date: selectedMission.date,
+      location: selectedMission.location || '',
+      daysOnSite: selectedMission.daysOnSite || 1,
+      personnelCount: selectedMission.personnelCount || 0,
+      fileCount: selectedMission.fileCount || 0,
+      pilotReports: pilotReports,
+    };
+    onUpdate({ missionId: selectedMission.id, missionSnapshot: snapshot, title: `Mission: ${selectedMission.title}` });
+  };
+
+  const handleAddPilotReportsAsFindings = () => {
+    if (!pilotReports.length) return;
+    const items: FindingItem[] = pilotReports
+      .filter(pr => pr.issuesEncountered || pr.isIncident)
+      .map(pr => ({
+        id: uid(),
+        severity: pr.isIncident ? 'critical' as const : 'medium' as const,
+        title: pr.isIncident ? `Incident: ${pr.incidentSummary || 'Reported by ' + pr.pilotName}` : `Issue: ${pr.issuesEncountered?.slice(0, 80) || 'Reported by ' + pr.pilotName}`,
+        description: [
+          pr.issuesEncountered,
+          pr.isIncident && pr.incidentSummary ? `Incident (${pr.incidentSeverity}): ${pr.incidentSummary}` : '',
+          `Reported by ${pr.pilotName} on ${pr.date ? new Date(pr.date).toLocaleDateString() : 'unknown date'}`,
+        ].filter(Boolean).join('\n'),
+        location: selectedMission?.siteName || '',
+      }));
+    if (items.length === 0) return;
+    const newSection: ReportSection = {
+      id: uid(), type: 'findings', title: `Field Issues — ${selectedMission?.title || 'Mission'}`,
+      content: '', items,
+    };
+    onAddSectionToReport(newSection);
+  };
+
+  return (
+    <div>
+      {/* Search */}
+      <div style={{ position: 'relative', marginBottom: 12 }}>
+        <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
+        <input
+          value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search missions by title, site, or location..."
+          style={{
+            width: '100%', padding: '8px 12px 8px 32px', background: 'rgba(15,23,42,0.5)',
+            border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#e2e8f0', fontSize: 12,
+          }}
+        />
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 20, color: '#475569' }}>
+          <Loader2 size={18} style={{ margin: '0 auto 8px', animation: 'spin 1s linear infinite' }} />
+          <p style={{ fontSize: 12 }}>Loading missions…</p>
+        </div>
+      ) : (
+        <div style={{ maxHeight: 350, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {filtered.length === 0 && (
+            <p style={{ fontSize: 12, color: '#475569', textAlign: 'center', padding: 16 }}>No missions found</p>
+          )}
+          {filtered.slice(0, 30).map(m => {
+            const isSelected = selectedMission?.id === m.id;
+            const stColor = m.status === 'Completed' ? '#10b981' : m.status === 'Active' ? '#3b82f6' : '#f59e0b';
+            return (
+              <div key={m.id}>
+                <div
+                  onClick={() => handleSelectMission(m)}
+                  style={{
+                    background: isSelected ? 'rgba(6,182,212,0.08)' : 'rgba(15,23,42,0.4)',
+                    border: `1px solid ${isSelected ? 'rgba(6,182,212,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                    borderRadius: 8, padding: '10px 14px', cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Radar size={13} color={isSelected ? '#06b6d4' : '#475569'} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{m.title}</span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 4,
+                        background: `${stColor}15`, color: stColor, textTransform: 'uppercase',
+                      }}>{m.status}</span>
+                    </div>
+                    <span style={{ fontSize: 10, color: '#64748b' }}>{m.date}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 14, fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                    <span>📍 {m.siteName}</span>
+                    {m.location && <span>{m.location}</span>}
+                    <span>{m.personnelCount || 0} pilots</span>
+                    <span>{m.fileCount || 0} files</span>
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                {isSelected && (
+                  <div style={{ marginTop: 6, marginLeft: 14, padding: '12px 14px', background: 'rgba(6,182,212,0.04)', border: '1px solid rgba(6,182,212,0.15)', borderRadius: 8 }}>
+                    {loadingReports ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 11 }}>
+                        <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading pilot reports…
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: '#06b6d4', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+                          Pilot Reports ({pilotReports.length})
+                        </div>
+                        {pilotReports.length === 0 ? (
+                          <p style={{ fontSize: 11, color: '#475569' }}>No pilot field reports for this mission.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto', marginBottom: 8 }}>
+                            {pilotReports.map(pr => (
+                              <div key={pr.id} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '6px 10px', background: 'rgba(15,23,42,0.4)', borderRadius: 6, fontSize: 11,
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{pr.pilotName}</span>
+                                  {pr.isIncident && <span style={{ color: '#f87171', fontSize: 9, fontWeight: 800 }}>⚠ INCIDENT</span>}
+                                </div>
+                                <div style={{ display: 'flex', gap: 10, color: '#64748b' }}>
+                                  {pr.missionsFlown > 0 && <span>{pr.missionsFlown} flights</span>}
+                                  {pr.hoursWorked > 0 && <span>{pr.hoursWorked}h</span>}
+                                  <span>{pr.date ? new Date(pr.date).toLocaleDateString() : ''}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Action buttons */}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <button onClick={handleInsertMission} style={{
+                            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                            background: 'linear-gradient(135deg, #06b6d4, #0891b2)', border: 'none',
+                            borderRadius: 8, color: '#fff', fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                          }}>
+                            <PlusCircle size={12} /> Add Mission to Report
+                          </button>
+                          {pilotReports.some(pr => pr.issuesEncountered || pr.isIncident) && (
+                            <button onClick={handleAddPilotReportsAsFindings} style={{
+                              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                              background: 'rgba(251,146,60,0.08)', border: '1px solid rgba(251,146,60,0.3)',
+                              borderRadius: 8, color: '#fb923c', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            }}>
+                              <AlertCircle size={12} /> Add Issues as Findings
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── Add Section Menu ──────────────────────────────────────────────────────────
 
 const AddSectionMenu: React.FC<{ onAdd: (type: ReportSection['type']) => void }> = ({ onAdd }) => {
   const [open, setOpen] = useState(false);
-  const types: ReportSection['type'][] = ['text', 'findings', 'recommendations', 'cost_table', 'compliance', 'risk_matrix', 'appendix'];
+  const types: ReportSection['type'][] = ['text', 'findings', 'recommendations', 'cost_table', 'compliance', 'risk_matrix', 'mission_data', 'appendix'];
 
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -892,6 +1280,11 @@ export default function AdminReportWriter() {
     if (type === 'risk_matrix') base.risks = [{ id: uid(), risk: '', likelihood: 3, severity: 3, mitigation: '' }];
     if (type === 'text' || type === 'recommendations' || type === 'appendix') base.content = '<p></p>';
     setReport(r => ({ ...r, sections: [...r.sections, base] }));
+  };
+
+  // Insert a fully-formed section (e.g. from Mission Data → "Add Issues as Findings")
+  const addSectionToReport = (newSection: ReportSection) => {
+    setReport(r => ({ ...r, sections: [...r.sections, newSection] }));
   };
 
   const moveSection = (id: string, dir: -1 | 1) => {
@@ -1158,6 +1551,13 @@ export default function AdminReportWriter() {
                   )}
                   {sec.type === 'risk_matrix' && (
                     <RiskMatrixEditor risks={sec.risks || []} onChange={risks => updateSection(sec.id, { risks })} />
+                  )}
+                  {sec.type === 'mission_data' && (
+                    <MissionDataEditor
+                      section={sec}
+                      onUpdate={patch => updateSection(sec.id, patch)}
+                      onAddSectionToReport={addSectionToReport}
+                    />
                   )}
                 </div>
               )}
