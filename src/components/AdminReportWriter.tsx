@@ -269,13 +269,39 @@ async function fetchPilotReports(missionId: string): Promise<PilotReportData[]> 
 // Geocode a location string to lat/lon using Open-Meteo geocoding API
 async function geocodeLocation(location: string): Promise<{ lat: number; lon: number } | null> {
   try {
-    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`);
+    // Try full location string first
+    const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=5&language=en&format=json`);
     if (res.ok) {
       const data = await res.json();
       if (data.results && data.results.length > 0) {
+        console.log(`[Geocode] Found "${location}" → ${data.results[0].latitude}, ${data.results[0].longitude}`);
         return { lat: data.results[0].latitude, lon: data.results[0].longitude };
       }
     }
+
+    // Fallback: if location has a comma (e.g. "Kerens, Texas"), search just the city name
+    // and filter results by state/country
+    if (location.includes(',')) {
+      const parts = location.split(',').map(s => s.trim());
+      const city = parts[0];
+      const region = parts.slice(1).join(' ').toLowerCase();
+      console.log(`[Geocode] Full search failed, trying city="${city}" with region filter="${region}"`);
+      const res2 = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=10&language=en&format=json`);
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2.results && data2.results.length > 0) {
+          // Try to match by state/admin1 name
+          const match = data2.results.find((r: any) =>
+            (r.admin1 && r.admin1.toLowerCase().includes(region)) ||
+            (r.country && r.country.toLowerCase().includes(region))
+          ) || data2.results[0]; // fallback to first result
+          console.log(`[Geocode] City match: "${match.name}, ${match.admin1}" → ${match.latitude}, ${match.longitude}`);
+          return { lat: match.latitude, lon: match.longitude };
+        }
+      }
+    }
+
+    console.warn(`[Geocode] Could not resolve "${location}"`);
   } catch (e) {
     console.error('[geocodeLocation]', e);
   }
