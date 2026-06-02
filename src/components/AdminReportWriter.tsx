@@ -137,6 +137,7 @@ interface WeatherDayData {
   weatherCode: number;
   precipProb?: number;
   uvMax?: number;
+  isForecast?: boolean;
 }
 
 const WMO_LABELS: Record<number, { label: string; icon: string }> = {
@@ -284,15 +285,17 @@ async function geocodeLocation(location: string): Promise<{ lat: number; lon: nu
 async function fetchWeatherForRange(lat: number, lon: number, startDate: string, endDate: string): Promise<WeatherDayData[]> {
   try {
     const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     const results: WeatherDayData[] = [];
 
-    // Historical dates (past)
+    // ── Historical dates (past → yesterday) via Open-Meteo Archive API ──
     if (startDate < today) {
-      const histEnd = endDate < today ? endDate : new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const histEnd = endDate < today ? endDate : yesterday;
       const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
         `&start_date=${startDate}&end_date=${histEnd}` +
         `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code` +
         `&temperature_unit=fahrenheit&wind_speed_unit=kmh&timezone=auto`;
+      console.log('[Weather] Fetching historical:', startDate, '→', histEnd);
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
@@ -302,20 +305,27 @@ async function fetchWeatherForRange(lat: number, lon: number, startDate: string,
               date: d,
               tempMax: data.daily.temperature_2m_max[i],
               tempMin: data.daily.temperature_2m_min[i],
-              precipSum: data.daily.precipitation_sum[i],
-              windMax: data.daily.wind_speed_10m_max[i],
-              weatherCode: data.daily.weather_code[i],
+              precipSum: data.daily.precipitation_sum[i] ?? 0,
+              windMax: data.daily.wind_speed_10m_max[i] ?? 0,
+              weatherCode: data.daily.weather_code[i] ?? 0,
+              isForecast: false,
             });
           });
         }
+      } else {
+        console.warn('[Weather] Archive API returned', res.status);
       }
     }
 
-    // Forecast dates (today+future)
+    // ── Forecast dates (today → future) via Open-Meteo Forecast API ──
     if (endDate >= today) {
       const fcastStart = startDate >= today ? startDate : today;
       const diffDays = Math.min(Math.ceil((new Date(endDate).getTime() - new Date(fcastStart).getTime()) / 86400000) + 1, 16);
-      const res = await fetch(`/api/weather/forecast?lat=${lat}&lon=${lon}&forecast_days=${diffDays}`, { headers: authHeaders() });
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code,precipitation_probability_max,uv_index_max` +
+        `&temperature_unit=fahrenheit&wind_speed_unit=kmh&timezone=auto&forecast_days=${diffDays}`;
+      console.log('[Weather] Fetching forecast:', fcastStart, '→', endDate, `(${diffDays} days)`);
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.daily?.time) {
@@ -325,18 +335,22 @@ async function fetchWeatherForRange(lat: number, lon: number, startDate: string,
                 date: d,
                 tempMax: data.daily.temperature_2m_max[i],
                 tempMin: data.daily.temperature_2m_min[i],
-                precipSum: data.daily.precipitation_sum[i],
-                windMax: data.daily.wind_speed_10m_max[i],
-                weatherCode: data.daily.weather_code[i],
+                precipSum: data.daily.precipitation_sum[i] ?? 0,
+                windMax: data.daily.wind_speed_10m_max[i] ?? 0,
+                weatherCode: data.daily.weather_code[i] ?? 0,
                 precipProb: data.daily.precipitation_probability_max?.[i],
                 uvMax: data.daily.uv_index_max?.[i],
+                isForecast: true,
               });
             }
           });
         }
+      } else {
+        console.warn('[Weather] Forecast API returned', res.status);
       }
     }
 
+    console.log(`[Weather] Total: ${results.length} days (${results.filter(r => !r.isForecast).length} historical, ${results.filter(r => r.isForecast).length} forecast)`);
     return results.sort((a, b) => a.date.localeCompare(b.date));
   } catch (e) {
     console.error('[fetchWeatherForRange]', e);
@@ -1387,19 +1401,24 @@ const MissionDataEditor: React.FC<{
       // Build daily weather table with per-day insights
       let wxTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 16px;">` +
         `<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Date</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Conditions</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">High</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Low</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Wind</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Precip</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Flight Status</th></tr></thead><tbody>`;
+      const histCount = weatherData.filter(w => !w.isForecast).length;
+      const fcastCount = weatherData.filter(w => w.isForecast).length;
       weatherData.forEach(w => {
         const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
         const isBad = badDays.includes(w);
         const isGood = goodDays.includes(w);
         const statusLabel = isBad ? `<span style="color:#ef4444;font-weight:700;">⛔ Impacted</span>` : isGood ? `<span style="color:#059669;font-weight:700;">✅ Flyable</span>` : `<span style="color:#f59e0b;font-weight:700;">⚠️ Marginal</span>`;
-        wxTable += `<tr style="background:${isBad ? '#fef2f2' : isGood ? '#f0fdf4' : '#fffbeb'}"><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${wmo.icon} ${wmo.label}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMax)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMin)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.windMax > 40 ? 'color:#ef4444;font-weight:700;' : ''}">${Math.round(w.windMax)} km/h</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.precipSum > 5 ? 'color:#3b82f6;font-weight:700;' : ''}">${w.precipSum.toFixed(1)} mm</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${statusLabel}</td></tr>`;
+        const fcastBadge = w.isForecast ? ` <span style="background:#dbeafe;color:#2563eb;font-size:9px;font-weight:800;padding:1px 5px;border-radius:3px;vertical-align:middle;">FORECAST</span>` : '';
+        const precipProbStr = w.isForecast && w.precipProb != null ? ` (${w.precipProb}%)` : '';
+        wxTable += `<tr style="background:${isBad ? '#fef2f2' : isGood ? '#f0fdf4' : w.isForecast ? '#f0f9ff' : '#fffbeb'}"><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;">${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}${fcastBadge}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${wmo.icon} ${wmo.label}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMax)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMin)}°F</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.windMax > 40 ? 'color:#ef4444;font-weight:700;' : ''}">${Math.round(w.windMax)} km/h</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.precipSum > 5 ? 'color:#3b82f6;font-weight:700;' : ''}">${w.precipSum.toFixed(1)} mm${precipProbStr}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${statusLabel}</td></tr>`;
       });
       wxTable += `</tbody></table>`;
 
       // Build per-day narrative
       const dailyNarrative = weatherData.map(w => {
         const dateStr = new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-        return `<li><strong>${dateStr}:</strong> ${assessDay(w)}</li>`;
+        const fcastNote = w.isForecast ? ' <em style="color:#2563eb;font-size:11px;">(forecast)</em>' : '';
+        return `<li><strong>${dateStr}${fcastNote}:</strong> ${assessDay(w)}</li>`;
       }).join('\n');
 
       // Overall operational assessment
@@ -1419,8 +1438,11 @@ const MissionDataEditor: React.FC<{
         overallAssessment.push(`Note: <strong>${incidents.length}</strong> incident(s) were reported during this period which included <strong>${badDays.length}</strong> weather-impacted day(s). Consider whether weather conditions contributed to operational disruptions.`);
       }
 
+      const dataSourceLabel = histCount > 0 && fcastCount > 0
+        ? `${histCount} historical + ${fcastCount} forecast`
+        : fcastCount > 0 ? `${fcastCount} day forecast` : `${histCount} days observed`;
       const wxLines = [
-        `<p><strong>Weather Analysis — ${selectedMission.location || selectedMission.siteName} (${weatherData.length} days):</strong></p>`,
+        `<p><strong>Weather Analysis — ${selectedMission.location || selectedMission.siteName} (${dataSourceLabel}):</strong></p>`,
         `<p style="font-size:13px;color:#334155;line-height:1.6;margin:8px 0;">${overallAssessment.join(' ')}</p>`,
         `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" />`,
         `<p><strong>Daily Conditions:</strong></p>`,
