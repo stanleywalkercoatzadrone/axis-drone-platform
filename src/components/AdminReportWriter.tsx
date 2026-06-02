@@ -1196,20 +1196,69 @@ const MissionDataEditor: React.FC<{
       ? selectedDates.sort().map(d => new Date(d + 'T12:00:00').toLocaleDateString()).join(', ')
       : dateFrom && dateTo ? `${new Date(dateFrom + 'T12:00:00').toLocaleDateString()} – ${new Date(dateTo + 'T12:00:00').toLocaleDateString()}` : selectedMission.date;
 
-    // Build summary text section
+    // ── 1. Auto-insert mission snapshot ──
+    const filteredReports = getFilteredReports();
+    const snapshot: MissionSnapshot = {
+      title: selectedMission.title,
+      type: selectedMission.type,
+      status: selectedMission.status,
+      siteName: selectedMission.siteName,
+      date: selectedMission.date,
+      location: selectedMission.location || '',
+      daysOnSite: selectedMission.daysOnSite || 1,
+      personnelCount: selectedMission.personnelCount || 0,
+      fileCount: selectedMission.fileCount || 0,
+      pilotReports: filteredReports,
+      weather: weatherData,
+      dateFrom: dateMode === 'range' ? dateFrom : (selectedDates.length ? [...selectedDates].sort()[0] : undefined),
+      dateTo: dateMode === 'range' ? dateTo : (selectedDates.length ? [...selectedDates].sort().pop() : undefined),
+      selectedDates: dateMode === 'individual' ? selectedDates : undefined,
+      latitude: selectedMission.latitude ?? selectedMission.lat,
+      longitude: selectedMission.longitude ?? selectedMission.lng ?? selectedMission.lon,
+    };
+    onUpdate({ missionId: selectedMission.id, missionSnapshot: snapshot, title: `Mission: ${selectedMission.title}` });
+
+    // ── 2. Build comprehensive Operations Summary ──
+    // Per-pilot breakdown
+    const pilotMap = new Map<string, { flights: number; blocks: number; hours: number; dates: string[] }>();
+    rpts.forEach(r => {
+      const key = r.pilotName || 'Unknown';
+      const prev = pilotMap.get(key) || { flights: 0, blocks: 0, hours: 0, dates: [] };
+      prev.flights += Number(r.missionsFlown || 0);
+      prev.blocks += Number(r.blocksCompleted || 0);
+      prev.hours += Number(r.hoursWorked || 0);
+      if (r.date) prev.dates.push(new Date(r.date).toLocaleDateString());
+      pilotMap.set(key, prev);
+    });
+    let pilotTable = '';
+    if (pilotMap.size > 0) {
+      pilotTable = `<p><strong>Pilot Activity Breakdown:</strong></p>` +
+        `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 16px;">` +
+        `<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Pilot</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Flights</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">LBDs</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Hours</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Dates Active</th></tr></thead><tbody>` +
+        Array.from(pilotMap.entries()).map(([name, d]) =>
+          `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${name}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${d.flights}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${d.blocks}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${d.hours.toFixed(1)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${d.dates.join(', ')}</td></tr>`
+        ).join('') +
+        `</tbody></table>`;
+    }
+
     const summaryLines = [
       `<p><strong>Mission:</strong> ${selectedMission.title}</p>`,
       `<p><strong>Site:</strong> ${selectedMission.siteName} · <strong>Location:</strong> ${selectedMission.location || '—'}</p>`,
       `<p><strong>Reporting Period:</strong> ${dateLabel}</p>`,
+      `<p><strong>Mission Status:</strong> ${selectedMission.status || 'In Progress'}</p>`,
+      `<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0;" />`,
       `<p><strong>Operations Summary:</strong></p>`,
       `<ul>`,
       `<li><strong>${totalFlights}</strong> flights conducted</li>`,
       `<li><strong>${totalBlocks}</strong> LBDs / blocks completed</li>`,
       `<li><strong>${totalHours.toFixed(1)}</strong> total field hours logged</li>`,
       `<li><strong>${rpts.length}</strong> pilot reports submitted</li>`,
-      `<li><strong>${selectedMission.personnelCount || 0}</strong> personnel on site</li>`,
+      `<li><strong>${selectedMission.personnelCount || pilotMap.size}</strong> personnel on site</li>`,
+      `<li><strong>${selectedMission.daysOnSite || 1}</strong> day(s) on site</li>`,
       incidents.length > 0 ? `<li style="color:#ef4444"><strong>${incidents.length}</strong> incident(s) reported</li>` : '',
+      issues.length > 0 && issues.length !== incidents.length ? `<li style="color:#f59e0b"><strong>${issues.filter(i => !i.isIncident).length}</strong> field issue(s) noted</li>` : '',
       `</ul>`,
+      pilotTable,
     ].filter(Boolean);
     const summarySection: ReportSection = {
       id: uid(), type: 'text', title: 'Operations Summary',
@@ -1217,7 +1266,7 @@ const MissionDataEditor: React.FC<{
     };
     onAddSectionToReport(summarySection);
 
-    // Build findings from issues/incidents
+    // ── 3. Build findings from issues/incidents ──
     if (issues.length > 0 || incidents.length > 0) {
       const findingItems: FindingItem[] = [
         ...incidents.map(pr => ({
@@ -1240,9 +1289,16 @@ const MissionDataEditor: React.FC<{
         content: '', items: findingItems,
       };
       onAddSectionToReport(findingsSection);
+    } else {
+      // No issues — replace placeholder with clean note
+      const noIssues: ReportSection = {
+        id: uid(), type: 'text', title: 'Field Issues & Incidents',
+        content: '<p>No field issues or incidents were reported during this reporting period. All operations proceeded as planned.</p>',
+      };
+      onAddSectionToReport(noIssues);
     }
 
-    // Build weather impact section if weather data available
+    // ── 4. Build weather impact section ──
     if (weatherData.length > 0) {
       const badDays = weatherData.filter(w => w.precipSum > 5 || w.windMax > 40 || [63, 65, 73, 75, 82, 95, 96, 99].includes(w.weatherCode));
       const avgHigh = weatherData.reduce((s, w) => s + w.tempMax, 0) / weatherData.length;
@@ -1250,6 +1306,16 @@ const MissionDataEditor: React.FC<{
       const totalPrecip = weatherData.reduce((s, w) => s + w.precipSum, 0);
       const maxWind = Math.max(...weatherData.map(w => w.windMax));
       const pilotWeatherNotes = rpts.filter(r => r.weatherConditionsReported).map(r => `${r.pilotName}: ${r.weatherConditionsReported}`);
+
+      // Build daily weather table
+      let wxTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0 16px;">` +
+        `<thead><tr style="background:#f1f5f9;"><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Date</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Conditions</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">High (°F)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Low (°F)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Wind (km/h)</th><th style="padding:6px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Precip (mm)</th></tr></thead><tbody>`;
+      weatherData.forEach(w => {
+        const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
+        const isBad = w.precipSum > 5 || w.windMax > 40;
+        wxTable += `<tr style="background:${isBad ? '#fffbeb' : 'transparent'}"><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${wmo.icon} ${wmo.label}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMax)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.tempMin)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">${Math.round(w.windMax)}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;${w.precipSum > 5 ? 'color:#3b82f6;font-weight:700;' : ''}">${w.precipSum.toFixed(1)}</td></tr>`;
+      });
+      wxTable += `</tbody></table>`;
 
       const wxLines = [
         `<p><strong>Weather Summary (${weatherData.length} days):</strong></p>`,
@@ -1259,11 +1325,8 @@ const MissionDataEditor: React.FC<{
         `<li>Max Wind Speed: <strong>${Math.round(maxWind)} km/h</strong></li>`,
         badDays.length > 0 ? `<li style="color:#f59e0b"><strong>${badDays.length}</strong> day(s) with adverse conditions (heavy rain, high wind, or storms)</li>` : `<li>No significant adverse weather days</li>`,
         `</ul>`,
+        wxTable,
         pilotWeatherNotes.length > 0 ? `<p><strong>Pilot Weather Notes:</strong></p><ul>${pilotWeatherNotes.map(n => `<li>${n}</li>`).join('')}</ul>` : '',
-        badDays.length > 0 ? `<p><strong>Impacted Days:</strong></p><ul>${badDays.map(w => {
-          const wmo = WMO_LABELS[w.weatherCode] || { label: 'Unknown', icon: '' };
-          return `<li>${new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}: ${wmo.icon} ${wmo.label} — ${Math.round(w.tempMax)}°F, ${w.precipSum.toFixed(1)}mm rain, ${Math.round(w.windMax)} km/h wind</li>`;
-        }).join('')}</ul>` : '',
       ].filter(Boolean);
       const wxSection: ReportSection = {
         id: uid(), type: 'text', title: 'Weather Impact',
@@ -1271,13 +1334,44 @@ const MissionDataEditor: React.FC<{
       };
       onAddSectionToReport(wxSection);
     } else {
-      // Even if no weather API data, replace the placeholder with a note
       const wxPlaceholder: ReportSection = {
         id: uid(), type: 'text', title: 'Weather Impact',
-        content: '<p>No weather data available for the selected date range. Weather data requires mission coordinates and valid dates.</p>',
+        content: '<p>Weather data was not available for this reporting period. To include weather data, ensure the mission has GPS coordinates and a valid date range is selected before generating the report.</p>',
       };
       onAddSectionToReport(wxPlaceholder);
     }
+
+    // ── 5. Update Next Steps with status-aware content ──
+    const status = (selectedMission.status || '').toLowerCase();
+    let nextStepsContent = '';
+    if (status === 'completed' || status === 'complete') {
+      nextStepsContent = [
+        `<ol>`,
+        `<li>Process and deliver all collected data to the client</li>`,
+        `<li>Finalize and archive all mission documentation</li>`,
+        totalBlocks > 0 ? `<li>Verify ${totalBlocks} completed LBD block(s) against project scope</li>` : '',
+        incidents.length > 0 ? `<li>Follow up on ${incidents.length} reported incident(s) and complete corrective action documentation</li>` : '',
+        `<li>Prepare final deliverable package for client review</li>`,
+        `<li>Schedule debrief with field team</li>`,
+        `</ol>`,
+      ].filter(Boolean).join('\n');
+    } else {
+      nextStepsContent = [
+        `<ol>`,
+        `<li>Continue scheduled flight operations at ${selectedMission.siteName}</li>`,
+        `<li>Process and analyze data collected to date (${totalBlocks} blocks, ${totalHours.toFixed(1)} hours)</li>`,
+        incidents.length > 0 ? `<li>Address ${incidents.length} reported incident(s) before resuming operations</li>` : '',
+        issues.filter(i => !i.isIncident).length > 0 ? `<li>Resolve ${issues.filter(i => !i.isIncident).length} outstanding field issue(s)</li>` : '',
+        `<li>Update client on current progress and expected completion timeline</li>`,
+        `<li>Review weather forecast for upcoming operational windows</li>`,
+        `</ol>`,
+      ].filter(Boolean).join('\n');
+    }
+    const nextStepsSection: ReportSection = {
+      id: uid(), type: 'recommendations', title: 'Next Steps & Schedule',
+      content: nextStepsContent,
+    };
+    onAddSectionToReport(nextStepsSection);
   };
 
   const handleAddPilotReportsAsFindings = () => {
