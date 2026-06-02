@@ -1030,6 +1030,7 @@ const MissionDataEditor: React.FC<{
         }
       } catch { /* */ }
       setLoadingWeather(false);
+      weatherAttemptedRef.current = true; // Mark that a real fetch was attempted
     };
 
     if (lat && lon) {
@@ -1039,16 +1040,26 @@ const MissionDataEditor: React.FC<{
       geocodeLocation(selectedMission.location).then(coords => {
         if (coords) {
           doFetch(coords.lat, coords.lon);
+        } else {
+          setLoadingWeather(false);
+          weatherAttemptedRef.current = true; // Geocode failed, mark attempted
         }
       });
+    } else {
+      weatherAttemptedRef.current = true; // No coords and no location, nothing to fetch
     }
   }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
   // Auto-populate report when data is ready (weather loaded + pilot reports loaded)
   const autoPopulateKeyRef = React.useRef('');
+  const weatherAttemptedRef = React.useRef(false);
   useEffect(() => {
     if (!selectedMission) return;
     if (loadingWeather || loadingReports) return;
+    // Don't run until weather has been fetched at least once AND dates are set
+    const hasDates = dateMode === 'individual' ? selectedDates.length > 0 : (dateFrom && dateTo);
+    if (!hasDates) return;
+    if (!weatherAttemptedRef.current) return;
     // Build a key from mission + dates + weather count to detect changes
     const key = `${selectedMission.id}|${dateMode}|${dateFrom}|${dateTo}|${selectedDates.join(',')}|${weatherData.length}|${pilotReports.length}`;
     if (autoPopulateKeyRef.current === key) return; // already ran for this combo
