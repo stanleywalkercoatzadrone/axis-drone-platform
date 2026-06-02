@@ -2122,7 +2122,40 @@ export default function AdminReportWriter() {
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
             {saving ? 'Saving…' : 'Save Draft'}
           </button>
-          <button onClick={() => setPreviewOpen(true)} style={{
+          <button onClick={() => {
+            // Strip template placeholder sections before preview
+            const templatePatterns = [
+              'Weather data will be auto-populated',
+              'Flights conducted and areas covered',
+              'Data collected and processed',
+              'Key observations from the field',
+              'Continue scheduled flight operations',
+              'Process and analyze collected data',
+              'Address any identified issues',
+            ];
+            const hasTemplateContent = report.sections.some(s =>
+              templatePatterns.some(p => (s.content || '').includes(p))
+            );
+            if (hasTemplateContent) {
+              // Auto-clean: remove sections that are pure template text
+              setReport(r => ({
+                ...r,
+                sections: r.sections.filter(s => {
+                  const content = s.content || '';
+                  // Remove "Summary of Work Completed" if it's still template
+                  if (s.title === 'Summary of Work Completed' && content.includes('Flights conducted and areas covered')) return false;
+                  // Remove "Notable Findings" if it's empty template
+                  if (s.title === 'Notable Findings' && (!s.items || s.items.every((f: any) => !f.title))) return false;
+                  // Clean "Weather Impact" template placeholder
+                  if (s.title === 'Weather Impact' && content.includes('Weather data will be auto-populated')) return false;
+                  // Clean "Next Steps" template
+                  if (s.title === 'Next Steps & Schedule' && content.includes('Continue scheduled flight operations') && content.includes('Process and analyze collected data')) return false;
+                  return true;
+                }),
+              }));
+            }
+            setPreviewOpen(true);
+          }} style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
             background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
             borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 700, cursor: 'pointer',
