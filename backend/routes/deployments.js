@@ -33,6 +33,84 @@ router.use(protect);
 
 // Deployment routes
 router.get('/', getAllDeployments);
+
+// One-shot: fix all missions with missing coordinates
+router.post('/fix-coordinates', authorize('admin'), async (req, res) => {
+    try {
+        const result = await _expQuery(
+            `SELECT id, title, site_name, location FROM deployments 
+             WHERE (latitude IS NULL OR longitude IS NULL) 
+             AND (location IS NOT NULL AND location != '')
+             ORDER BY date DESC`
+        );
+        const toFix = result.rows;
+        if (toFix.length === 0) {
+            return res.json({ success: true, message: 'All missions already have coordinates', fixed: 0 });
+        }
+
+        // Known locations lookup (instant, no API needed)
+        const KNOWN = {
+            'kerens': { lat: 32.1332, lon: -96.2278 },
+            'dallas': { lat: 32.7767, lon: -96.7970 },
+            'houston': { lat: 29.7604, lon: -95.3698 },
+            'austin': { lat: 30.2672, lon: -97.7431 },
+            'san antonio': { lat: 29.4241, lon: -98.4936 },
+            'fort worth': { lat: 32.7555, lon: -97.3308 },
+            'el paso': { lat: 31.7619, lon: -106.4850 },
+            'waco': { lat: 31.5493, lon: -97.1467 },
+            'corpus christi': { lat: 27.8006, lon: -97.3964 },
+            'mexico city': { lat: 19.4326, lon: -99.1332 },
+            'ciudad de mexico': { lat: 19.4326, lon: -99.1332 },
+            'monterrey': { lat: 25.6866, lon: -100.3161 },
+            'guadalajara': { lat: 20.6597, lon: -103.3496 },
+        };
+
+        const fixed = [];
+        for (const row of toFix) {
+            const loc = (row.location || row.site_name || '').trim();
+            const city = loc.split(',')[0].trim().toLowerCase();
+            let coords = KNOWN[city] || KNOWN[loc.toLowerCase()];
+
+            // Fallback: geocode via Open-Meteo
+            if (!coords && city.length >= 2) {
+                try {
+                    const geoRes = await globalThis.fetch(
+                        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=5&language=en&format=json`
+                    );
+                    const geoData = await geoRes.json();
+                    if (geoData.results && geoData.results.length > 0) {
+                        // Try to match state/region from the location string
+                        const region = loc.split(',').slice(1).join(' ').trim().toLowerCase();
+                        const match = region 
+                            ? geoData.results.find(r => 
+                                (r.admin1 && r.admin1.toLowerCase().includes(region)) ||
+                                (r.country && r.country.toLowerCase().includes(region))
+                              ) || geoData.results[0]
+                            : geoData.results[0];
+                        coords = { lat: match.latitude, lon: match.longitude };
+                    }
+                } catch (e) {
+                    console.warn(`[fix-coordinates] Geocode failed for "${city}":`, e.message);
+                }
+            }
+
+            if (coords) {
+                await _expQuery(
+                    `UPDATE deployments SET latitude = $1, longitude = $2 WHERE id = $3`,
+                    [coords.lat, coords.lon, row.id]
+                );
+                fixed.push({ id: row.id, title: row.title, location: loc, lat: coords.lat, lon: coords.lon });
+                console.log(`[fix-coordinates] Fixed "${row.title}" (${loc}) → ${coords.lat}, ${coords.lon}`);
+            }
+        }
+
+        res.json({ success: true, total: toFix.length, fixed: fixed.length, details: fixed });
+    } catch (err) {
+        console.error('[fix-coordinates]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 router.get('/:id', checkScopedPermission('missions:read'), getDeploymentById);
 router.post('/', authorize('admin'), preventPilotMissionMutation, createDeployment);
 router.put('/:id', preventPilotMissionMutation, checkScopedPermission('missions:update_status'), updateDeployment);
