@@ -1108,10 +1108,10 @@ const MissionDataEditor: React.FC<{
       weatherAttemptedRef.current = true;
     };
 
-    const hasCoords = lat != null && lon != null && lat !== 0 && lon !== 0;
-    console.log(`[Weather] Mission "${selectedMission.title}" coords: lat=${lat}, lon=${lon}, hasCoords=${hasCoords}, location="${selectedMission.location}"`);
+    const coordsReady = lat != null && lon != null && Number(lat) !== 0 && Number(lon) !== 0;
+    console.log(`[Weather] Mission "${selectedMission.title}" coords: lat=${lat}, lon=${lon}, coordsReady=${coordsReady}, location="${selectedMission.location}"`);
 
-    if (hasCoords) {
+    if (coordsReady) {
       doFetch(Number(lat), Number(lon));
     } else if (selectedMission.location) {
       console.log(`[Weather] No coords, geocoding "${selectedMission.location}"...`);
