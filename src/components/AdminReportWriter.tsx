@@ -2494,7 +2494,99 @@ export default function AdminReportWriter() {
                     sec.type === 'header' ? (
                       <p style={{ fontSize: 12, color: '#64748b' }}>This section auto-generates a header from the report title and metadata.</p>
                     ) : (
-                      <RichEditor html={sec.content} onChange={html => updateSection(sec.id, { content: html })} />
+                      <>
+                        {sec.title === 'Weather Impact' && (sec.content || '').includes('not available') && (
+                          <button
+                            onClick={async () => {
+                              // Find the mission_data section to get mission info
+                              const mdSec = report.sections.find(s => s.type === 'mission_data');
+                              const snap = mdSec?.missionSnapshot;
+                              if (!snap) {
+                                alert('No mission data found. Please ensure the report has a Mission Data section.');
+                                return;
+                              }
+
+                              // Get coordinates
+                              let lat = snap.latitude || snap.lat;
+                              let lon = snap.longitude || snap.lng || snap.lon;
+                              const KNOWN: Record<string, { lat: number; lon: number }> = {
+                                'kerens': { lat: 32.1332, lon: -96.2278 },
+                                'kerens, texas': { lat: 32.1332, lon: -96.2278 },
+                                'dallas': { lat: 32.7767, lon: -96.7970 },
+                                'dallas, texas': { lat: 32.7767, lon: -96.7970 },
+                                'houston': { lat: 29.7604, lon: -95.3698 },
+                                'houston, texas': { lat: 29.7604, lon: -95.3698 },
+                                'austin': { lat: 30.2672, lon: -97.7431 },
+                                'austin, texas': { lat: 30.2672, lon: -97.7431 },
+                              };
+                              if (!lat || !lon) {
+                                const locKey = (snap.location || '').toLowerCase().trim();
+                                const city = locKey.split(',')[0].trim();
+                                const known = KNOWN[locKey] || KNOWN[city];
+                                if (known) { lat = known.lat; lon = known.lon; }
+                                else {
+                                  const geoCoords = await geocodeLocation(snap.location || snap.siteName || '');
+                                  if (geoCoords) { lat = geoCoords.lat; lon = geoCoords.lon; }
+                                }
+                              }
+                              if (!lat || !lon) {
+                                alert(`Could not resolve coordinates for "${snap.location}". Please add GPS coordinates to the mission.`);
+                                return;
+                              }
+
+                              // Calculate date range
+                              const startDate = snap.dateFrom || snap.date?.split('T')[0];
+                              const days = snap.daysOnSite || 7;
+                              const endDate = snap.dateTo || new Date(new Date(startDate).getTime() + days * 86400000).toISOString().split('T')[0];
+
+                              try {
+                                const w = await fetchWeatherForRange(lat, lon, startDate, endDate);
+                                if (w.length > 0) {
+                                  // Build weather content
+                                  const wxTable = `<table style="width:100%;border-collapse:collapse;font-size:12px;margin:8px 0;">
+                                    <thead><tr style="border-bottom:2px solid #e2e8f0;">
+                                      <th style="padding:6px 8px;text-align:left;">Date</th>
+                                      <th style="padding:6px 8px;text-align:left;">Conditions</th>
+                                      <th style="padding:6px 8px;text-align:right;">High</th>
+                                      <th style="padding:6px 8px;text-align:right;">Low</th>
+                                      <th style="padding:6px 8px;text-align:right;">Wind</th>
+                                      <th style="padding:6px 8px;text-align:right;">Precip</th>
+                                    </tr></thead><tbody>` +
+                                    w.map(d => {
+                                      const wmo = WMO_LABELS[d.weatherCode] || { label: 'Unknown', icon: '❓' };
+                                      return `<tr style="border-bottom:1px solid #f1f5f9;">
+                                        <td style="padding:5px 8px;">${new Date(d.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+                                        <td style="padding:5px 8px;">${wmo.icon} ${wmo.label}</td>
+                                        <td style="padding:5px 8px;text-align:right;color:#ef4444;font-weight:600;">${Math.round(d.tempMax)}°F</td>
+                                        <td style="padding:5px 8px;text-align:right;color:#3b82f6;font-weight:600;">${Math.round(d.tempMin)}°F</td>
+                                        <td style="padding:5px 8px;text-align:right;">${Math.round(d.windMax)} km/h</td>
+                                        <td style="padding:5px 8px;text-align:right;">${d.precipSum.toFixed(1)} mm</td>
+                                      </tr>`;
+                                    }).join('') + '</tbody></table>';
+
+                                  updateSection(sec.id, {
+                                    content: `<p><strong>Weather Analysis — ${snap.location || snap.siteName} (${w.length} days):</strong></p>${wxTable}`,
+                                  });
+                                } else {
+                                  alert('Weather API returned no data for the date range. The archive API may not have data for these dates yet.');
+                                }
+                              } catch (err) {
+                                console.error('[RefreshWeather]', err);
+                                alert('Failed to fetch weather: ' + (err as Error).message);
+                              }
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', marginBottom: 10,
+                              background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,182,212,0.15))',
+                              border: '1px solid rgba(16,185,129,0.3)',
+                              borderRadius: 8, color: '#34d399', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                            }}
+                          >
+                            <RefreshCw size={13} /> Refresh Weather Data
+                          </button>
+                        )}
+                        <RichEditor html={sec.content} onChange={html => updateSection(sec.id, { content: html })} />
+                      </>
                     )
                   )}
                   {sec.type === 'findings' && (
