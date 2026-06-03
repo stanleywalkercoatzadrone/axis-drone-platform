@@ -1281,37 +1281,159 @@ const MissionDataEditor: React.FC<{
           </div>
         )}
 
-        {/* Button to change mission */}
-        <button
-          onClick={() => onUpdate({ missionSnapshot: undefined, missionId: undefined })}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', marginTop: 12,
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          <Radar size={12} /> Change Mission
-        </button>
-        <button
-          onClick={() => {
-            // Clear snapshot to force fresh data reload, but keep the missionId
-            const missionId = section.missionId || snap.id;
-            onUpdate({ missionSnapshot: undefined, missionId });
-            // Also clear all weather-related report sections so they regenerate
-            if (onAddSectionToReport) {
-              // Reset the auto-populate key so it re-runs
-              autoPopulateKeyRef.current = '';
-              weatherAttemptedRef.current = false;
-            }
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', marginTop: 12,
-            background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
-            borderRadius: 6, color: '#34d399', fontSize: 11, fontWeight: 700, cursor: 'pointer',
-          }}
-        >
-          <RefreshCw size={12} /> Regenerate Report Data
-        </button>
+        {/* Date Controls — editable even in snapshot mode */}
+        <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(15,23,42,0.5)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              📅 Reporting Period
+            </div>
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(15,23,42,0.6)', borderRadius: 6, padding: 2 }}>
+              {(['range', 'individual'] as const).map(mode => (
+                <button key={mode} onClick={() => setDateMode(mode)} style={{
+                  padding: '3px 10px', borderRadius: 4, border: 'none', fontSize: 9, fontWeight: 700, cursor: 'pointer',
+                  background: dateMode === mode ? 'rgba(6,182,212,0.15)' : 'transparent',
+                  color: dateMode === mode ? '#06b6d4' : '#475569',
+                }}>
+                  {mode === 'range' ? 'Date Range' : 'Select Dates'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {dateMode === 'range' ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+              <span style={{ color: '#475569', fontSize: 11, fontWeight: 600 }}>to</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+                <input type="date" value={addDateValue}
+                  onChange={e => setAddDateValue(e.target.value)}
+                  style={{ flex: 1, padding: '5px 8px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#e2e8f0', fontSize: 11 }} />
+                <button
+                  onClick={() => {
+                    if (addDateValue && !selectedDates.includes(addDateValue)) {
+                      setSelectedDates(d => [...d, addDateValue].sort());
+                    }
+                    setAddDateValue('');
+                  }}
+                  disabled={!addDateValue}
+                  style={{
+                    padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 10, fontWeight: 800, cursor: addDateValue ? 'pointer' : 'default',
+                    background: addDateValue ? 'rgba(6,182,212,0.15)' : 'rgba(255,255,255,0.04)',
+                    color: addDateValue ? '#06b6d4' : '#475569',
+                  }}
+                >+ Add</button>
+                <span style={{ fontSize: 10, color: '#475569' }}>{selectedDates.length} selected</span>
+              </div>
+              {selectedDates.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {selectedDates.map(d => (
+                    <span key={d} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
+                      background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.2)',
+                      borderRadius: 4, fontSize: 10, color: '#06b6d4', fontWeight: 600,
+                    }}>
+                      {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      <button onClick={() => setSelectedDates(ds => ds.filter(x => x !== d))}
+                        style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>
+                    </span>
+                  ))}
+                  <button onClick={() => setSelectedDates([])}
+                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 9, cursor: 'pointer', fontWeight: 600 }}>Clear all</button>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Weather status & fetch */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {loadingWeather && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#f59e0b', fontSize: 11 }}>
+                <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Fetching weather…
+              </div>
+            )}
+            {!loadingWeather && weatherData.length > 0 && (
+              <div style={{ fontSize: 10, color: '#10b981', fontWeight: 700 }}>✅ {weatherData.length} day(s) of weather loaded</div>
+            )}
+            {!loadingWeather && weatherData.length === 0 && (dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0) && (
+              <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>⚠ No weather data for selected dates</div>
+            )}
+            <button
+              onClick={handleAutoPopulateReport}
+              disabled={loadingWeather || !(dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+                background: loadingWeather ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none',
+                borderRadius: 6, color: '#fff', fontSize: 10, fontWeight: 800, cursor: loadingWeather ? 'wait' : 'pointer',
+                opacity: loadingWeather ? 0.6 : 1,
+              }}
+            >
+              <RefreshCw size={11} /> Regenerate All Sections
+            </button>
+          </div>
+        </div>
+
+        {/* Weather preview cards */}
+        {!loadingWeather && weatherData.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
+              🌤 Weather ({weatherData.length} days)
+            </div>
+            <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 4 }}>
+              {weatherData.slice(0, 14).map(w => {
+                const wmo = WMO_LABELS[w.weatherCode] || { label: '?', icon: '❓' };
+                const isBad = w.precipSum > 5 || w.windMax > 40 || [65, 75, 82, 95, 96, 99].includes(w.weatherCode);
+                return (
+                  <div key={w.date} style={{
+                    minWidth: 56, padding: '4px 6px', borderRadius: 6, textAlign: 'center', fontSize: 9,
+                    background: isBad ? 'rgba(245,158,11,0.08)' : 'rgba(15,23,42,0.4)',
+                    border: `1px solid ${isBad ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.04)'}`,
+                  }}>
+                    <div style={{ color: '#64748b', fontWeight: 600 }}>{new Date(w.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    <div style={{ fontSize: 14, margin: '2px 0' }}>{wmo.icon}</div>
+                    <div style={{ color: '#94a3b8' }}>{Math.round(w.tempMax)}°/{Math.round(w.tempMin)}°</div>
+                    {w.precipSum > 0.1 && <div style={{ color: '#3b82f6' }}>{w.precipSum.toFixed(1)}mm</div>}
+                    {w.windMax > 30 && <div style={{ color: '#f59e0b' }}>{Math.round(w.windMax)}km/h</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => onUpdate({ missionSnapshot: undefined, missionId: undefined })}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 6, color: '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <Radar size={12} /> Change Mission
+          </button>
+          <button
+            onClick={() => {
+              const missionId = section.missionId || snap.id;
+              onUpdate({ missionSnapshot: undefined, missionId });
+              if (onAddSectionToReport) {
+                autoPopulateKeyRef.current = '';
+                weatherAttemptedRef.current = false;
+              }
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)',
+              borderRadius: 6, color: '#34d399', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            <RefreshCw size={12} /> Regenerate Report Data
+          </button>
+        </div>
       </div>
     );
   }
