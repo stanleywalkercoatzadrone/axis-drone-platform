@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Axis by CoatzaDrone | Enterprise Operations Management</title>
+  <meta name="description" content="Axis by CoatzaDrone — Enterprise operations management platform with embedded AI analysis for aerial and ground operations.">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Axis">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-180.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Leaflet CSS loaded by npm package, not CDN -->
+  <style>
+    /* Dark background prevents white flash before React mounts */
+    html, body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0f172a;
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+    #root {
+      height: 100%;
+      background-color: #0f172a;
+    }
+
+    @media print {
+
+      aside,
+      header,
+      .no-print {
+        display: none !important;
+      }
+
+      main {
+        margin-left: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+      }
+
+      .report-container {
+        border: none !important;
+        box-shadow: none !important;
+        min-height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      .report-header {
+        padding: 40px !important;
+      }
+
+      .report-section {
+        page-break-inside: avoid;
+      }
+
+      body {
+        background: white !important;
+      }
+
+      #root>div {
+        display: block !important;
+      }
+    }
+  </style>
+  <!-- Vite handles all module resolution — no importmap needed -->
+  <script type="module" crossorigin src="/assets/main-DDscriAi.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-DqLj6jO9.css">
+</head>
+
+<body>
+  <div id="root"></div>
+  <!-- Entry point for Vite build -->
+  <!-- PWA Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then(reg => console.log('[Axis PWA] Service worker registered:', reg.scope))
+          .catch(err => console.warn('[Axis PWA] SW registration failed:', err));
+      });
+    }
+  </script>
+</body>
+
+</html>
