@@ -446,10 +446,10 @@ function buildPrintHTML(report: AdminReport): string {
       case 'findings':
         inner = `<h2 class="rpt-h2">${sec.title}</h2>` +
           (sec.items || []).filter(f => f.title).map(f =>
-            `<div class="finding-card sev-${f.severity}">
-              <span class="sev-badge">${f.severity.toUpperCase()}</span>
+            `<div class="finding-card sev-${f.severity || 'low'}">
+              <span class="sev-badge">${(f.severity || 'low').toUpperCase()}</span>
               <strong>${f.title}</strong>${f.location ? ` — <em>${f.location}</em>` : ''}
-              <p>${f.description}</p>
+              <p>${f.description || ''}</p>
             </div>`
           ).join('');
         break;
@@ -482,9 +482,10 @@ function buildPrintHTML(report: AdminReport): string {
       case 'mission_data':
         if (sec.missionSnapshot) {
           const ms = sec.missionSnapshot;
-          const tFlights = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.missionsFlown || 0), 0);
-          const tHours = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.hoursWorked || 0), 0);
-          const tBlocks = ms.pilotReports.reduce((s: number, r: PilotReportData) => s + Number(r.blocksCompleted || 0), 0);
+          const msReports = ms.pilotReports || [];
+          const tFlights = msReports.reduce((s: number, r: PilotReportData) => s + Number(r.missionsFlown || 0), 0);
+          const tHours = msReports.reduce((s: number, r: PilotReportData) => s + Number(r.hoursWorked || 0), 0);
+          const tBlocks = msReports.reduce((s: number, r: PilotReportData) => s + Number(r.blocksCompleted || 0), 0);
           inner = `<h2 class="rpt-h2">${sec.title}</h2>
             <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;">
               <div style="display:flex;gap:24px;margin-bottom:12px;font-size:12px;">
@@ -498,13 +499,13 @@ function buildPrintHTML(report: AdminReport): string {
                 <span><strong>${tFlights}</strong> flights</span>
                 <span><strong>${tBlocks}</strong> blocks</span>
                 <span><strong>${tHours.toFixed(1)}</strong> hours</span>
-                <span><strong>${ms.personnelCount}</strong> pilots</span>
-                <span><strong>${ms.pilotReports.length}</strong> reports</span>
+                <span><strong>${ms.personnelCount || 0}</strong> pilots</span>
+                <span><strong>${msReports.length}</strong> reports</span>
               </div>
             </div>` +
-            (ms.pilotReports.length > 0 ?
+            (msReports.length > 0 ?
               `<table class="rpt-table"><thead><tr><th>Pilot</th><th>Date</th><th>Flights</th><th>Blocks</th><th>Hours</th><th>Issues</th></tr></thead><tbody>` +
-              ms.pilotReports.map((pr: PilotReportData) =>
+              msReports.map((pr: PilotReportData) =>
                 `<tr><td>${pr.pilotName}</td><td>${pr.date ? new Date(pr.date).toLocaleDateString() : ''}</td><td>${pr.missionsFlown || 0}</td><td>${pr.blocksCompleted || 0}</td><td>${pr.hoursWorked || 0}</td><td>${pr.isIncident ? '⚠ ' + (pr.incidentSummary || 'Incident') : (pr.issuesEncountered || '—')}</td></tr>`
               ).join('') +
               `</tbody></table>` : '') +
@@ -1156,10 +1157,11 @@ const MissionDataEditor: React.FC<{
   // If the section already has a snapshot, show it
   if (section.missionSnapshot) {
     const snap = section.missionSnapshot;
-    const totalFlights = snap.pilotReports.reduce((s, r) => s + Number(r.missionsFlown || 0), 0);
-    const totalHours = snap.pilotReports.reduce((s, r) => s + Number(r.hoursWorked || 0), 0);
-    const totalBlocks = snap.pilotReports.reduce((s, r) => s + Number(r.blocksCompleted || 0), 0);
-    const incidents = snap.pilotReports.filter(r => r.isIncident);
+    const snapReports = snap.pilotReports || [];
+    const totalFlights = snapReports.reduce((s, r) => s + Number(r.missionsFlown || 0), 0);
+    const totalHours = snapReports.reduce((s, r) => s + Number(r.hoursWorked || 0), 0);
+    const totalBlocks = snapReports.reduce((s, r) => s + Number(r.blocksCompleted || 0), 0);
+    const incidents = snapReports.filter(r => r.isIncident);
 
     return (
       <div>
@@ -1197,16 +1199,16 @@ const MissionDataEditor: React.FC<{
             <span><strong style={{ color: '#38bdf8' }}>{totalBlocks}</strong> blocks</span>
             <span><strong style={{ color: '#38bdf8' }}>{totalHours.toFixed(1)}</strong> hours</span>
             <span><strong style={{ color: '#38bdf8' }}>{snap.personnelCount}</strong> pilots</span>
-            <span><strong style={{ color: '#38bdf8' }}>{snap.pilotReports.length}</strong> reports</span>
+            <span><strong style={{ color: '#38bdf8' }}>{snapReports.length}</strong> reports</span>
             {incidents.length > 0 && <span style={{ color: '#f87171' }}><strong>{incidents.length}</strong> incidents</span>}
           </div>
         </div>
 
         {/* Pilot reports */}
-        {snap.pilotReports.length > 0 && (
+        {snapReports.length > 0 && (
           <div>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-              Pilot Field Reports ({snap.pilotReports.length})
+              Pilot Field Reports ({snapReports.length})
               {snap.dateFrom && snap.dateTo && (
                 <span style={{ fontWeight: 600, color: '#64748b', textTransform: 'none', letterSpacing: 'normal', marginLeft: 8 }}>
                   — {new Date(snap.dateFrom).toLocaleDateString()} to {new Date(snap.dateTo).toLocaleDateString()}
@@ -1214,7 +1216,7 @@ const MissionDataEditor: React.FC<{
               )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
-              {snap.pilotReports.map(pr => (
+              {snapReports.map(pr => (
                 <div key={pr.id} style={{
                   background: pr.isIncident ? 'rgba(239,68,68,0.06)' : 'rgba(15,23,42,0.4)',
                   border: `1px solid ${pr.isIncident ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)'}`,
