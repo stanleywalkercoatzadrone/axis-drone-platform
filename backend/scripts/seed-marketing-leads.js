@@ -93,6 +93,32 @@ const LEADS = [
 
 async function seedLeads() {
   console.log('[Seed] Starting marketing leads seed...');
+
+  // Create table if it doesn't exist
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS marketing_leads (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID,
+      company_name TEXT NOT NULL,
+      contact_name TEXT,
+      contact_email TEXT,
+      phone TEXT,
+      industry TEXT NOT NULL,
+      sub_category TEXT,
+      location TEXT,
+      state TEXT,
+      status TEXT DEFAULT 'new',
+      lead_type TEXT DEFAULT 'prospect',
+      discount_code TEXT,
+      discount_percent NUMERIC,
+      notes TEXT,
+      tags TEXT[],
+      last_contacted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  console.log('[Seed] Table marketing_leads ensured.');
   console.log(`[Seed] Inserting ${LEADS.length} leads...`);
 
   let inserted = 0;
