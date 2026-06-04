@@ -1367,7 +1367,7 @@ const MissionDataEditor: React.FC<{
               <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>⚠ No weather data for selected dates</div>
             )}
             <button
-              onClick={handleAutoPopulateReport}
+              onClick={() => handleAutoPopulateRef.current?.()}
               disabled={loadingWeather || !(dateMode === 'range' ? (dateFrom && dateTo) : selectedDates.length > 0)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
