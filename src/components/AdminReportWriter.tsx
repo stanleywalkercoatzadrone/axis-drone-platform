@@ -1029,6 +1029,10 @@ const MissionDataEditor: React.FC<{
     }
   }, [selectedMission?.id]);
 
+  // Refs for auto-populate coordination (must be declared before the useEffect that uses them)
+  const autoPopulateKeyRef = React.useRef('');
+  const weatherAttemptedRef = React.useRef(false);
+
   // Fetch weather when date range or selected dates change
   useEffect(() => {
     if (!selectedMission) { setWeatherData([]); return; }
@@ -1133,8 +1137,7 @@ const MissionDataEditor: React.FC<{
   }, [dateFrom, dateTo, selectedDates.length, dateMode, selectedMission?.id]);
 
   // Auto-populate report when data is ready (weather loaded + pilot reports loaded)
-  const autoPopulateKeyRef = React.useRef('');
-  const weatherAttemptedRef = React.useRef(false);
+  const handleAutoPopulateRef = React.useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!selectedMission) return;
     if (loadingWeather || loadingReports) return;
@@ -1149,7 +1152,7 @@ const MissionDataEditor: React.FC<{
     // Small delay to let state settle
     const timer = setTimeout(() => {
       console.log('[AutoPopulate] Auto-triggering with key:', key);
-      handleAutoPopulateReport();
+      handleAutoPopulateRef.current?.();
     }, 300);
     return () => clearTimeout(timer);
   }, [selectedMission?.id, loadingWeather, loadingReports, weatherData.length, pilotReports.length, dateFrom, dateTo, selectedDates.length, dateMode]);
@@ -1762,6 +1765,7 @@ const MissionDataEditor: React.FC<{
     console.log('[AutoPopulate] ✅ Generated sections: Operations Summary, Field Issues, Weather Impact, Next Steps');
     console.log('[AutoPopulate] Data: flights=', totalFlights, 'blocks=', totalBlocks, 'hours=', totalHours, 'weather_days=', weatherData.length);
   };
+  handleAutoPopulateRef.current = handleAutoPopulateReport;
 
   const handleAddPilotReportsAsFindings = () => {
     if (!pilotReports.length) return;
