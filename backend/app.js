@@ -62,6 +62,7 @@ import chunkedUploadRoutes from './routes/chunkedUploads.js';              // §
 import pilotNetworkRoutes from './routes/pilotNetwork.js';                // Pilot Network Applications (public /join form)
 import orthomosaicRoutes from './routes/orthomosaic.js';                  // Orthomosaic Photogrammetry Pipeline
 import socialMediaRoutes from './routes/socialMedia.js';                  // Social Media Blast
+import marketingRoutes from './routes/marketing.js';                      // Marketing Hub (leads, templates, outreach)
 import constructionRoutes from './routes/constructionRoutes.js';           // Construction Evidence Portal
 import weatherRoutes from './routes/weather.js';                          // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
 import downloadsRoutes from './routes/downloads.js';                       // Axis Ortho desktop app distribution
@@ -261,6 +262,7 @@ app.use('/api/construction', constructionRoutes);        // Construction Evidenc
 app.use('/api/weather', weatherRoutes);                  // Weather proxy (Apple WeatherKit + Open-Meteo fallback)
 app.use('/api/downloads', downloadsRoutes);              // Axis Ortho desktop app distribution
 app.use('/api/admin-reports', adminReportsRoutes);        // Admin Reports CRUD + Send
+app.use('/api/marketing', marketingRoutes);                // Marketing Hub (leads, templates, outreach)
 
 // ── Local mode (Electron desktop app) ────────────────────────────────────────
 if (localRoutes) {

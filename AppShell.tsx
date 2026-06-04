@@ -10,7 +10,7 @@ import {
   LayoutDashboard, Radar, Users, Building,
   Settings as SettingsIcon, Bell, LogOut, ImageIcon, Menu, X, ChevronRight, ChevronDown,
   PanelLeftClose, PanelLeftOpen, BrainCircuit, Zap, Sun, Thermometer, Image, ChevronLeft,
-  Map as MapIcon, Box, Globe, MapPin, Share2, Monitor, Edit3
+  Map as MapIcon, Box, Globe, MapPin, Share2, Monitor, Edit3, Megaphone
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -98,6 +98,7 @@ import SolarIntelligenceHub from './modules/solar-intelligence/SolarIntelligence
 import { MediaDeliverableProvider, type MediaNavKey } from './src/context/MediaDeliverableContext';
 import AxisOrthoDistribution from './src/components/AxisOrthoDistribution';
 import AdminReportWriter from './src/components/AdminReportWriter';
+import MarketingHub from './src/components/MarketingHub';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type NavKey =
@@ -108,7 +109,7 @@ type NavKey =
   | 'uploads' | 'orthomosaic' | 'media' | 'reports' | 'admin-reports'
   | 'bess' | 'solar-intelligence'
   | 'clients' | 'organizations' | 'org-onboarding'
-  | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media' | 'axis-ortho';
+  | 'user-iam' | 'protocol-lists' | 'checklist-items' | 'system-settings' | 'social-media' | 'axis-ortho' | 'marketing-hub';
 
 type NavItem = { key: NavKey; label: string; badge?: string; icon?: React.ElementType; adminOnly?: boolean };
 type NavGroup = { title: string; items: NavItem[] }
@@ -176,6 +177,7 @@ const NAV: NavGroup[] = [
       { key: 'protocol-lists',  label: 'Protocols',            adminOnly: true },
       { key: 'checklist-items', label: 'My Checklist' },
       { key: 'social-media',    label: 'Social Media',         icon: Share2 },
+      { key: 'marketing-hub',   label: 'Marketing Hub',        icon: Megaphone, adminOnly: true },
       { key: 'axis-ortho',      label: 'Axis Ortho',           icon: Monitor },
       { key: 'system-settings', label: 'System Settings',      adminOnly: true },
     ],
@@ -241,7 +243,7 @@ export default function AppShell() {
       'clients', 'org-onboarding', 'system-settings',
       'user-iam', 'neural-ai', 'protocol-lists', 'checklist-items',
       'pilot-applications', 'pilot-network-admin', 'uploads', 'construction', 'orthomosaic', 'interest-inquiry',
-      'dispatch', 'reports', 'admin-reports', 'organizations', 'social-media', 'bess', 'solar-intelligence', 'axis-ortho',
+      'dispatch', 'reports', 'admin-reports', 'organizations', 'social-media', 'bess', 'solar-intelligence', 'axis-ortho', 'marketing-hub',
     ];
     return (saved && validKeys.includes(saved as NavKey)) ? (saved as NavKey) : 'dashboard';
   });
@@ -435,6 +437,7 @@ export default function AppShell() {
     'social-media':          'Social Media',
     'axis-ortho':            'Axis Ortho Distribution',
     'admin-reports':         'Report Writer',
+    'marketing-hub':         'Marketing & Outreach Center',
     'system-settings':       'System Settings',
   };
 
@@ -508,6 +511,7 @@ export default function AppShell() {
       case 'axis-ortho':       return <AxisOrthoDistribution />;
       case 'user-iam':         return <UserManagement />;
       case 'social-media':     return <SocialMediaSettings />;
+      case 'marketing-hub':    return <MarketingHub />;
       default:
         return (
           <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#64748b' }}>
