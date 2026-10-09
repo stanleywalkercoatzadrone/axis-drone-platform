@@ -30,4 +30,3 @@ async function main() {
   } finally { await service.shutdown(); }
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });
-

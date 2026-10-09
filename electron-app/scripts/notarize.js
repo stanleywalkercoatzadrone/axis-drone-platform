@@ -27,7 +27,7 @@ function loadEnv(envPath) {
 }
 
 module.exports = async function (context) {
-  const { electronPlatformName, appOutDir } = context;  
+  const { electronPlatformName, appOutDir } = context;
   if (electronPlatformName !== 'darwin') {
     return;
   }

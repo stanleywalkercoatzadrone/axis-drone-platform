@@ -29,7 +29,8 @@ if (fs.existsSync(output)) for (const directory of fs.readdirSync(output)) {
 }
 const runtime = path.join(root, '.offline-build', 'native-runtime');
 const engineMode = JSON.parse(fs.readFileSync(path.join(runtime,'AXIS_ENGINE.json'),'utf8'));
-const requirements = engineMode.engine==='docker' ? ['AXIS_ENGINE.json','README.txt'] : ['LICENSE','AXIS_RUNTIME_VERSION','ODM/run.py','ODM/opendm','ODM/stages','ODM/vmem','ODM/SuperBuild/install',...(engineMode.target==='win32-x64'?['env/odm-env-win-x64.tar','env/pixi-unpack.exe']:['env/odm-env-osx-arm64.sh'])];
+assert.equal(engineMode.engine,'native','Only native processing builds are supported');
+const requirements = ['LICENSE','AXIS_RUNTIME_VERSION','ODM/run.py','ODM/opendm','ODM/stages','ODM/vmem','ODM/SuperBuild/install',...(engineMode.target==='win32-x64'?['env/odm-env-win-x64.tar','env/pixi-unpack.exe']:['env/odm-env-osx-'+engineMode.target.split('-').at(-1)+'.sh'])];
 for (const required of requirements) assert.ok(fs.existsSync(path.join(runtime,required)), 'Native runtime component missing: '+required);
 for (const forbidden of ['ODM/.git', 'ODM/.pixi', 'ODM/SuperBuild/build', 'ODM/SuperBuild/src', 'ODM/SuperBuild/install/bin/opensfm/.git']) assert.equal(fs.existsSync(path.join(runtime, forbidden)), false, 'Development content leaked into native runtime: ' + forbidden);
 console.log('Offline staging contains only the companion and its declared runtime.');

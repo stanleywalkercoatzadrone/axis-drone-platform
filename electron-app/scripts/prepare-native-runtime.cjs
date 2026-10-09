@@ -6,11 +6,10 @@ async function portableLinks(dir){for(const e of await fs.readdir(dir,{withFileT
 async function main(){
  const target=process.env.AXIS_BUILD_TARGET||`${process.platform}-${process.arch}`;
  if(!['darwin-arm64','darwin-x64','win32-x64'].includes(target))throw Error('Unsupported build target.');
- if(target!==`${process.platform}-${process.arch}`&&!(target==='darwin-x64'&&process.platform==='darwin'))throw Error('Prepare the processing engine on the target platform.');
+ if(target!==`${process.platform}-${process.arch}`)throw Error('Prepare the processing engine on the target platform.');
  await fs.rm(destination,{recursive:true,force:true});await fs.mkdir(destination,{recursive:true});
- await fs.writeFile(path.join(destination,'AXIS_ENGINE.json'),JSON.stringify({target,engine:target==='darwin-x64'?'docker':'native'}));
- if(target==='darwin-x64'){await fs.writeFile(path.join(destination,'README.txt'),'Intel Mac processing uses a local Docker Desktop NodeODM engine. Docker Desktop is required; no ARM native binaries are packaged.');return;}
- const win=target==='win32-x64',pack=win?'odm-env-win-x64.tar':'odm-env-osx-arm64.sh';
+ await fs.writeFile(path.join(destination,'AXIS_ENGINE.json'),JSON.stringify({target,engine:'native'}));
+ const win=target==='win32-x64',pack=win?'odm-env-win-x64.tar':`odm-env-osx-${process.arch}.sh`;
  await fs.access(path.join(source,'SuperBuild','install'));await fs.access(path.join(root,'native-runtime','packed',pack));
  await fs.mkdir(path.join(destination,'env'));await fs.copyFile(path.join(root,'native-runtime','packed',pack),path.join(destination,'env',pack));if(!win)await fs.chmod(path.join(destination,'env',pack),0o755);else await fs.copyFile(path.join(root,'native-runtime','packed','pixi-unpack.exe'),path.join(destination,'env','pixi-unpack.exe'));
  await fs.copyFile(path.join(source,'LICENSE'),path.join(destination,'LICENSE'));
