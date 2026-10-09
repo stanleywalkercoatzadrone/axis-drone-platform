@@ -1,0 +1,13 @@
+'use strict';
+const {spawnSync}=require('node:child_process');
+const target=process.argv[2],arch=process.argv[3];
+if(![['mac','arm64'],['mac','x64'],['win','x64']].some(v=>v[0]===target&&v[1]===arch))throw Error('Choose mac arm64, mac x64, or win x64.');
+if((target==='mac'&&process.platform!=='darwin')||(target==='win'&&process.platform!=='win32'))throw Error('Build and validate on the target operating system.');
+const distribution=process.env.AXIS_RELEASE_MODE==='distribution';
+if(distribution&&target==='mac'&&!process.env.CSC_NAME?.startsWith('Developer ID Application:'))throw Error('Set CSC_NAME to the Developer ID Application identity for customer builds.');
+if(distribution&&target==='win'&&!process.env.CSC_LINK&&!process.env.WIN_CSC_LINK)throw Error('Customer Windows builds require a code-signing certificate in CSC_LINK or WIN_CSC_LINK.');
+const args=[require.resolve('electron-builder/cli.js'),'--config','electron-builder.offline.json','--'+target,'--'+arch,'--publish','never'];
+if(process.env.AXIS_OUTPUT_DIR)args.push('-c.directories.output='+require('node:path').resolve(process.env.AXIS_OUTPUT_DIR));
+if(distribution)args.push('-c.forceCodeSigning=true');
+const env={...process.env};if(target==='mac'&&env.CSC_NAME?.startsWith('Developer ID Application:'))env.CSC_NAME=env.CSC_NAME.replace(/^Developer ID Application:\s*/,'');
+const r=spawnSync(process.execPath,args,{stdio:'inherit',env});if(r.error)throw r.error;process.exitCode=r.status||0;

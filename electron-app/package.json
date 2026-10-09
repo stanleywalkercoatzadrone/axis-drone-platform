@@ -1,7 +1,7 @@
 {
   "name": "axis-ortho",
   "version": "1.0.0",
-  "description": "Axis Ortho — Offline orthomosaic processing for Mac and Windows",
+  "description": "Axis Ortho \u2014 Offline orthomosaic processing for Mac and Windows",
   "main": "main.js",
   "type": "commonjs",
   "scripts": {
@@ -9,7 +9,17 @@
     "dev": "NODE_ENV=development electron .",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
-    "build:all": "electron-builder --mac --win"
+    "build:all": "electron-builder --mac --win",
+    "offline:start": "electron companion-main.cjs",
+    "offline:prepare": "node scripts/prepare-offline.cjs && node scripts/prepare-native-runtime.cjs",
+    "offline:test": "node scripts/test-offline.cjs",
+    "offline:validate:native": "node scripts/validate-native-dataset.cjs",
+    "offline:package:mac": "node scripts/build-offline.cjs mac arm64",
+    "offline:package:win": "node scripts/build-offline.cjs win x64",
+    "offline:check": "node scripts/check-offline-package.cjs",
+    "offline:manifest": "node scripts/release-manifest.cjs",
+    "offline:package:intel": "node scripts/build-offline.cjs mac x64",
+    "offline:test:signing": "node --test scripts/notarization-policy.test.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
@@ -21,9 +31,10 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
+    "afterSign": "./scripts/notarize.js",
     "appId": "app.axisplatform.ortho",
     "productName": "Axis Ortho",
-    "copyright": "Copyright © 2025 Axis Platform",
+    "copyright": "Copyright \u00a9 2025 Axis Platform",
     "files": [
       "main.js",
       "preload.js",
@@ -45,6 +56,8 @@
       }
     ],
     "mac": {
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "target": [
         {
           "target": "dmg",

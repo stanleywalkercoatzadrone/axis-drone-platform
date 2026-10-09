@@ -1,0 +1,35 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const asar = require('@electron/asar');
+const root = path.resolve(__dirname, '..');
+const stage = path.join(root, '.offline-build', 'app');
+const manifest = JSON.parse(fs.readFileSync(path.join(stage, 'package.json'), 'utf8'));
+assert.equal(manifest.main, 'companion-main.cjs');
+assert.deepEqual(Object.keys(manifest.dependencies).sort(), ['yauzl']);
+for (const required of ['companion-main.cjs', 'companion-preload.cjs', 'companion.html', 'companion.js', 'companion.css', 'desktop/image-selection.cjs', 'offline/engine.cjs', 'offline/native-engine.cjs', 'offline/store.cjs', 'offline/cloud-sync.cjs']) assert.ok(fs.existsSync(path.join(stage, required)), 'Required companion file missing: ' + required);
+for (const forbidden of ['backend', 'dist', '.env', '.env.local', 'main.js', 'preload.js']) assert.equal(fs.existsSync(path.join(stage, forbidden)), false, 'Unexpected packaged source: ' + forbidden);
+const output = path.resolve(process.env.AXIS_OUTPUT_DIR || path.join(root, 'offline-release'));
+if (fs.existsSync(output)) for (const directory of fs.readdirSync(output)) {
+  const bundle = path.join(output, directory, 'Axis Ortho Offline.app', 'Contents', 'Resources', 'app.asar');
+  const win = path.join(output, directory, 'resources', 'app.asar');
+  const archive = fs.existsSync(bundle) ? bundle : fs.existsSync(win) ? win : null;
+  if (!archive) continue;
+  const packagedManifest = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
+  if (packagedManifest.version !== manifest.version) continue;
+  const names = asar.listPackage(archive);
+  for (const name of names) assert.ok(!/^\/(backend|dist|main\.js|preload\.js|\.env(?:\.|$))/.test(name), 'Unexpected archive source: ' + name);
+  assert.ok(names.includes('/offline/engine.cjs'), 'Engine missing from ' + archive);
+  assert.ok(names.includes('/offline/native-engine.cjs'), 'Native engine missing from ' + archive);
+  assert.ok(names.includes('/offline/cloud-sync.cjs'), 'Cloud synchronization missing from ' + archive);
+  assert.ok(names.includes('/desktop/image-selection.cjs'), 'Image and folder selection missing from ' + archive);
+  assert.ok(names.includes('/node_modules/yauzl/index.js'), 'ZIP runtime missing from ' + archive);
+  console.log('Verified isolated package contents: ' + path.basename(path.dirname(archive)));
+}
+const runtime = path.join(root, '.offline-build', 'native-runtime');
+const engineMode = JSON.parse(fs.readFileSync(path.join(runtime,'AXIS_ENGINE.json'),'utf8'));
+const requirements = engineMode.engine==='docker' ? ['AXIS_ENGINE.json','README.txt'] : ['LICENSE','AXIS_RUNTIME_VERSION','ODM/run.py','ODM/opendm','ODM/stages','ODM/vmem','ODM/SuperBuild/install',...(engineMode.target==='win32-x64'?['env/odm-env-win-x64.tar','env/pixi-unpack.exe']:['env/odm-env-osx-arm64.sh'])];
+for (const required of requirements) assert.ok(fs.existsSync(path.join(runtime,required)), 'Native runtime component missing: '+required);
+for (const forbidden of ['ODM/.git', 'ODM/.pixi', 'ODM/SuperBuild/build', 'ODM/SuperBuild/src', 'ODM/SuperBuild/install/bin/opensfm/.git']) assert.equal(fs.existsSync(path.join(runtime, forbidden)), false, 'Development content leaked into native runtime: ' + forbidden);
+console.log('Offline staging contains only the companion and its declared runtime.');

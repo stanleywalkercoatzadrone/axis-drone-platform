@@ -1,0 +1,106 @@
+{
+  "appId": "app.axisplatform.ortho.offline",
+  "productName": "Axis Ortho Offline",
+  "electronVersion": "44.7.0",
+  "directories": {
+    "app": ".offline-build/app",
+    "output": "offline-release",
+    "buildResources": "assets"
+  },
+  "artifactName": "AxisOrtho-${version}-${os}-${arch}.${ext}",
+  "protocols": [
+    {
+      "name": "Axis Ortho",
+      "schemes": [
+        "axis-ortho"
+      ]
+    }
+  ],
+  "files": [
+    "companion-main.cjs",
+    "companion-preload.cjs",
+    "companion.html",
+    "companion.js",
+    "companion.css",
+    "desktop/**/*.cjs",
+    "offline/**/*.cjs",
+    "package.json",
+    "node_modules/**/*",
+    "!**/*.test.cjs",
+    "!**/tests/**"
+  ],
+  "extraResources": [
+    {
+      "from": ".offline-build/native-runtime",
+      "to": "odm",
+      "filter": [
+        "**/*"
+      ]
+    }
+  ],
+  "asar": true,
+  "npmRebuild": false,
+  "nodeGypRebuild": false,
+  "publish": null,
+  "afterSign": "scripts/offline-notarize.cjs",
+  "mac": {
+    "category": "public.app-category.productivity",
+    "minimumSystemVersion": "14.0.0",
+    "icon": "assets/icon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64",
+          "x64"
+        ]
+      },
+      {
+        "target": "zip",
+        "arch": [
+          "arm64",
+          "x64"
+        ]
+      }
+    ],
+    "signIgnore": [
+      "\\.lproj/locale\\.pak$"
+    ]
+  },
+  "win": {
+    "icon": "assets/companion.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "dmg": {
+    "title": "Axis Ortho Offline ${version}",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  },
+  "afterPack": "scripts/offline-after-pack.cjs"
+}
